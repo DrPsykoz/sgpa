@@ -10,22 +10,13 @@
         "frontendDist": "../dist"
     },
     "app": {
-        "windows": [
-            {
-                "title": "SGPA - Gestion de classes SEGPA",
-                "width": 1280,
-                "height": 800,
-                "minWidth": 1024,
-                "minHeight": 700
-            }
-        ],
+        "windows": [],
         "security": {
             "csp": null
         }
     },
     "bundle": {
-        "active": true,
-        "targets": "all",
+        "active": false,
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",

@@ -1,60 +1,127 @@
 mod commands;
 mod db;
+mod keys;
+mod portable;
+#[cfg(test)]
+mod sql_smoke;
+mod state;
 
-use commands::{auth, contracts, cycles, evaluations, reports, seances, sessions, students};
+use commands::{
+    absences, contracts, evaluations, lock, maintenance, referential, reports, seances, sessions,
+    students, timetable, trimesters,
+};
+use state::AppState;
+
+/// Ouvre la base chiffrée pour les outils de développement de `examples/`.
+///
+/// Seule porte publique vers la base : le socle cryptographique reste privé, et
+/// l'application elle-même ne passe pas par ici. Elle exige le mot de passe,
+/// comme n'importe quel accès.
+pub fn open_for_tools(
+    data_dir: &std::path::Path,
+    password: &str,
+) -> Result<rusqlite::Connection, String> {
+    let key = keys::unwrap_with_password(data_dir, password).map_err(|e| e.to_string())?;
+    db::open_encrypted(&data_dir.join("sgpa.db"), &key).map_err(|e| e.to_string())
+}
+
+/// Crée un verrou et une base chiffrée vide, hors de l'application.
+///
+/// Réservé à `examples/` : c'est ce qui permet de fabriquer une base de
+/// démonstration d'un seul coup, sans passer par l'écran de premier lancement.
+/// Renvoie la phrase de récupération, exactement comme `setup_lock`.
+///
+/// Refuse si un verrou existe déjà : écraser `sgpa.keys` rendrait la base
+/// correspondante définitivement illisible.
+pub fn create_for_tools(
+    data_dir: &std::path::Path,
+    password: &str,
+) -> Result<(rusqlite::Connection, String), String> {
+    let (key, phrase) = keys::create(data_dir, password).map_err(|e| e.to_string())?;
+    let mut conn =
+        db::open_encrypted(&data_dir.join("sgpa.db"), &key).map_err(|e| e.to_string())?;
+    // La base sort vierge d'`open_encrypted` : sans les paliers, elle n'a aucune
+    // table et `PRAGMA user_version` vaut 0.
+    db::migrations::run(&mut conn, &data_dir.join("backups")).map_err(|e| e.to_string())?;
+    Ok((conn, phrase.as_str().to_string()))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize the database on startup
-    db::init_db();
+    // La base est ouverte une seule fois ici, et partagée ensuite via AppState.
+    let state = match start() {
+        Ok(state) => state,
+        Err(message) => {
+            fatal(&message);
+            std::process::exit(1);
+        }
+    };
+
+    // La fenêtre est construite ici, et non déclarée dans tauri.conf.json, parce que
+    // `data_directory` n'existe pas dans la configuration JSON. Sans elle, WebView2
+    // range localStorage, cookies et cache dans le %LOCALAPPDATA% du poste hôte :
+    // l'application laisserait des traces sur chaque PC du collège et ne serait pas
+    // réellement portable.
+    let webview_dir = state.layout.webview_dir.clone();
 
     tauri::Builder::default()
+        .manage(state)
         .plugin(tauri_plugin_opener::init())
+        .setup(move |app| {
+            let window =
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+                    .title("SGPA — Gestion de classes SEGPA")
+                    .inner_size(1280.0, 800.0)
+                    .min_inner_size(1024.0, 700.0)
+                    .data_directory(webview_dir.clone())
+                    .build()?;
+            couper_suggestions_de_saisie(&window);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            // Auth
-            auth::login,
-            auth::register,
-            auth::get_users,
-            // Sessions
+            // Verrou, récupération & réglages
+            lock::get_lock_status,
+            lock::setup_lock,
+            lock::unlock,
+            lock::recover,
+            lock::lock,
+            lock::change_password,
+            lock::regenerate_recovery,
+            lock::set_password_hint,
+            lock::get_settings,
+            lock::update_settings,
+            // Classes
             sessions::get_sessions,
+            sessions::get_session,
             sessions::create_session,
             sessions::update_session,
             sessions::delete_session,
-            // Students
+            // Élèves
             students::get_students,
             students::create_student,
+            students::create_students_bulk,
             students::update_student,
+            students::get_student_deletion_impact,
             students::delete_student,
-            // Cycles
-            cycles::get_cycles,
-            cycles::create_cycle,
-            cycles::update_cycle,
-            cycles::delete_cycle,
-            // Domains
-            cycles::get_domains,
-            cycles::create_domain,
-            cycles::update_domain,
-            cycles::delete_domain,
-            // Fields
-            cycles::get_fields,
-            cycles::create_field,
-            cycles::update_field,
-            cycles::delete_field,
-            // Competencies
-            cycles::get_competencies,
-            cycles::create_competency,
-            cycles::update_competency,
-            cycles::delete_competency,
-            // Séances
+            // Référentiel de compétences
+            referential::get_referential_tree,
+            referential::create_nodes_bulk,
+            referential::rename_node,
+            referential::delete_node,
+            referential::reorder_nodes,
+            referential::archive_competency,
+            // Séances & présences
             seances::get_seances,
             seances::create_seance,
-            seances::update_seance,
+            seances::update_seance_meta,
+            seances::update_seance_content,
             seances::delete_seance,
-            // Attendance
             seances::get_attendance,
             seances::set_attendance,
             seances::set_bulk_attendance,
-            // Evaluations
+            seances::reset_attendance,
+            seances::create_seance_from_slot,
+            // Évaluations & notes
             evaluations::get_evaluations,
             evaluations::create_evaluation,
             evaluations::update_evaluation,
@@ -62,15 +129,157 @@ pub fn run() {
             evaluations::get_evaluation_competencies,
             evaluations::get_grades,
             evaluations::set_grade,
-            // Contract Sheets
+            // Emploi du temps & entrées datées
+            timetable::get_day_schedule,
+            timetable::get_week_schedule,
+            timetable::get_timetable_slots,
+            timetable::create_timetable_slot,
+            timetable::update_timetable_slot,
+            timetable::delete_timetable_slot,
+            timetable::create_agenda_entry,
+            timetable::get_agenda_entry,
+            timetable::update_agenda_entry_meta,
+            timetable::update_agenda_entry_content,
+            timetable::delete_agenda_entry,
+            timetable::get_student_agenda_entries,
+            // Périodes d'absence justifiée
+            absences::get_absence_periods,
+            absences::create_absence_period,
+            absences::update_absence_period,
+            absences::delete_absence_period,
+            // Trimestres
+            trimesters::get_trimester_bounds,
+            trimesters::preview_trimester_recompute,
+            trimesters::update_trimester_bounds,
+            // Fiches contrat
             contracts::get_contract_sheet,
             contracts::save_contract_sheet,
             contracts::get_professional_fields,
             contracts::create_professional_field,
-            // Reports
+            // Bilans
             reports::get_report,
             reports::save_report_comment,
+            // Maintenance
+            maintenance::create_backup,
+            maintenance::list_backups,
+            maintenance::reveal_data_dir,
+            maintenance::save_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Ce que le démarrage fait, et ce qu'il ne fait plus.
+///
+/// La base n'est **pas** ouverte ici : elle est chiffrée, et sa clé n'existe
+/// qu'une fois le mot de passe déballé, donc après la fenêtre. Ne restent avant
+/// la fenêtre que les échecs qu'aucune interface ne pourrait rattraper — un
+/// dossier de données inaccessible, une seconde instance — et qui passent par
+/// `fatal()`.
+fn start() -> Result<AppState, String> {
+    let layout = portable::resolve().map_err(|e| e.to_string())?;
+    // Avant que WebView2 ne rouvre son profil : une fois le processus Edge
+    // démarré, ces bases sont verrouillées et la purge échouerait en silence.
+    portable::purge_traces_webview(&layout.webview_dir);
+    // Ne demande aucune clé : le critère est « sgpa.db sans sgpa.keys ».
+    db::move_legacy_aside(&layout).map_err(|e| e.to_string())?;
+
+    // Le verrou remplace le `locking_mode = EXCLUSIVE` d'avant, qui ne pouvait
+    // plus jouer ce rôle : il aurait fallu ouvrir la base pour détecter la
+    // seconde instance, donc répondre « SGPA est déjà ouvert » à l'enseignant
+    // seulement après qu'il ait tapé son mot de passe.
+    let lock = portable::acquire_lock(&layout.root).map_err(|e| {
+        eprintln!("[sgpa] {e}");
+        db::DbError::AlreadyOpen.to_string()
+    })?;
+
+    Ok(AppState::new(layout, lock))
+}
+
+/// Coupe les « suggestions de saisie » et l'enregistrement des mots de passe
+/// d'Edge dans le WebView.
+///
+/// Sans cela, WebView2 recopie dans `data/webview/EBWebView/Default/Web Data`,
+/// une base SQLite ordinaire et non chiffrée, la valeur de chaque champ de
+/// formulaire nommé — nom de l'enseignant, nom de l'établissement, nom de
+/// classe. `autocomplete="off"` ne suffit pas : Edge ne l'honore pas
+/// systématiquement. L'application étant portable et manipulant des données
+/// d'élèves mineurs, ce dépôt est une fuite, pas une commodité.
+///
+/// Tauri n'expose pas ce réglage : on descend jusqu'à `ICoreWebView2Settings4`.
+/// Un échec n'est pas remonté — il dégraderait la confidentialité, pas le
+/// fonctionnement, et une fenêtre qui ne s'ouvre pas serait bien pire. La purge
+/// de `portable::purge_traces_webview` reste le filet au lancement suivant.
+#[cfg(windows)]
+fn couper_suggestions_de_saisie(window: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
+    use windows_core::Interface;
+
+    let _ = window.with_webview(|webview| {
+        // SAFETY : `controller()` rend un pointeur COM vivant, détenu par le
+        // WebView ; la fermeture s'exécute sur le fil du WebView, seul fil
+        // autorisé à l'appeler. Chaque appel est faillible et traité comme tel.
+        unsafe {
+            let Ok(core) = webview.controller().CoreWebView2() else {
+                return;
+            };
+            let Ok(settings) = core.Settings() else {
+                return;
+            };
+            // ICoreWebView2Settings4 date de la version 89 du runtime : sur un
+            // poste plus ancien, le transtypage échoue et on n'a rien coupé.
+            let Ok(settings) = settings.cast::<ICoreWebView2Settings4>() else {
+                return;
+            };
+            let _ = settings.SetIsGeneralAutofillEnabled(false);
+            let _ = settings.SetIsPasswordAutosaveEnabled(false);
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn couper_suggestions_de_saisie(_window: &tauri::WebviewWindow) {
+    // Réglage propre à WebView2 ; les autres moteurs n'ont pas d'équivalent ici.
+}
+
+/// Signale une erreur fatale survenue **avant** la création de la fenêtre.
+///
+/// En release, `windows_subsystem = "windows"` supprime la console : sans boîte de
+/// dialogue native, l'application disparaîtrait sans le moindre message. On ne peut
+/// pas utiliser une page d'erreur HTML ici — la panne à couvrir inclut précisément
+/// le cas où le WebView ne démarre pas.
+fn fatal(message: &str) {
+    eprintln!("SGPA — démarrage impossible\n\n{message}");
+    show_dialog(message);
+}
+
+#[cfg(windows)]
+fn show_dialog(message: &str) {
+    use std::ffi::OsStr;
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+    fn wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(once(0)).collect()
+    }
+
+    let text = wide(message);
+    let title = wide("SGPA — démarrage impossible");
+    // SAFETY : les deux chaînes sont terminées par un zéro et vivent jusqu'au retour
+    // de l'appel ; un HWND nul est valide et donne une boîte sans fenêtre parente.
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn show_dialog(_message: &str) {
+    // Sur les autres plateformes, stderr suffit : elles n'ont pas d'équivalent de
+    // windows_subsystem="windows" qui masquerait la sortie.
 }

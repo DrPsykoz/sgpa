@@ -17,8 +17,51 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.35", features = ["bundled"] }
-bcrypt = "0.17"
+# `bundled-sqlcipher-vendored-openssl` : SQLCipher et OpenSSL sont compilés
+# depuis les sources et liés statiquement. Le binaire ne dépend d'aucune DLL
+# OpenSSL — condition d'une application réellement portable sur clé USB.
+rusqlite = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
+# Socle cryptographique du fichier d'enveloppes `data/sgpa.keys`.
+# Argon2id plutôt que le PBKDF2 interne de SQLCipher : seul un KDF à coût
+# mémoire résiste à une attaque hors ligne sur carte graphique, et la menace
+# réelle est quelqu'un qui ramasse la clé USB et a tout son temps.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+chacha20poly1305 = "0.10"
+base64 = "0.22"
+zeroize = { version = "1", features = ["derive"] }
+getrandom = "0.3"
+
+# Argon2id est volontairement coûteux : 64 Mio et 3 passes. Non optimisé, il
+# est encore des dizaines de fois plus lent, ce qui rendrait `cargo test` et le
+# déverrouillage en `tauri dev` insupportables. Seules ces caisses sont
+# optimisées en profil de développement, le code de SGPA reste débogable.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
+
+[target.'cfg(windows)'.dependencies]
+# Boîte de dialogue native pour signaler une erreur fatale survenue avant la
+# création de la fenêtre — en release, windows_subsystem="windows" supprime la
+# console et l'application se fermerait sinon sans message.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# Accès direct aux réglages WebView2 pour couper les « suggestions de saisie »
+# d'Edge, que Tauri n'expose pas. Ces versions sont exactement celles que tauri
+# tire déjà (voir Cargo.lock) : les relever dupliquerait la pile COM.
+# `windows-core` n'est là que pour `Interface::cast`, seul moyen de descendre de
+# ICoreWebView2Settings à ICoreWebView2Settings4.
+webview2-com = "0.38.2"
+windows-core = "0.61"

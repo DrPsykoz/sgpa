@@ -1,8 +1,12 @@
-pub mod auth;
+pub mod absences;
 pub mod contracts;
-pub mod cycles;
 pub mod evaluations;
+pub mod lock;
+pub mod maintenance;
+pub mod referential;
 pub mod reports;
 pub mod seances;
 pub mod sessions;
 pub mod students;
+pub mod timetable;
+pub mod trimesters;
