@@ -1,0 +1,137 @@
+import { useState, type FormEvent } from "react";
+import { Eye, EyeOff, KeyRound, Loader2, Lock } from "lucide-react";
+import { useLock } from "@/hooks/useLock";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+/** Nombre d'échecs à partir duquel l'indice est proposé. */
+const HINT_AFTER_FAILURES = 3;
+
+export interface UnlockProps {
+  /** Bascule vers l'écran de récupération par phrase. */
+  onForgotPassword: () => void;
+}
+
+export default function Unlock({ onForgotPassword }: UnlockProps) {
+  const { status, unlock } = useLock();
+  const [password, setPassword] = useState("");
+  const [reveal, setReveal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [failures, setFailures] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  // L'indice vient de `data/sgpa.keys`, le seul fichier lisible avant que la
+  // clé maître ne soit déballée. Rien d'autre de cette base n'est affichable
+  // ici : ni le nom de l'enseignant, ni le nom de l'établissement.
+  const hint = status?.password_hint?.trim() ?? "";
+  const showHint = failures >= HINT_AFTER_FAILURES && hint.length > 0;
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // Le mot de passe n'est jamais « trimé » : c'est lui qui dérive la clé,
+      // un espace de fin en fait partie.
+      await unlock(password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setFailures((n) => n + 1);
+      setPassword("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 py-10">
+      <Card className="mx-4 w-full max-w-md">
+        <CardHeader className="space-y-4 text-center">
+          <div className="flex items-center justify-center gap-3">
+            <div className="rounded-lg bg-primary p-2">
+              <Lock className="h-7 w-7 text-primary-foreground" />
+            </div>
+            <CardTitle className="text-3xl font-bold tracking-tight">
+              SGPA
+            </CardTitle>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Base chiffrée. Le mot de passe en est la clé.
+          </p>
+        </CardHeader>
+
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">Mot de passe</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={reveal ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Saisissez votre mot de passe"
+                  className="pr-10"
+                  autoFocus
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setReveal((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground"
+                  aria-label={
+                    reveal ? "Masquer le mot de passe" : "Afficher le mot de passe"
+                  }
+                >
+                  {reveal ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <p className="whitespace-pre-line rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            {showHint && (
+              <p className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  <span className="font-medium text-foreground">Indice : </span>
+                  {hint}
+                </span>
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={submitting || password.length === 0}
+            >
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Déverrouiller
+            </Button>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={onForgotPassword}
+                className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                Mot de passe oublié ?
+              </button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
