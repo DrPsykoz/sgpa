@@ -1,0 +1,267 @@
+===============================================================================
+  SGPA — Suivi et Gestion Pédagogique Adapté
+  Application portable pour enseignant de SEGPA
+===============================================================================
+
+INSTALLATION
+------------
+
+Il n'y a rien à installer : ni bibliothèque, ni composant, ni droits
+administrateur. L'application est un seul exécutable qui emporte tout ce dont
+il a besoin.
+
+  1. AVANT de décompresser l'archive : clic droit sur le fichier ZIP →
+     Propriétés → cochez « Débloquer » en bas de la fenêtre → OK.
+
+     Sans cette étape, Windows marque chaque fichier extrait comme provenant
+     d'Internet, et SmartScreen s'interpose à chaque lancement.
+
+  2. Décompressez le dossier SGPA sur votre clé USB ou votre disque externe.
+
+  3. Lancez SGPA.exe.
+
+NE LANCEZ PAS l'application directement depuis l'intérieur du ZIP : Windows la
+place alors dans un dossier temporaire en lecture seule, et vos données seraient
+perdues à la fermeture.
+
+Au premier lancement, SGPA vous demande votre nom et un mot de passe de 8
+caractères minimum, puis affiche une PHRASE DE RÉCUPÉRATION. Lisez la section
+suivante AVANT de passer cet écran : cette phrase ne sera plus jamais affichée.
+
+
+LA PHRASE DE RÉCUPÉRATION — NOTEZ-LA AVANT DE CONTINUER
+-------------------------------------------------------
+
+Au premier lancement, SGPA affiche 40 caractères en 8 groupes de 5 :
+
+    K7M2P-9XQTV-3HR8N-BZ4WY-6JFDS-2NKCG-VT5PX-A9M3Q
+
+C'est le seul moyen de rouvrir vos données si vous oubliez votre mot de passe.
+
+Elle n'est affichée QU'UNE SEULE FOIS et n'est enregistrée nulle part en clair,
+ni sur la clé ni ailleurs. Personne — pas même l'auteur de l'application — ne
+peut la retrouver, la recalculer ni la contourner.
+
+  - Recopiez-la sur papier, et rangez ce papier là où vous rangez vos papiers
+    importants : chez vous, pas dans la sacoche qui transporte la clé USB.
+  - Ou collez-la dans votre gestionnaire de mots de passe.
+  - Ne la laissez pas dans un fichier texte sur la clé : qui trouve la clé
+    trouverait alors les deux.
+
+Vous pouvez en générer une nouvelle à tout moment depuis les Réglages, session
+déverrouillée. La précédente cesse aussitôt de fonctionner : pensez à remplacer
+le papier.
+
+
+CE QUI EST PROTÉGÉ, CE QUI NE L'EST PAS — À LIRE
+------------------------------------------------
+
+Cette application contient des noms, des absences, des notes et des
+appréciations concernant des mineurs. Vous en êtes responsable, et une
+protection que l'on croit plus large qu'elle ne l'est fait prendre des risques.
+Donc d'abord ce qui n'est PAS protégé.
+
+NE SONT PAS PROTÉGÉS, quoi que vous fassiez dans l'application :
+
+  - exports/*.pdf — vos bilans trimestriels. Ce sont des documents nominatifs,
+    lisibles par n'importe qui, faits pour être imprimés ou transmis. Ils ne
+    sont pas chiffrés et ne peuvent pas l'être : un PDF chiffré ne s'ouvrirait
+    chez personne. Videz ce dossier quand vous n'en avez plus l'usage, et ne
+    laissez pas ces fichiers sur un poste partagé.
+
+  - data/webview/ — le profil technique de l'affichage. SGPA y efface à chaque
+    démarrage l'historique et les saisies mémorisées qui s'y déposent, mais
+    pendant que l'application tourne, ils y sont de nouveau, en clair.
+
+  - Le poste sur lequel vous travaillez. Si l'ordinateur est infecté, ou si
+    quelqu'un regarde par-dessus votre épaule pendant que SGPA est
+    déverrouillé, le chiffrement n'y peut rien : à cet instant, les données
+    sont déchiffrées à l'écran — c'est leur raison d'être.
+
+  - La clé USB elle-même. Elle se perd, se vole, et on peut toujours lire la
+    liste de ses fichiers.
+
+CE QUI EST PROTÉGÉ : le contenu de data/sgpa.db et de data/backups/. Ces
+fichiers sont chiffrés (SQLCipher, AES-256). Sans votre mot de passe ou votre
+phrase de récupération, ce sont des octets sans forme : aucun logiciel, DB
+Browser for SQLite compris, n'en tire un seul nom d'élève. Votre mot de passe
+n'est stocké nulle part, pas même sous forme illisible, et il n'existe aucune
+porte dérobée. L'écran de déverrouillage n'affiche d'ailleurs aucun nom : une
+clé trouvée ne doit pas dire à qui elle appartient.
+
+RECOMMANDÉ — CHIFFREZ AUSSI LA CLÉ USB, avec BitLocker To Go. SGPA protège vos
+classes et vos notes ; BitLocker protège tout le reste de ce que porte la clé,
+exports/ compris. Les deux se complètent, aucun ne remplace l'autre.
+
+  Branchez la clé, ouvrez l'Explorateur de fichiers, clic droit sur le lecteur
+  → « Activer BitLocker » → « Utiliser un mot de passe », et laissez Windows
+  enregistrer la clé de récupération qu'il propose, ailleurs que sur cette clé.
+  Windows réclamera ensuite ce mot de passe à chaque fois que la clé sera
+  branchée, sur n'importe quel poste.
+
+  Activer BitLocker demande Windows Professionnel, Entreprise ou Éducation —
+  c'est en général l'édition des postes de l'établissement. Une clé ainsi
+  chiffrée se lit ensuite depuis n'importe quel Windows récent, Familial
+  compris.
+
+Enfin, les habitudes, qu'aucun chiffrement ne remplace :
+
+  - Verrouillez SGPA (bouton « Verrouiller », ou Ctrl+Maj+L) dès que vous
+    quittez votre poste devant des élèves. Verrouiller ferme réellement la
+    base : la clé de déchiffrement quitte la mémoire.
+  - Ne laissez pas la clé branchée sans surveillance.
+  - Éjectez-la proprement (icône « Retirer le périphérique en toute
+    sécurité »), surtout juste après avoir saisi des notes.
+
+
+OÙ SONT MES DONNÉES
+-------------------
+
+Tout vit à côté de SGPA.exe :
+
+  data/sgpa.db        votre base : classes, élèves, séances, notes, bilans —
+                      chiffrée, illisible sans votre mot de passe
+  data/sgpa.keys      un kilo-octet : la clé de la base, elle-même fermée par
+                      votre mot de passe et par votre phrase de récupération
+  data/backups/       vos sauvegardes, chiffrées de la même façon
+  data/webview/       fichiers techniques de l'affichage
+  data/.sgpa.lock     fichier vide, qui empêche d'ouvrir SGPA deux fois
+  exports/            les PDF que vous générez — en clair, voir plus haut
+
+data/sgpa.keys EST AUSSI IMPORTANT QUE LA BASE. Sans lui, ni le mot de passe ni
+la phrase de récupération n'ouvrent quoi que ce soit. Ne le supprimez jamais, et
+copiez-le avec vos sauvegardes (voir la section suivante).
+
+Rien n'est écrit ailleurs sur l'ordinateur. Vous pouvez débrancher la clé et la
+brancher sur un autre poste : tout suit.
+
+Vous pouvez aussi voir ce fichier :
+
+  data/sgpa-legacy-v1.db   une base d'AVANT le chiffrement
+
+Les versions antérieures de SGPA rangeaient vos données en clair. Celle-ci ne
+sait pas les reprendre : elle a mis l'ancien fichier de côté au lieu de
+l'écraser, et a créé une base neuve et vide. L'application ne le lit ni ne
+l'écrit plus.
+
+Ce fichier contient toujours vos noms d'élèves, vos notes et vos appréciations
+d'alors, EN CLAIR et lisibles par n'importe qui. SGPA ne le supprime jamais de
+lui-même : ce sont vos données. Recopiez ce dont vous avez besoin, puis
+supprimez-le de la clé — ou rangez-le ailleurs, sur un support chiffré.
+
+
+SAUVEGARDE — À LIRE
+-------------------
+
+Une clé USB se perd, se casse, et finit toujours par lâcher.
+
+Dans Réglages → Sauvegarde, le bouton « Créer une sauvegarde » dépose une copie
+complète dans data/backups/. Les dix plus récentes sont conservées. Ces copies
+sont chiffrées, exactement comme la base.
+
+MAIS une sauvegarde qui reste sur la même clé ne protège de rien. Copiez
+régulièrement ailleurs — ordinateur, disque externe, espace de stockage
+habituel — ces DEUX éléments, ensemble :
+
+    data/backups/       les sauvegardes
+    data/sgpa.keys      sans lui, elles ne s'ouvrent avec rien
+
+C'est l'erreur que l'on ne commet qu'une fois : une sauvegarde copiée sans
+sgpa.keys ne s'ouvre avec aucun mot de passe, et rien ne vous le signalera avant
+le jour où vous en aurez besoin.
+
+Si vous changez de mot de passe, remplacez la copie de sgpa.keys rangée avec vos
+sauvegardes. L'ancienne copie continue de fonctionner, mais avec l'ANCIEN mot
+de passe.
+
+Pour restaurer :
+  1. Fermez SGPA.
+  2. Dans data/, renommez sgpa.db en sgpa-avant-restauration.db
+  3. Copiez la sauvegarde voulue depuis data/backups/ vers data/ et
+     renommez-la sgpa.db
+  4. Laissez data/sgpa.keys en place : c'est lui qui ouvre la copie restaurée.
+     Si vous restaurez sur une clé neuve, copiez-y aussi le sgpa.keys qui
+     accompagnait ces sauvegardes.
+  5. Relancez SGPA. Votre mot de passe habituel ouvre la base restaurée.
+
+
+MOT DE PASSE OUBLIÉ
+-------------------
+
+Il n'y a ni réinitialisation, ni question secrète, ni courriel de récupération,
+et aucune manipulation dans un logiciel tiers ne remplacera le mot de passe :
+c'est lui qui chiffre la base. C'est le prix d'une protection réelle.
+
+Vous avez deux clés, et elles ouvrent la même porte :
+
+  1. VOTRE MOT DE PASSE.
+     Un indice peut être enregistré, au premier lancement ou depuis les
+     Réglages ; il s'affiche sur l'écran de déverrouillage. Il ne doit
+     évidemment pas contenir le mot de passe lui-même.
+
+  2. VOTRE PHRASE DE RÉCUPÉRATION — les 8 groupes de 5 caractères notés au
+     premier lancement.
+     Sur l'écran de déverrouillage, choisissez « Mot de passe oublié »,
+     saisissez la phrase (la casse, les tirets et les espaces sont sans
+     importance), puis choisissez un nouveau mot de passe.
+
+     Vos classes, élèves et notes sont intacts : rien n'est reconverti, c'est
+     la même base qui se rouvre. La phrase, elle, reste valable — générez-en
+     une nouvelle depuis les Réglages si vous pensez qu'elle a pu être vue.
+
+SI VOUS AVEZ PERDU LES DEUX, les données sont définitivement inaccessibles. Pas
+« difficiles à récupérer » : inaccessibles, y compris pour l'auteur de
+l'application. Il ne reste qu'à repartir d'une base vide — fermez SGPA, renommez
+data/sgpa.keys et data/sgpa.db, relancez : SGPA vous proposera un nouveau mot de
+passe et une nouvelle phrase.
+
+Pour changer de mot de passe alors que vous le connaissez encore : Réglages →
+« Changer le mot de passe ». L'opération réécrit un fichier d'un kilo-octet, pas
+la base entière ; elle prend une seconde, et vos sauvegardes déjà prises restent
+ouvrables.
+
+
+EN CAS DE PROBLÈME
+------------------
+
+« Mot de passe incorrect »
+    Vérifiez la touche Verr. Maj. L'indice, s'il a été enregistré, s'affiche
+    sous le champ. Sinon, utilisez la phrase de récupération.
+
+« Impossible de créer le dossier de données »
+    L'application est lancée depuis un support en lecture seule, depuis
+    l'intérieur du ZIP, ou depuis un dossier protégé (Program Files).
+    Décompressez-la dans un dossier où vous pouvez écrire.
+
+« SGPA est déjà ouvert »
+    Une autre fenêtre utilise le même dossier data/. Fermez-la. Si aucune
+    fenêtre n'est visible, ouvrez le Gestionnaire des tâches et terminez le
+    processus SGPA.exe : Windows libère le verrou à la fin du processus, même
+    après un plantage, et il n'y a jamais de fichier de verrou à supprimer à la
+    main.
+
+« Cette base a été créée par une version plus récente »
+    Vous ouvrez une base d'une version plus récente avec une version plus
+    ancienne de l'application. Mettez SGPA à jour.
+
+SGPA propose de créer un mot de passe alors que vous en aviez déjà un
+    data/sgpa.keys manque. Vous n'êtes pas sur la bonne clé ou dans le bon
+    dossier : ne créez pas de nouveau mot de passe, cela n'ouvrirait pas pour
+    autant la base existante. Retrouvez le fichier et remettez-le dans data/.
+
+La fenêtre ne s'ouvre pas du tout
+    Windows a besoin du composant WebView2, présent d'origine sur Windows 11 et
+    sur Windows 10 à jour. S'il manque sur un poste ancien, installez
+    « Microsoft Edge WebView2 Runtime » depuis le site de Microsoft. C'est la
+    seule dépendance possible, et elle concerne l'affichage, pas vos données.
+
+
+MISE À JOUR
+-----------
+
+Téléchargez la nouvelle archive, décompressez-la, et remplacez uniquement
+SGPA.exe. NE REMPLACEZ PAS le dossier data/ : c'est là que vivent vos données
+ET data/sgpa.keys, sans lequel elles ne s'ouvriraient plus.
+
+L'application met son format de base à jour toute seule, après votre mot de
+passe, en ayant déposé une copie dans data/backups/.
