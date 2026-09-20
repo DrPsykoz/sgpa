@@ -22,3 +22,31 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# ---------------------------------------------------------------------------
+# Données de l'application portable — JAMAIS dans l'historique.
+#
+# SGPA range tout à côté de son exécutable : `data/sgpa.db` est une base
+# SQLCipher qui contient des données d'élèves mineurs, et `data/sgpa.keys`
+# porte les enveloppes Argon2id du mot de passe et de la phrase de
+# récupération. En développement, elles vivent sous `src-tauri/target/`, déjà
+# couvert par `src-tauri/.gitignore` — mais elles réapparaissent partout où
+# l'archive portable est décompressée pour être essayée, y compris à la racine
+# du dépôt. Un commit suffirait à les publier définitivement.
+#
+# Les chemins sont ancrés à la racine (`/data/`) et NON écrits `data/` : une
+# règle non ancrée masquerait aussi les données embarquées dans les sources,
+# comme le calendrier scolaire prévu en `src-tauri/src/db/data/`.
+/data/
+/exports/
+
+# Ceinture et bretelles : ces noms-là ne doivent jamais entrer, où qu'ils
+# soient. C'est la règle qui tient le jour où l'application est essayée depuis
+# un sous-dossier qu'on n'avait pas prévu.
+sgpa.db
+sgpa.db-journal
+sgpa.db-wal
+sgpa.db-shm
+sgpa.keys
+.sgpa.lock
+sgpa-legacy-v1*.db
