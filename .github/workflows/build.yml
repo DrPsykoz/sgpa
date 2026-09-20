@@ -18,6 +18,56 @@ jobs:
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@stable
 
+            # `rusqlite` est pris en `bundled-sqlcipher-vendored-openssl` :
+            # OpenSSL est compilé depuis les sources, et son script `Configure`
+            # est écrit en Perl et s'appuie sur le module `Text::Template`.
+            # L'image `windows-latest` embarque Perl aujourd'hui, mais rien ne
+            # garantit ce module-là, ni la composition des images futures. On ne
+            # parie pas : l'étape vérifie, installe ce qui manque, et ne fait
+            # rien quand tout est déjà là.
+            #
+            # Elle est volontairement placée AVANT le bump de version : un échec
+            # de compilation après le commit `[skip ci]` et son `git push`
+            # laisserait le dépôt avec une version incrémentée et aucune
+            # release. NASM, lui, est inutile — `openssl-src` passe `no-asm`.
+            - name: Perl et Text::Template (prérequis d'OpenSSL)
+              shell: pwsh
+              run: |
+                  # Un code de retour non nul doit être testé, pas levé en
+                  # exception : la première sonde échoue par construction quand
+                  # le module manque, et c'est justement le cas à rattraper.
+                  $ErrorActionPreference = 'Continue'
+                  $PSNativeCommandUseErrorActionPreference = $false
+
+                  if (-not (Get-Command perl -ErrorAction SilentlyContinue)) {
+                      Write-Host "Perl absent de l'image : installation de Strawberry Perl."
+                      choco install strawberryperl -y --no-progress
+                      $bin = @("C:\Strawberry\perl\bin", "C:\Strawberry\perl\site\bin", "C:\Strawberry\c\bin")
+                      $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+                      $env:PATH = ($bin -join ";") + ";$env:PATH"
+                  }
+
+                  perl -MText::Template -e "exit 0"
+                  if ($LASTEXITCODE -ne 0) {
+                      Write-Host "Text::Template absent : installation depuis CPAN."
+                      if (Get-Command cpanm -ErrorAction SilentlyContinue) {
+                          cpanm --notest Text::Template
+                      } else {
+                          cpan -T Text::Template
+                      }
+                  }
+
+                  # Échouer ici en quelques secondes plutôt que dans cargo après
+                  # sept minutes de compilation d'OpenSSL.
+                  perl -V:version
+                  perl -MText::Template -e "exit 0"
+                  if ($LASTEXITCODE -ne 0) {
+                      Write-Error "Text::Template reste introuvable : OpenSSL ne compilera pas."
+                      exit 1
+                  }
+                  Write-Host "Perl et Text::Template : OK"
+                  exit 0
+
             - name: Rust cache
               uses: swatinem/rust-cache@v2
               with:
@@ -34,6 +84,17 @@ jobs:
                   node-version: 22
                   cache: pnpm
 
+            - name: Install frontend dependencies
+              run: pnpm install
+
+            # Le seul filet du projet : ni ESLint ni test JS pour l'instant.
+            - name: Typecheck frontend
+              run: pnpm exec tsc --noEmit
+
+            - name: Rust tests
+              working-directory: src-tauri
+              run: cargo test --lib
+
             - name: Bump patch version
               id: bump
               shell: bash
@@ -46,20 +107,36 @@ jobs:
               run: |
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git add src-tauri/tauri.conf.json package.json
+                  git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json
                   git commit -m "chore: bump version to v${{ steps.bump.outputs.version }} [skip ci]"
                   git push
 
-            - name: Install frontend dependencies
-              run: pnpm install
+            # `bundle.active` est à false : aucun MSI ni NSIS n'est produit.
+            # L'application est portable, elle se décompresse sur une clé USB.
+            - name: Build portable executable
+              run: pnpm tauri build --no-bundle
 
-            - name: Build Tauri app
-              uses: tauri-apps/tauri-action@v0
+            - name: Assemble portable archive
+              shell: pwsh
+              run: |
+                  $stage = "dist-portable/SGPA"
+                  New-Item -ItemType Directory -Force -Path $stage | Out-Null
+                  Copy-Item "src-tauri/target/release/SGPA.exe" $stage
+                  Copy-Item "LISEZ-MOI.txt" $stage
+                  Compress-Archive -Path "$stage/*" -DestinationPath "SGPA-v${{ steps.bump.outputs.version }}-portable.zip" -Force
+
+            - name: Publish release
+              shell: bash
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              with:
-                  tagName: v${{ steps.bump.outputs.version }}
-                  releaseName: SGPA v${{ steps.bump.outputs.version }}
-                  releaseBody: "Build automatique — télécharger le fichier `.msi` ou `.exe` ci-dessous."
-                  releaseDraft: false
-                  prerelease: false
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh release create "v${{ steps.bump.outputs.version }}" \
+                    "SGPA-v${{ steps.bump.outputs.version }}-portable.zip" \
+                    --title "SGPA v${{ steps.bump.outputs.version }}" \
+                    --notes "Application portable. Décompressez l'archive sur votre clé USB et lancez SGPA.exe — aucune installation, aucune dépendance à installer.
+
+                  Avant de décompresser : clic droit sur le ZIP → Propriétés → cochez **Débloquer**. Sans cela, Windows marque chaque fichier extrait et SmartScreen s'interpose à chaque lancement.
+
+                  Vos données sont chiffrées : votre mot de passe est la clé de la base, et il n'existe aucune réinitialisation. Au premier lancement, **notez la phrase de récupération** affichée une seule fois — c'est le seul recours si vous oubliez ce mot de passe.
+
+                  Lisez LISEZ-MOI.txt : il explique ce que le chiffrement ne couvre pas, la sauvegarde de vos données (le fichier data/sgpa.keys doit voyager avec elles) et la marche à suivre en cas de mot de passe oublié."
