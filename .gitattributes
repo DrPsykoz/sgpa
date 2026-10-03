@@ -1,0 +1,26 @@
+# Fins de ligne : LF dans le dépôt, quoi que fasse le poste.
+#
+# Sans ce fichier, git applique le `core.autocrlf` de la machine. Un fichier
+# écrit en LF ressortait alors « modifié » sans qu'une seule ligne ait changé —
+# c'est ce qui faisait apparaître `src-tauri/Cargo.toml` dans `git status` avec
+# un diff vide. Ce bruit est pire qu'inesthétique : il masque les vraies
+# modifications au moment de préparer un commit.
+* text=auto eol=lf
+
+# LISEZ-MOI.txt part dans l'archive portable et s'ouvre au Bloc-notes sur un
+# poste de collège, éventuellement ancien. CRLF dans la copie de travail, LF
+# dans le dépôt : c'est le seul fichier du projet dont le lecteur n'est pas un
+# outil de développement.
+LISEZ-MOI.txt text eol=crlf
+
+# Binaires : aucune conversion, jamais. Une base SQLite ou une image dont les
+# octets 0x0A seraient réécrits est une base corrompue.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.icns binary
+*.db   binary
+*.keys binary
+*.ttf  binary
+*.woff binary
+*.woff2 binary
