@@ -14,15 +14,27 @@ Application de bureau **portable** pour enseignant de SEGPA. Tauri v2 (Rust + ru
 ## Commandes
 
 ```powershell
-# Perl d'abord : toute commande cargo compile OpenSSL depuis les sources
-# (rusqlite en `bundled-sqlcipher-vendored-openssl`). Sans lui, le build
-# s'arrête sur « Command 'perl' not found ». NASM n'est PAS nécessaire.
-$env:PATH = "C:\Strawberry\perl\bin;C:\Users\Theo\AppData\Roaming\fnm\node-versions\v24.14.1\installation;$env:USERPROFILE\.cargo\bin;$env:PATH"
-
 pnpm tauri dev          # lance l'app (Vite sur 1420 + compilation Rust)
 pnpm build              # tsc --noEmit puis vite build
-cargo test --lib        # depuis src-tauri/ — 102 tests
+cargo test --lib        # depuis src-tauri/ — 116 tests
 cargo clippy            # doit rester à zéro avertissement
+```
+
+**Toute commande cargo compile OpenSSL depuis ses sources** (`rusqlite` en
+`bundled-sqlcipher-vendored-openssl`) : Perl et son module `Text::Template` sont
+obligatoires, et sans eux le build s'arrête sur « Command 'perl' not found ».
+**NASM n'est PAS nécessaire** — `openssl-src` passe `no-asm`.
+
+`.node-version` épingle Node à la version avec laquelle le projet est bâti. Si
+`pnpm` est introuvable dans un terminal, c'est que le crochet fnm n'est pas
+chargé : voir `Microsoft.PowerShell_profile.ps1` dans `Documents`, qui pose le
+chemin de fnm et explique pourquoi la méthode normale (`fnm env |
+Invoke-Expression`) échoue sur ce poste — le PATH **machine** contient un bloc
+Python collé avec ses guillemets, qui casse toute réémission du PATH. À défaut
+de profil, la ligne de secours est :
+
+```powershell
+$env:PATH = "$env:APPDATA\fnm\node-versions\v24.14.1\installation;$env:PATH"
 ```
 
 La première compilation d'OpenSSL prend ~7 minutes, les suivantes sont en cache — prévoir des
@@ -119,6 +131,6 @@ Ces trois points appartiennent à l'enseignant ; s'y substituer produirait des d
 
 ## Tests
 
-`cargo test --lib` : 102 tests, dont 15 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher) et 9 sur l'ouverture chiffrée. Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
+`cargo test --lib` : 116 tests, dont 15 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher) et 9 sur l'ouverture chiffrée. Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
 
 Le harnais `tauri::test::mock_builder` **ne fonctionne pas ici** : ses binaires de test meurent au démarrage avec `STATUS_ENTRYPOINT_NOT_FOUND`, `tauri-build` n'embarquant son manifeste Windows que dans l'exécutable de l'application. Ne pas réessayer sans résoudre ce point d'abord.
