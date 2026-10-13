@@ -15,10 +15,12 @@ import type {
   Student,
 } from "@/types";
 import {
+  formatMark20,
   MASTERY_COLORS,
   MASTERY_LABELS,
   MASTERY_LEVELS,
   MASTERY_SHORT,
+  masteryMark20,
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -551,6 +553,18 @@ export function EvaluationDetail({
                                 </div>
                               </TableHead>
                             ))}
+                            {/* La note globale est posée à DROITE des
+                                compétences, parce qu'elle s'en déduit : on la
+                                lit après avoir vu ce qui la produit. À gauche,
+                                elle passerait pour une saisie. */}
+                            <TableHead className="min-w-[88px] text-center text-xs">
+                              <div className="space-y-0.5">
+                                <p className="font-medium">Note</p>
+                                <p className="font-normal text-muted-foreground">
+                                  sur 20
+                                </p>
+                              </div>
+                            </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -595,6 +609,39 @@ export function EvaluationDetail({
                                     </TableCell>
                                   );
                                 })}
+                                {/* Calculée, jamais saisie : barème linéaire du
+                                    niveau × 4, dans `MASTERY_POINTS`. Les
+                                    compétences non évaluées sont ÉCARTÉES du
+                                    calcul — elles ne valent pas zéro, pas plus
+                                    qu'un appel oublié ne vaut « présent ». Une
+                                    grille vierge n'affiche donc pas « 0,0 » mais
+                                    un tiret : l'application n'affirme rien que
+                                    l'enseignant n'ait saisi. */}
+                                <TableCell className="text-center">
+                                  {(() => {
+                                    const note = masteryMark20(
+                                      competencies.map((comp) =>
+                                        levelFor(student.id, comp.id),
+                                      ),
+                                    );
+                                    return (
+                                      <span
+                                        className={cn(
+                                          "font-mono text-sm tabular-nums",
+                                          note === null &&
+                                            "text-muted-foreground",
+                                        )}
+                                        title={
+                                          note === null
+                                            ? "Aucune compétence évaluée : pas de note."
+                                            : "Moyenne des compétences évaluées, chaque niveau valant 4 points."
+                                        }
+                                      >
+                                        {formatMark20(note)}
+                                      </span>
+                                    );
+                                  })()}
+                                </TableCell>
                               </TableRow>
                             );
                           })}

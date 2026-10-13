@@ -152,6 +152,12 @@ export interface Seance {
 	trimester: number;
 	trimester_is_manual: boolean;
 	cancelled: boolean;
+	/** Pourquoi ce cours n'a pas eu lieu. `""` = pas de motif.
+	 *
+	 *  Texte libre : aucun calcul ne s'appuie dessus, c'est `cancelled` seul qui
+	 *  sort la séance du dénominateur d'assiduité. Ne s'imprime sur aucun bilan —
+	 *  note de travail pour l'enseignant, pas information due aux familles. */
+	cancel_reason: string;
 	content_html: string;
 	attendance_taken_at: string | null;
 	created_at: string;
@@ -448,6 +454,83 @@ export const MASTERY_SHORT: Record<MasteryLevel, string> = {
 
 /** L'échelle dans l'ordre. Sert partout où les six niveaux se parcourent. */
 export const MASTERY_LEVELS: MasteryLevel[] = [0, 1, 2, 3, 4, 5];
+
+/**
+ * Motifs d'annulation proposés en un clic, dans l'agenda comme sur la séance.
+ *
+ * Ce sont des **suggestions**, pas une liste fermée : elles remplissent le champ
+ * et l'enseignant écrit ensuite ce qu'il veut. Aucun `CHECK` ne les impose, et
+ * aucun calcul ne s'appuie sur le motif — un CHECK ne se retire pas en SQLite,
+ * et figer du vocabulaire scolaire que personne n'a confirmé est la faute que ce
+ * projet évite partout ailleurs.
+ *
+ * Les deux premières étaient déjà citées en exemple par le schéma, avant qu'une
+ * colonne existe pour les porter (commentaire de `seances.cancelled`,
+ * `001_initial.sql`).
+ *
+ * Elles vivent ici, et non dans l'un des deux écrans qui les affichent : deux
+ * copies se mettraient à proposer deux listes différentes pour le même geste.
+ *
+ * Prix assumé, et il faut le savoir : aucune statistique ne sera possible.
+ * « Combien de cours perdus pour sortie scolaire ? » n'a pas de réponse fiable
+ * sur du texte libre. C'est le compromis retenu contre la liste fermée.
+ */
+export const CANCEL_REASON_SUGGESTIONS = [
+	"Sortie scolaire",
+	"Jour férié",
+	"Absence du professeur",
+	"Établissement fermé",
+];
+
+/**
+ * Barème de conversion d'un niveau de maîtrise en points sur 20.
+ *
+ * **Règle choisie par l'auteur le 2026-10-13 : linéaire, le niveau × 4.**
+ * L'échelle est traitée comme régulière, chaque échelon vaut quatre points.
+ * C'est la règle la plus facile à expliquer à une famille, et la seule qui se
+ * relise à l'envers — une note de 12/20 se lit « Presque maîtrisé en moyenne ».
+ *
+ * `0` (Non évalué) n'a **pas** de valeur et vaut `null` : une compétence non
+ * notée est écartée du calcul, elle ne vaut pas zéro. C'est la même règle que
+ * `AVERAGES_HEAD` côté Rust (`g.level > 0`) et que tout ce projet applique à
+ * l'absence d'enregistrement — un appel oublié ne vaut pas « présent », une
+ * compétence non notée ne vaut pas « insuffisant ».
+ *
+ * Il vit ici, à côté de `MASTERY_LABELS` et `MASTERY_SHORT`, et non dans l'écran
+ * de notation : le jour où un niveau change de nom ou de rang, les trois se
+ * corrigent sous les yeux l'un de l'autre. **Si la note /20 apparaît un jour sur
+ * le bilan, elle doit lire CE tableau** — deux barèmes feraient deux chiffres
+ * différents pour le même élève sur deux écrans.
+ */
+export const MASTERY_POINTS: Record<MasteryLevel, number | null> = {
+	0: null,
+	1: 4,
+	2: 8,
+	3: 12,
+	4: 16,
+	5: 20,
+};
+
+/**
+ * Note sur 20 d'un élève, à partir de ses niveaux sur une évaluation.
+ *
+ * `null` quand aucune compétence n'est notée — **jamais `0`**. Un élève dont la
+ * grille est vierge n'a pas zéro, il n'a pas de note : afficher « 0,0 / 20 »
+ * serait une affirmation que personne n'a faite, et c'est exactement le piège
+ * que `scoring::overall_average` évite déjà côté Rust.
+ */
+export function masteryMark20(levels: MasteryLevel[]): number | null {
+	const points = levels
+		.map((level) => MASTERY_POINTS[level])
+		.filter((p): p is number => p !== null);
+	if (points.length === 0) return null;
+	return points.reduce((a, b) => a + b, 0) / points.length;
+}
+
+/** « 12,5 » — virgule décimale, une décimale, comme partout en français. */
+export function formatMark20(mark: number | null): string {
+	return mark === null ? "—" : mark.toFixed(1).replace(".", ",");
+}
 
 export const MASTERY_COLORS: Record<MasteryLevel, string> = {
 	0: "bg-gray-200 text-gray-600",
