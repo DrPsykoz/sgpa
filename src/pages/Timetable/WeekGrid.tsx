@@ -9,6 +9,8 @@ import {
   type ReactElement,
 } from "react";
 
+import { TriangleAlert } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import {
   schoolYearLabel,
@@ -119,6 +121,18 @@ function creneauMasque(
   if (journee.closures.length > 0) return true;
   if (sessionId === null) return false;
   return journee.sessions_away.some((c) => c.session_id === sessionId);
+}
+
+/** « 27/05/2029 ». */
+function dateCourte(iso: string | null): string {
+  return iso === null ? "" : new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR");
+}
+
+/** Six mois avant une date ISO, en heure locale. Sert de seuil d'alerte. */
+function reculDeSixMois(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setMonth(d.getMonth() - 6);
+  return d.toLocaleDateString("sv-SE");
 }
 
 /** Date du jour en heure locale, comme partout ailleurs dans l'écran. */
@@ -688,6 +702,17 @@ export function WeekGrid({
 
   const jourCourant = aujourdhui();
 
+  // La couverture du calendrier, et l'avertissement quand on s'en approche.
+  // Le seuil est la dernière date couverte MOINS six mois : au-delà, une
+  // préparation de rentrée tomberait dans le vide sans le dire.
+  const calendrierJusquAu = week.days[0]?.calendar_until ?? null;
+  const horizonProche =
+    calendrierJusquAu !== null &&
+    jours.some((jour) => {
+      const date = journeeParJour.get(jour)?.date;
+      return date !== undefined && date > reculDeSixMois(calendrierJusquAu);
+    });
+
   const style: CSSProperties = {
     gridTemplateColumns: `3.25rem repeat(${jours.length}, minmax(7rem, 1fr))`,
     gridTemplateRows: `auto auto repeat(${lignes}, ${HAUTEUR_PAS}px)`,
@@ -930,6 +955,28 @@ export function WeekGrid({
           )}
         </div>
       </div>
+
+      {/* LA LIGNE D'HORIZON, et elle est obligatoire.
+          Passé la dernière date couverte, la fonctionnalité ne s'éteint pas :
+          elle se met à mentir dans l'autre sens — des créneaux redessinés
+          pendant des vacances qu'on ne connaît plus. En septembre 2029
+          l'enseignant sera dans la grille, pas dans les réglages, et ce qu'il
+          verra n'aura l'air de rien d'anormal.
+
+          Elle n'apparaît qu'une fois la semaine dépassée les trois quarts de la
+          couverture : l'afficher en permanence serait un avertissement qu'on
+          cesse de lire, donc un avertissement inutile le jour où il compte. */}
+      {horizonProche && (
+        <p className="flex items-start justify-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-center text-xs text-amber-900">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Le calendrier scolaire embarqué s'arrête au{" "}
+            <span className="font-medium">{dateCourte(calendrierJusquAu)}</span>.
+            Au-delà, les vacances ne sont plus connues et les créneaux seront
+            redessinés comme des jours de cours. Mettez SGPA à jour.
+          </span>
+        </p>
+      )}
 
       <p className="text-center text-xs text-muted-foreground">
         Emploi du temps type — année scolaire {schoolYearLabel(yearStart)}

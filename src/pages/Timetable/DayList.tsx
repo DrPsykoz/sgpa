@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { BookOpen, CircleDot, Lock } from "lucide-react";
+import { BookOpen, CalendarOff, CircleDot, Lock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,38 @@ import type {
   TimetableSlot,
 } from "@/types";
 import { WEEK_PARITY_LABELS } from "@/types";
+
+/**
+ * Pourquoi personne ne fait cours ce jour-là, ou `null`.
+ *
+ * Le férié passe AVANT les vacances quand les deux tombent : « Toussaint » est
+ * plus précis que « Vacances de la Toussaint » sur la journée du 1er novembre,
+ * et c'est ce que l'enseignant cherche à lire. Le backend rend les deux ; c'est
+ * ici qu'on choisit.
+ */
+function motifDeFermeture(day: DaySchedule): string | null {
+  if (day.closures.length === 0) return null;
+  const ferie = day.closures.find((c) => c.origin === "ferie");
+  return (ferie ?? day.closures[0]).label;
+}
+
+/**
+ * Pourquoi ce créneau-là n'a pas lieu aujourd'hui, ou `null`.
+ *
+ * Deux portées différentes, et il faut les distinguer : les vacances et les
+ * fériés ferment le JOUR pour tout le monde ; un stage ne retire que les
+ * créneaux de SA classe — les autres classes travaillent. Une période
+ * nominative n'entre jamais ici (le backend ne la rend pas) : la classe est là,
+ * un élève manque. Les confondre referait, à l'envers, le défaut que le palier
+ * 006 a corrigé.
+ */
+function motifDuCreneau(day: DaySchedule, sessionId: string | null): string | null {
+  const jour = motifDeFermeture(day);
+  if (jour !== null) return jour;
+  if (sessionId === null) return null;
+  const absente = day.sessions_away.find((c) => c.session_id === sessionId);
+  return absente ? `${absente.session_name} — ${absente.reason}` : null;
+}
 
 export interface DayListProps {
   day: DaySchedule;
@@ -278,11 +310,44 @@ export function DayList({
 }: DayListProps): ReactElement {
   const rows = buildRows(day);
 
+  const fermeture = motifDeFermeture(day);
+  const classesAbsentes = day.sessions_away;
   const aOccupation = day.slots.some(({ slot }) => slot.session_id === null);
   const aDate = day.loose_seances.length > 0 || day.entries.length > 0;
 
   return (
     <div className="space-y-3">
+      {/* Pourquoi la journée est vide, dit AVANT la liste. Sans ce bandeau, une
+          journée de vacances ressemble à une journée où l'on a oublié de saisir
+          son emploi du temps. */}
+      {fermeture && (
+        <p className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
+          <CalendarOff className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-medium text-foreground">{fermeture}</span> — pas
+            de cours ce jour-là. Les créneaux de l'emploi du temps restent
+            affichés pour mémoire, mais aucune séance ne peut être créée.
+          </span>
+        </p>
+      )}
+      {!fermeture && classesAbsentes.length > 0 && (
+        <p className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
+          <CalendarOff className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {classesAbsentes.map((c) => (
+              <span key={c.session_id} className="mr-3 inline-block">
+                <span className="font-medium text-foreground">
+                  {c.session_name}
+                </span>{" "}
+                — {c.reason}
+              </span>
+            ))}
+            <span className="mt-1 block">
+              Les autres classes travaillent normalement.
+            </span>
+          </span>
+        </p>
+      )}
       {rows.map((row) => {
         switch (row.kind) {
           // ---- 1 & 2 · Créneau rattaché à une classe ----
@@ -325,6 +390,44 @@ export function DayList({
                   <div className="flex flex-wrap items-center gap-2">
                     <SeanceChips seance={seance} />
                   </div>
+                </RowShell>
+              );
+            }
+
+            // Forme 2 bis : ce créneau n'a pas lieu aujourd'hui — vacances,
+            // férié, ou cette classe est en stage. La ligne reste AFFICHÉE,
+            // avec sa raison, et perd ses deux actions.
+            //
+            // Affichée et non masquée, contrairement à la grille : là-bas
+            // l'en-tête de colonne dit pourquoi, ici une ligne disparue
+            // laisserait une journée qui a l'air vide, comme si l'emploi du
+            // temps n'avait pas été saisi. Et « Pas d'action » plutôt qu'un
+            // bouton grisé : un bouton grisé invite à chercher pourquoi.
+            //
+            // Rien n'est écrit, ni ici ni ailleurs. C'est tout l'intérêt : une
+            // séance annulée automatiquement sortirait du dénominateur de TOUTE
+            // la classe, et l'élève qui n'a pas trouvé de stage — resté au
+            // collège — y reperdrait ses absences.
+            const motif = motifDuCreneau(day, slot.session_id);
+            if (motif !== null) {
+              return (
+                <RowShell
+                  key={row.key}
+                  time={timeLabel(slot.start_time, slot.end_time)}
+                  inerte
+                  actions={
+                    <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <CalendarOff className="h-4 w-4" />
+                      Pas d'action
+                    </span>
+                  }
+                >
+                  <p className="truncate text-lg font-semibold text-muted-foreground">
+                    {slotTitle(slot)}
+                  </p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {motif}
+                  </p>
                 </RowShell>
               );
             }
