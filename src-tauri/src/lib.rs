@@ -130,6 +130,7 @@ pub fn run() {
             evaluations::get_grades,
             evaluations::set_grade,
             // Emploi du temps & entrées datées
+            timetable::get_available_academies,
             timetable::get_day_schedule,
             timetable::get_week_schedule,
             timetable::get_timetable_slots,

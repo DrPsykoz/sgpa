@@ -80,6 +80,47 @@ function quantieme(iso: string): string {
   return String(Number(iso.slice(8, 10)));
 }
 
+/**
+ * Pourquoi personne ne fait cours ce jour-là, en une phrase, ou `null`.
+ *
+ * Le férié passe AVANT les vacances quand les deux tombent : « Toussaint » est
+ * plus précis que « Vacances de la Toussaint » sur la journée du 1er novembre,
+ * et c'est ce que l'enseignant cherche à lire. Les deux sont rendus par le
+ * backend ; c'est ici qu'on choisit.
+ */
+function motifDeFermeture(journee: DaySchedule | null): string | null {
+  if (journee === null || journee.closures.length === 0) return null;
+  const ferie = journee.closures.find((c) => c.origin === "ferie");
+  return (ferie ?? journee.closures[0]).label;
+}
+
+/**
+ * Un créneau est-il à masquer ce jour-là ?
+ *
+ * Deux raisons, et elles ne portent pas sur le même périmètre :
+ *
+ * * le JOUR est fermé — vacances scolaires ou férié : personne ne fait cours,
+ *   tous les créneaux disparaissent ;
+ * * une CLASSE est absente — un stage : seuls les créneaux de CETTE classe
+ *   disparaissent, les autres restent. Une période nominative n'entre jamais
+ *   ici (le backend ne la rend pas) : la classe est là, un élève manque.
+ *
+ * On masque le créneau et non la journée entière parce qu'un créneau est un
+ * MODÈLE : il n'existe pas, il est seulement projeté. Une séance réelle ou un
+ * rendez-vous datés ce jour-là restent dessinés à pleine force — un rattrapage
+ * pendant les vacances est un fait, et une faute de frappe sur la date doit se
+ * voir.
+ */
+function creneauMasque(
+  journee: DaySchedule | null,
+  sessionId: string | null,
+): boolean {
+  if (journee === null) return false;
+  if (journee.closures.length > 0) return true;
+  if (sessionId === null) return false;
+  return journee.sessions_away.some((c) => c.session_id === sessionId);
+}
+
 /** Date du jour en heure locale, comme partout ailleurs dans l'écran. */
 function aujourdhui(): string {
   return new Date().toLocaleDateString("sv-SE");
@@ -661,6 +702,8 @@ export function WeekGrid({
           {jours.map((jour, index) => {
             const journee = journeeParJour.get(jour) ?? null;
             const estCeJour = journee !== null && journee.date === jourCourant;
+            const fermeture = motifDeFermeture(journee);
+            const classesAbsentes = journee?.sessions_away ?? [];
             return (
               <div
                 key={`jour-${jour}`}
@@ -675,6 +718,25 @@ export function WeekGrid({
                 {journee && (
                   <span className={cn("ml-1", estCeJour && "font-bold")}>
                     {quantieme(journee.date)}
+                  </span>
+                )}
+                {/* Le motif sous la date, et non une pastille à côté : c'est une
+                    phrase qu'on lit, pas un signe à décoder. */}
+                {fermeture && (
+                  <span className="mt-0.5 block truncate text-[10px] font-normal leading-tight text-muted-foreground">
+                    {fermeture}
+                  </span>
+                )}
+                {!fermeture && classesAbsentes.length > 0 && (
+                  <span
+                    className="mt-0.5 block truncate text-[10px] font-normal leading-tight text-muted-foreground"
+                    title={classesAbsentes
+                      .map((c) => `${c.session_name} — ${c.reason}`)
+                      .join(" · ")}
+                  >
+                    {classesAbsentes.length === 1
+                      ? `${classesAbsentes[0].session_name} absente`
+                      : `${classesAbsentes.length} classes absentes`}
                   </span>
                 )}
               </div>
@@ -736,7 +798,24 @@ export function WeekGrid({
               dix tabulations « Ajouter le lundi à 08:00 », « … à 08:30 »…
               avant la visite de stage qu'on voulait ouvrir. */}
           {jours.map((jour, index) =>
-            (placesParJour.get(jour) ?? []).map((place) => (
+            (placesParJour.get(jour) ?? [])
+              // Un créneau dont la classe n'est pas là, ou dont le jour est
+              // fermé, n'est pas dessiné. C'est le SEUL objet qu'on retire, et
+              // il le supporte : un créneau est un modèle, il n'existe pas.
+              // L'en-tête de la colonne dit pourquoi — sans quoi une case
+              // disparue passerait pour un créneau perdu.
+              //
+              // Effet de bord voulu : on ne peut plus créer une séance par
+              // inadvertance un jour de vacances, puisque la carte n'est pas là.
+              .filter(
+                (place) =>
+                  place.contenu.nature !== "creneau" ||
+                  !creneauMasque(
+                    journeeParJour.get(jour) ?? null,
+                    place.contenu.slot.session_id,
+                  ),
+              )
+              .map((place) => (
               <Carte
                 key={place.cle}
                 place={place}
@@ -756,6 +835,8 @@ export function WeekGrid({
               qui dessine aussi le quadrillage. */}
           {jours.map((jour, index) => {
             const nomJour = WEEKDAY_LABELS[jour].toLowerCase();
+            const jourFerme =
+              (journeeParJour.get(jour)?.closures.length ?? 0) > 0;
             return demiHeures.map((t) => {
               const pleine = t % 60 === 0;
               const classes = cn(
@@ -771,7 +852,17 @@ export function WeekGrid({
                 gridColumn: index + 2,
                 gridRow: `${ligneDe(t)} / ${ligneDe(t + 30)}`,
               };
-              if (!onCreateSlot) {
+              // Jour fermé : la bande redevient un simple fond, sans survol ni
+              // clic. Le bouton n'est pas désactivé, il N'EXISTE PAS — un bouton
+              // grisé invite à chercher pourquoi, une case inerte sous un
+              // en-tête qui dit « Vacances de la Toussaint » ne pose aucune
+              // question.
+              //
+              // Seule la fermeture du JOUR compte ici, pas l'absence d'une
+              // classe : un créneau se crée pour une classe qu'on choisit
+              // ensuite dans le dialogue, et rien ne dit que ce sera celle qui
+              // est en stage.
+              if (!onCreateSlot || jourFerme) {
                 return (
                   <div
                     key={`fond-${jour}-${t}`}

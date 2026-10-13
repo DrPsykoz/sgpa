@@ -1,0 +1,3598 @@
+{
+ "source": "data.education.gouv.fr — fr-en-calendrier-scolaire (Licence Ouverte v2.0)",
+ "couvert_jusqu_au": "2029-05-27",
+ "depuis": "2025-08-01",
+ "periodes": [
+  [
+   "5dfd799cf453e16801b0dcaa",
+   "Nouvelle Calédonie",
+   "Vacances 3ème période",
+   "2025-08-09",
+   "2025-08-23"
+  ],
+  [
+   "4f3b9d934b3ddc41709abd67",
+   "Wallis et Futuna",
+   "Vacances 3ème période",
+   "2025-08-09",
+   "2025-08-23"
+  ],
+  [
+   "b75d26a08562c96c6223f236",
+   "Polynésie",
+   "Vacances de Septembre",
+   "2025-09-13",
+   "2025-09-21"
+  ],
+  [
+   "7d574d4288c6653787792f31",
+   "Mayotte",
+   "Vacances de la Toussaint",
+   "2025-10-11",
+   "2025-10-26"
+  ],
+  [
+   "e2f91af9e6a61510f42507b0",
+   "Nouvelle Calédonie",
+   "Vacances 4ème période",
+   "2025-10-11",
+   "2025-10-25"
+  ],
+  [
+   "8a72e885ba4d2e65f5eac023",
+   "Réunion",
+   "Vacances après 1ère période",
+   "2025-10-11",
+   "2025-10-26"
+  ],
+  [
+   "3f372a2d27d164db64a34c0c",
+   "Wallis et Futuna",
+   "Vacances 4ème période",
+   "2025-10-11",
+   "2025-10-25"
+  ],
+  [
+   "eab342350040c596f12d21be",
+   "Aix-Marseille",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "8ba505b471e93b15d3c9b4f8",
+   "Amiens",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "3dc65e7756e10fc2f89d2a62",
+   "Besançon",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "6b7d36621399203fb24ae7a4",
+   "Bordeaux",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "3e0d8eb9530b647f65cf8eba",
+   "Clermont-Ferrand",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "27957939106de9b2464e55cf",
+   "Corse",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "2eeb0d90088d5e95b8b597e1",
+   "Créteil",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "c353fa26160cd7bab62ee19f",
+   "Dijon",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "1adf327ec7f9463ba4182825",
+   "Grenoble",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "a61f36eb8cc8b4abfbb3d720",
+   "Guadeloupe",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "29295e6243c5eb5a4ad50ba1",
+   "Guyane",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "bcdd92f3e9b9927efe4ca2c8",
+   "Lille",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "58c523ba08cd717efe9a6e36",
+   "Limoges",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "724aa427ea146f0722bc9325",
+   "Lyon",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "ccdad6c9f7173b24f47ffd36",
+   "Martinique",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "68b44c11b7e937cbe586acc4",
+   "Montpellier",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "cf0feda2008fb103cfca2cfd",
+   "Nancy-Metz",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "a0e6e782f744ffd3ebaad339",
+   "Nantes",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "a3bc45129f199ecd5bba0bf7",
+   "Nice",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "7a6f3d864d5471b6f447a5da",
+   "Normandie",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "3848166ec7854edcd1159424",
+   "Orléans-Tours",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "d78fb3b6a475a9386fcd87c6",
+   "Paris",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "0b76d9e4de5afee42f8c7ddf",
+   "Poitiers",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "c6f469c160b13217c195807f",
+   "Reims",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "3545f69df46a106fc9034999",
+   "Rennes",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "917d12c68356175b47fcdb95",
+   "Strasbourg",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "ef37a5a80ca2166a3ca6f230",
+   "Toulouse",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "fa56535daa40683388f895d3",
+   "Versailles",
+   "Vacances de la Toussaint",
+   "2025-10-18",
+   "2025-11-02"
+  ],
+  [
+   "f7a2ddf1d70aa0aabd3781f8",
+   "Saint Pierre et Miquelon",
+   "Vacances de la Toussaint",
+   "2025-10-21",
+   "2025-11-02"
+  ],
+  [
+   "9fbbb5962756860be626e557",
+   "Polynésie",
+   "Vacances de Novembre",
+   "2025-10-25",
+   "2025-11-09"
+  ],
+  [
+   "5b16f8c8c9149d1500c039ff",
+   "Mayotte",
+   "Vacances de Noël",
+   "2025-12-13",
+   "2026-01-11"
+  ],
+  [
+   "f57e4284761a7a36b40fff91",
+   "Polynésie",
+   "Vacances de Noël",
+   "2025-12-13",
+   "2026-01-11"
+  ],
+  [
+   "12b9fc377d484b22e8d97f8b",
+   "Réunion",
+   "Vacances d'Été austral",
+   "2025-12-19",
+   "2026-01-20"
+  ],
+  [
+   "42e40b1135ba8962607bc15c",
+   "Saint Pierre et Miquelon",
+   "Vacances de Noël",
+   "2025-12-19",
+   "2026-01-04"
+  ],
+  [
+   "d14e9ff27141654ff72113af",
+   "Aix-Marseille",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "a353c13647bf9e1f133f3569",
+   "Amiens",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "4a935b84f3356e7b216ee099",
+   "Besançon",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "c9e749f17ad6418949458844",
+   "Bordeaux",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "0d13fc839ea455b18ab35847",
+   "Clermont-Ferrand",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "1edcb4696b4bcd9a73de2223",
+   "Corse",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "4ed1435fbf62ecf6cb868c45",
+   "Créteil",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "c5a41d45f5d12e0b5e4fe987",
+   "Dijon",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "940d1434e4649b7925a25a76",
+   "Grenoble",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "c06556e982afecf7bc3e6a75",
+   "Guadeloupe",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "19d02e640308e01b87ae1c4f",
+   "Guyane",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "d7dfbfbf37e67a6cba7e6dba",
+   "Lille",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "c9476dbfc43bf603ec711498",
+   "Limoges",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "7e9f56e2a346b46066f31138",
+   "Lyon",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "77ea292ca31414284855b5b4",
+   "Martinique",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "da8dcd64040aa6b684ce9581",
+   "Montpellier",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "c5a90f97e618b3d8c3a7dd74",
+   "Nancy-Metz",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "4098d5a8795ff0f3ec6a5713",
+   "Nantes",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "7e3c42e2f4239bbb4ba201eb",
+   "Nice",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "de7d6279fffbae8ca7a158bb",
+   "Normandie",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "4897e8171aa488c6ca764ac7",
+   "Nouvelle Calédonie",
+   "Vacances d'Été",
+   "2025-12-20",
+   "2026-02-15"
+  ],
+  [
+   "d3328ef192818554d72f9c42",
+   "Orléans-Tours",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "5445f59a168d346619d20d1b",
+   "Paris",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "421a817e3ff666e6ca6298fb",
+   "Poitiers",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "7e8d44ae6ced512f71c05786",
+   "Reims",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "8157ae6197e0788bb56fe15b",
+   "Rennes",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "904907192b6ec0614379e0b5",
+   "Strasbourg",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "9c221f7a2d3b312518dc5f6f",
+   "Toulouse",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "c984556c49c04c04a184f409",
+   "Versailles",
+   "Vacances de Noël",
+   "2025-12-20",
+   "2026-01-04"
+  ],
+  [
+   "839b5fa7af7105e661a2e9e9",
+   "Wallis et Futuna",
+   "Vacances d'Été",
+   "2025-12-20",
+   "2026-02-15"
+  ],
+  [
+   "e8a05d522927ed62ce2f1d6f",
+   "Besançon",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "711c9a892a0d5d91152a5ff9",
+   "Bordeaux",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "b272d9aeac668a71e432e0d9",
+   "Clermont-Ferrand",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "6adbbed64859014bd906add3",
+   "Dijon",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "75f466afd1246f5a73f6aee9",
+   "Grenoble",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "018e390f14b274c21a1b7887",
+   "Guadeloupe",
+   "Vacances de Carnaval",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "5a337e8adc494508d926c020",
+   "Guyane",
+   "Vacances de Carnaval",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "ab635569b3f5ee1f4bf53fff",
+   "Limoges",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "21df87815fdf23862c2f04b5",
+   "Lyon",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "9704030ee19a87457a035499",
+   "Martinique",
+   "Vacances de Carnaval",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "e7f9fba8b4c2e9d330d6c622",
+   "Poitiers",
+   "Vacances d'Hiver",
+   "2026-02-07",
+   "2026-02-22"
+  ],
+  [
+   "9cdb6b64bed58edc8f58521c",
+   "Saint Pierre et Miquelon",
+   "Vacances d'Hiver",
+   "2026-02-13",
+   "2026-03-01"
+  ],
+  [
+   "c1576d6d277f75d3a6b12379",
+   "Aix-Marseille",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "87788f70db3d8c52475ac2e6",
+   "Amiens",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "ec1fd984cfa44a0135ea6120",
+   "Corse",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "e4a5d06891a2b604c602b622",
+   "Lille",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "7e3de9c8292c92f8a5d7d1a7",
+   "Nancy-Metz",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "e811e5d78bb9b5e530d16602",
+   "Nantes",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "256e1e77b1fc15f3ef5ba65a",
+   "Nice",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "b4ff367e7daba69c3f8c1925",
+   "Normandie",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "f904b7b9de42accd4f7bd3f4",
+   "Orléans-Tours",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "c9416a4e923e9e6e25fec640",
+   "Polynésie",
+   "Vacances de Février",
+   "2026-02-14",
+   "2026-02-22"
+  ],
+  [
+   "e54d96c1110aee02e6099f65",
+   "Reims",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "ca78c40a620e05ad2e91f5bf",
+   "Rennes",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "de7a59681063d046b5985ef4",
+   "Strasbourg",
+   "Vacances d'Hiver",
+   "2026-02-14",
+   "2026-03-01"
+  ],
+  [
+   "09d2db7c3454994e4235d22c",
+   "Créteil",
+   "Vacances d'Hiver",
+   "2026-02-21",
+   "2026-03-08"
+  ],
+  [
+   "13a8779116e2e5770a2d0277",
+   "Montpellier",
+   "Vacances d'Hiver",
+   "2026-02-21",
+   "2026-03-08"
+  ],
+  [
+   "6da20e8d4ce7202c117c38b6",
+   "Paris",
+   "Vacances d'Hiver",
+   "2026-02-21",
+   "2026-03-08"
+  ],
+  [
+   "01630b67921d24a71d492542",
+   "Toulouse",
+   "Vacances d'Hiver",
+   "2026-02-21",
+   "2026-03-08"
+  ],
+  [
+   "92fd560b7fd1100641f38e3e",
+   "Versailles",
+   "Vacances d'Hiver",
+   "2026-02-21",
+   "2026-03-08"
+  ],
+  [
+   "f778024ff7f9a098ec327883",
+   "Mayotte",
+   "Vacances de Carnaval",
+   "2026-02-28",
+   "2026-03-08"
+  ],
+  [
+   "2029ab8a84dc802001816965",
+   "Réunion",
+   "Vacances après 3ème période",
+   "2026-02-28",
+   "2026-03-15"
+  ],
+  [
+   "dea3f61c615783551891cb0b",
+   "Polynésie",
+   "Vacances de Pâques",
+   "2026-03-28",
+   "2026-04-12"
+  ],
+  [
+   "7ef26ec983751af98ec886be",
+   "Guyane",
+   "Vacances de Pâques",
+   "2026-04-01",
+   "2026-04-15"
+  ],
+  [
+   "92d678d05b86e7d09230e625",
+   "Guadeloupe",
+   "Vacances de Pâques",
+   "2026-04-02",
+   "2026-04-19"
+  ],
+  [
+   "6b2c121e1622003a4a47d842",
+   "Martinique",
+   "Vacances de Pâques",
+   "2026-04-02",
+   "2026-04-19"
+  ],
+  [
+   "b7d4e0958dae50cee630fe26",
+   "Besançon",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "2672e8e90ec97dc273e5b80a",
+   "Bordeaux",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "c2ff1131aca2c905655e6d07",
+   "Clermont-Ferrand",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "4cf516ee24dcdf94a8661c4d",
+   "Dijon",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "08c7be298d0a267e394c1b8a",
+   "Grenoble",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "926a5eaf18828920a2120501",
+   "Limoges",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "76daef44b44219f5a1b96b89",
+   "Lyon",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "0232304c1398231640484e16",
+   "Nouvelle Calédonie",
+   "Vacances 1ère période",
+   "2026-04-04",
+   "2026-04-18"
+  ],
+  [
+   "9d0144dd2c0b12390c802b42",
+   "Poitiers",
+   "Vacances de Printemps",
+   "2026-04-04",
+   "2026-04-19"
+  ],
+  [
+   "0ef579857e471934bb0ab30d",
+   "Wallis et Futuna",
+   "Vacances 1ère période",
+   "2026-04-04",
+   "2026-04-18"
+  ],
+  [
+   "8cad04866c74d6694b0f9b49",
+   "Saint Pierre et Miquelon",
+   "Vacances de Printemps",
+   "2026-04-10",
+   "2026-04-26"
+  ],
+  [
+   "b96111024d5def5ba4d351ef",
+   "Aix-Marseille",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "3b433729a8acadd8fdae056f",
+   "Amiens",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "2433e5242318fe7de866a264",
+   "Corse",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "839727351a86360ba8cfc2a3",
+   "Lille",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "dc56bfff614fd0b38c144c3b",
+   "Nancy-Metz",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "e501aa97d9f0a8aa707c38c9",
+   "Nantes",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "e6815a15d01d732c3c6c26fe",
+   "Nice",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "8afd9a96bdeb8a14f3bf52d1",
+   "Normandie",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "f2ca3e7f08e07fed6189308e",
+   "Orléans-Tours",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "f750d0cc20b5ffd2b7d6e156",
+   "Reims",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "97f08856b98ca80eb42d8598",
+   "Rennes",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "f394a210f96fcbe3936478b1",
+   "Strasbourg",
+   "Vacances de Printemps",
+   "2026-04-11",
+   "2026-04-26"
+  ],
+  [
+   "c52807be95d17d89eb62b91f",
+   "Créteil",
+   "Vacances de Printemps",
+   "2026-04-18",
+   "2026-05-03"
+  ],
+  [
+   "eeb84a0c49c96adb70155c78",
+   "Montpellier",
+   "Vacances de Printemps",
+   "2026-04-18",
+   "2026-05-03"
+  ],
+  [
+   "908cb9a6be75eb13b87cb7bc",
+   "Paris",
+   "Vacances de Printemps",
+   "2026-04-18",
+   "2026-05-03"
+  ],
+  [
+   "48d6e7d49ba28164381bd695",
+   "Toulouse",
+   "Vacances de Printemps",
+   "2026-04-18",
+   "2026-05-03"
+  ],
+  [
+   "bff1981886e34edb92f19f34",
+   "Versailles",
+   "Vacances de Printemps",
+   "2026-04-18",
+   "2026-05-03"
+  ],
+  [
+   "4807485a54acd922a94cc0f3",
+   "Mayotte",
+   "Vacances de Printemps",
+   "2026-04-30",
+   "2026-05-17"
+  ],
+  [
+   "1b472d8a3d9edfdea071044d",
+   "Réunion",
+   "Vacances après 4ème période",
+   "2026-05-02",
+   "2026-05-17"
+  ],
+  [
+   "2a4e8180153351bf1357fb63",
+   "Saint Pierre et Miquelon",
+   "Pont de l'Ascension",
+   "2026-05-13",
+   "2026-05-17"
+  ],
+  [
+   "8697719afffc853513d7205a",
+   "Aix-Marseille",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "c7f4dc119fc1b3e65ba3f441",
+   "Amiens",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "2f6c432877f5cf0f51cb5a20",
+   "Besançon",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "05f80d44a01418c384617a5a",
+   "Bordeaux",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "ac4afe56457f5e9b63fcbfe7",
+   "Clermont-Ferrand",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "244962512844410b11800688",
+   "Créteil",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "d3f469e4d26c3deb4ab472e9",
+   "Dijon",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "f6fc74ba9fdb1ab5b713622f",
+   "Grenoble",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "1f1c1aa01f8dbd0df4e42b00",
+   "Guyane",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "54df3ac94f70776acf5d1b31",
+   "Lille",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "fb8321b2a495a7620c212699",
+   "Limoges",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "042c5e7173f812a649c8e702",
+   "Lyon",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "b95c3166f0e1295957c40ec3",
+   "Martinique",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "bf51a6c5435f156d0f1342eb",
+   "Montpellier",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "ebe290cee60b3b9953510db5",
+   "Nancy-Metz",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "a534d5e1b7d9765b37697e10",
+   "Nantes",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "9978963f130ffb3b5bbef016",
+   "Nice",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "0872c9dc26e04f3ef7a4e942",
+   "Normandie",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "9ef6b0aec82180c61ce94009",
+   "Orléans-Tours",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "8555e4fb7505f48e2a8b47c0",
+   "Paris",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "c69b619079997031177c0a38",
+   "Poitiers",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "09112e45dc5632cf12328cf0",
+   "Reims",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "f65df58246b645af1d95af69",
+   "Rennes",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "cbc51a6698919b7538a6a2a6",
+   "Strasbourg",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "e51c868cfbad38eb73a4b567",
+   "Toulouse",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "75c979b22f821870ef99a58f",
+   "Versailles",
+   "Pont de l'Ascension",
+   "2026-05-14",
+   "2026-05-17"
+  ],
+  [
+   "b121241ca056ae02b7b7bfb9",
+   "Guadeloupe",
+   "Semaine en mai",
+   "2026-05-15",
+   "2026-05-15"
+  ],
+  [
+   "8d8d57200163392f8d4dd781",
+   "Polynésie",
+   "Vacances de Mai",
+   "2026-05-23",
+   "2026-05-31"
+  ],
+  [
+   "7dbb02bff4126832cff59b1e",
+   "Nouvelle Calédonie",
+   "Vacances 2ème période",
+   "2026-06-06",
+   "2026-06-20"
+  ],
+  [
+   "57b57be249e8ca2097369762",
+   "Wallis et Futuna",
+   "Vacances 2ème période",
+   "2026-06-06",
+   "2026-06-20"
+  ],
+  [
+   "5cc487d0f062956ce665f23c",
+   "Saint Pierre et Miquelon",
+   "Vacances d'Été",
+   "2026-07-02",
+   "2026-09-01"
+  ],
+  [
+   "3c6cc55b45b2228aac6311ad",
+   "Polynésie",
+   "Grandes Vacances",
+   "2026-07-03",
+   "2026-08-10"
+  ],
+  [
+   "5d3c823dde8530031843faaf",
+   "Aix-Marseille",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "f94d5d38fae47e4d042546c9",
+   "Amiens",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "3ae3a6899d9f8705bea7581b",
+   "Besançon",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "846a0a5b5eb2ef3e8cd8e2e1",
+   "Bordeaux",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "658459c7917cf1e8aebe35b8",
+   "Clermont-Ferrand",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "15868bf2f58013b603a5359d",
+   "Corse",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-09-02"
+  ],
+  [
+   "fa2643918aed7f8c58c802e2",
+   "Créteil",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "73e3363c516bd7041581a749",
+   "Dijon",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "ab29bc85b907328873c67b3d",
+   "Grenoble",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "cc78f4b838406d76281af123",
+   "Guadeloupe",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "dc950668a18b83c2216ffcd0",
+   "Guyane",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "65faba0c037399250bebdaff",
+   "Lille",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "bb22a5754e0db486f04690f4",
+   "Limoges",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "52841ad319b4398b6e85c229",
+   "Lyon",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "0b37aaa341a337a3bdbf9a1d",
+   "Martinique",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "de8b7c8970108f88da2b573e",
+   "Mayotte",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-23"
+  ],
+  [
+   "0258fe2940fff18606d80320",
+   "Montpellier",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "9d1386afbcdf54443fa31459",
+   "Nancy-Metz",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "6dbaa89e271a52128404cf6b",
+   "Nantes",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "24f38e70bc8e3293ba28d274",
+   "Nice",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "544f57352093247a6f5c3eb3",
+   "Normandie",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "7357de81ddeb645171ad8764",
+   "Orléans-Tours",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "5b31c461c017f9670784a0bd",
+   "Paris",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "0bedf5ad89b7609a4b40594e",
+   "Poitiers",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "c4b6aac914807b1e43709998",
+   "Polynésie",
+   "Grandes Vacances",
+   "2026-07-04",
+   "2026-08-10"
+  ],
+  [
+   "4472f22c566a92f4cb8114fb",
+   "Reims",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "62ae7f71be52520ae29cdf33",
+   "Rennes",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "b6d82d6e3e6a3bab2e292660",
+   "Réunion",
+   "Vacances d'Hiver austral",
+   "2026-07-04",
+   "2026-08-17"
+  ],
+  [
+   "f96a60232ff8430881827873",
+   "Strasbourg",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "4076908ef0584e197120d635",
+   "Toulouse",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "e3b386606d511f307dc1c958",
+   "Versailles",
+   "Vacances d'Été",
+   "2026-07-04",
+   "2026-08-31"
+  ],
+  [
+   "b830da7ed62091f7885ec2b6",
+   "Nouvelle Calédonie",
+   "Vacances 3ème période",
+   "2026-08-08",
+   "2026-08-22"
+  ],
+  [
+   "fa7e512d573673d01e217199",
+   "Wallis et Futuna",
+   "Vacances 3ème période",
+   "2026-08-08",
+   "2026-08-22"
+  ],
+  [
+   "c94aedc703320ed68848a28d",
+   "Polynésie",
+   "Vacances de Septembre",
+   "2026-09-12",
+   "2026-09-20"
+  ],
+  [
+   "5adcd06b5791d953d7779dcc",
+   "Guadeloupe",
+   "Abolition de l’esclavage",
+   "2026-10-09",
+   "2026-10-09"
+  ],
+  [
+   "9104660ebf2a5690c60b5d1c",
+   "Mayotte",
+   "Vacances de la Toussaint",
+   "2026-10-10",
+   "2026-10-25"
+  ],
+  [
+   "b1d49178cc64cb78136a28e5",
+   "Nouvelle Calédonie",
+   "Vacances 4ème période",
+   "2026-10-10",
+   "2026-10-24"
+  ],
+  [
+   "d6b3c2ee2df2a67057a4c778",
+   "Réunion",
+   "Vacances après 1ère période",
+   "2026-10-10",
+   "2026-10-25"
+  ],
+  [
+   "f89339e7abc5abf66e4dcb18",
+   "Wallis et Futuna",
+   "Vacances 4ème période",
+   "2026-10-10",
+   "2026-10-24"
+  ],
+  [
+   "feaec4c4ca7bd825e73b9f58",
+   "Aix-Marseille",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "4c72cb9756e12551dfa2b415",
+   "Amiens",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "f99740e6a9d6195aec103c58",
+   "Besançon",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "4a4dbeaade4ca17cabd9e3f0",
+   "Bordeaux",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "a187ce5e745cd31dc4b0ab03",
+   "Clermont-Ferrand",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "f0c6954530ea780cefe4247f",
+   "Corse",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "5536d6cf849d6e3ddbf0782b",
+   "Créteil",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "1f60a5672f7590995129dcae",
+   "Dijon",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "ecfcf71452bcee545096388f",
+   "Grenoble",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "cfa381cb2674c5632b068fca",
+   "Guadeloupe",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-02"
+  ],
+  [
+   "d495ed8561f8a2123b1c4bdb",
+   "Guyane",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-02"
+  ],
+  [
+   "98e94516618dfdebfde87437",
+   "Lille",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "d4fbdf5edf1a43158a25a932",
+   "Limoges",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "db21d7561ab92fc59e26a07e",
+   "Lyon",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "490dbdbe90c6d98f0b58a9fc",
+   "Montpellier",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "124011acd7cfd92676c80c1d",
+   "Nancy-Metz",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "71aae9dc61dabd487526430e",
+   "Nantes",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "a1462bb1b2dcc7a1db8b789f",
+   "Nice",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "41875e25fb0296429913eb4b",
+   "Normandie",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "877205ad7f8d630b2030e52d",
+   "Orléans-Tours",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "b4e15fccaaf53a76245bafbe",
+   "Paris",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "58a94c9182cdbfacf386fb87",
+   "Poitiers",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "e3f24a46b5d7f124e9d152c5",
+   "Reims",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "7d2f555a3cfb193f330384f6",
+   "Rennes",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "285b71d5a887b19a2d8e56f3",
+   "Strasbourg",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "2deaac7b87238c2f8f4511e7",
+   "Toulouse",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "87c41ca041fd8b913f741967",
+   "Versailles",
+   "Vacances de la Toussaint",
+   "2026-10-17",
+   "2026-11-01"
+  ],
+  [
+   "08e5e8b66cc7140a924ed51c",
+   "Martinique",
+   "Vacances de la Toussaint",
+   "2026-10-20",
+   "2026-11-02"
+  ],
+  [
+   "743891ba013295d405a5e6f1",
+   "Saint Pierre et Miquelon",
+   "Vacances de la Toussaint",
+   "2026-10-20",
+   "2026-11-01"
+  ],
+  [
+   "6586dacf88413e64b57bf1ff",
+   "Polynésie",
+   "Vacances de Novembre",
+   "2026-10-24",
+   "2026-11-08"
+  ],
+  [
+   "267091432b74d2dd831e3fe3",
+   "Mayotte",
+   "Vacances de Noël",
+   "2026-12-12",
+   "2027-01-10"
+  ],
+  [
+   "bfeacae976734f8fae8a722f",
+   "Polynésie",
+   "Vacances de Noël",
+   "2026-12-12",
+   "2027-01-10"
+  ],
+  [
+   "2b8061b451062bdf0e4fa996",
+   "Saint Pierre et Miquelon",
+   "Vacances de Noël",
+   "2026-12-18",
+   "2027-01-03"
+  ],
+  [
+   "b140ec53ff2d5de0ef5117fd",
+   "Aix-Marseille",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "3c11c3a4910baa4784525e9d",
+   "Amiens",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "ea454477a852a545cb76987a",
+   "Besançon",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "4ae4f675bf937ba534007ae5",
+   "Bordeaux",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "a50e22e6471d31c39ecc08ee",
+   "Clermont-Ferrand",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "ba17696a43801803da0aa93d",
+   "Corse",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "bcfda55e23aa63926d94aa2d",
+   "Créteil",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "05312444af4cca98599bf3a6",
+   "Dijon",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "fff98e1c4667bf469a64c787",
+   "Grenoble",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "1b7e1e03c19656abf87241f1",
+   "Guadeloupe",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "d5cec6e7295c1d8574ebf62e",
+   "Guyane",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "e4743334d129da354fa0c272",
+   "Lille",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "9c3af35616be4e12e13bac72",
+   "Limoges",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "d8d86061b9b106ff33cb7998",
+   "Lyon",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "ff8b4c6154516d723a5db850",
+   "Martinique",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "b35403bc8606661ac5d46088",
+   "Montpellier",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "f5ea57d97c4502b50f3e8c88",
+   "Nancy-Metz",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "51ce7d36f3a5505e5ed07c11",
+   "Nantes",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "9e1c1671ecb248bc9493b2de",
+   "Nice",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "b80e66e699aa77b589b19cf7",
+   "Normandie",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "c1aabcba09a371e471f271ff",
+   "Orléans-Tours",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "94f63ee0dd50838401a3645f",
+   "Paris",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "5ffcd301f0a3694f25e60d91",
+   "Poitiers",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "acdc07b99769195ee2636d8a",
+   "Reims",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "55406367fc55f75151708c77",
+   "Rennes",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "53ccf793c5a6824fd6aa2be7",
+   "Réunion",
+   "Vacances d'Été austral",
+   "2026-12-19",
+   "2027-01-31"
+  ],
+  [
+   "2df83b6fe4d2d1118d84997b",
+   "Strasbourg",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "5c9c6873eb3afe858ef035c9",
+   "Toulouse",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "680747d3e304ad17ef25c2a7",
+   "Versailles",
+   "Vacances de Noël",
+   "2026-12-19",
+   "2027-01-03"
+  ],
+  [
+   "25797e3c279d04bdd77fd174",
+   "Créteil",
+   "Vacances d'Hiver",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "645b0337438218f22dd120dd",
+   "Guadeloupe",
+   "Vacances de Carnaval",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "695e4269626dfc70460c05b4",
+   "Guyane",
+   "Vacances de Carnaval",
+   "2027-02-06",
+   "2027-02-17"
+  ],
+  [
+   "f6004d9f3ee4be9a44431e14",
+   "Martinique",
+   "Vacances de Carnaval",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "d6dcda00e0a0b5ca86f2c702",
+   "Montpellier",
+   "Vacances d'Hiver",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "a9586852d5b0bac7bf1031a0",
+   "Paris",
+   "Vacances d'Hiver",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "b7bcaf2be611d49082c25a89",
+   "Toulouse",
+   "Vacances d'Hiver",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "81f49952b62950cc0dd630b2",
+   "Versailles",
+   "Vacances d'Hiver",
+   "2027-02-06",
+   "2027-02-21"
+  ],
+  [
+   "9af73d56829443183ac033d8",
+   "Besançon",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "545d28ab5d171157858c40c0",
+   "Bordeaux",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "1e6e27e08d9b4e42d577febd",
+   "Clermont-Ferrand",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "9f3475242e1246831084c9c3",
+   "Corse",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "e86c2eb2ab4d09346fcc503f",
+   "Dijon",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "0690b4792817c01539e50de4",
+   "Grenoble",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "ded11f3a3cf27a7cbd284753",
+   "Limoges",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "af250b2e07ece8c9f4d59d68",
+   "Lyon",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "6527e1b34840278018fe347c",
+   "Poitiers",
+   "Vacances d'Hiver",
+   "2027-02-13",
+   "2027-02-28"
+  ],
+  [
+   "c3b57c9443ab37c4546e7011",
+   "Polynésie",
+   "Vacances de Février",
+   "2027-02-13",
+   "2027-02-21"
+  ],
+  [
+   "eb8cf24b53cef96b0f48d952",
+   "Saint Pierre et Miquelon",
+   "Vacances d'Hiver",
+   "2027-02-19",
+   "2027-03-07"
+  ],
+  [
+   "3bab0da61f6e5523c632fa7a",
+   "Aix-Marseille",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "e9fe762a790410f15193aa86",
+   "Amiens",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "23d9ab14a255c736f86a6c37",
+   "Lille",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "1e539da524147f8db7d9acca",
+   "Mayotte",
+   "Vacances de Carnaval",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "d0e00256475216e6e29e0e67",
+   "Nancy-Metz",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "2ec6a42ba26cf41d48335f82",
+   "Nantes",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "d3bd9e811fba353c07c4b471",
+   "Nice",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "41ae218a4699d462d794002a",
+   "Normandie",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "d28584194a3620fb837ca426",
+   "Orléans-Tours",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "d575771487b358f85ddf456f",
+   "Reims",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "b581103f16656539f773180d",
+   "Rennes",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "22530359e63b909229ab3d9f",
+   "Strasbourg",
+   "Vacances d'Hiver",
+   "2027-02-20",
+   "2027-03-07"
+  ],
+  [
+   "27e1014b3dd580878fc9222e",
+   "Guadeloupe",
+   "Mi-carême",
+   "2027-03-04",
+   "2027-03-04"
+  ],
+  [
+   "2878fc88ddbfb6b82c0e43d9",
+   "Réunion",
+   "Vacances après 3ème période",
+   "2027-03-16",
+   "2027-03-29"
+  ],
+  [
+   "05f7f21d89a77eb0cd2c9087",
+   "Martinique",
+   "Vacances de Pâques",
+   "2027-03-24",
+   "2027-03-31"
+  ],
+  [
+   "3340c01ca689510de0bced40",
+   "Guadeloupe",
+   "Vacances de Pâques",
+   "2027-03-25",
+   "2027-04-11"
+  ],
+  [
+   "2a0b4e1975c9d76204c975b0",
+   "Guyane",
+   "Vacances de Pâques",
+   "2027-03-25",
+   "2027-04-11"
+  ],
+  [
+   "3e6dd9e834f3c40447e1c9d3",
+   "Polynésie",
+   "Vacances de Pâques",
+   "2027-03-27",
+   "2027-04-11"
+  ],
+  [
+   "b403938b164b7df921d573df",
+   "Créteil",
+   "Vacances de Printemps",
+   "2027-04-03",
+   "2027-04-18"
+  ],
+  [
+   "e911bf0827a1c2ebdef1a770",
+   "Montpellier",
+   "Vacances de Printemps",
+   "2027-04-03",
+   "2027-04-18"
+  ],
+  [
+   "dc4f7e792e0b32de33878918",
+   "Paris",
+   "Vacances de Printemps",
+   "2027-04-03",
+   "2027-04-18"
+  ],
+  [
+   "eb8c631a01c7e7bdd941e660",
+   "Toulouse",
+   "Vacances de Printemps",
+   "2027-04-03",
+   "2027-04-18"
+  ],
+  [
+   "c6d553fc23a77512535637ca",
+   "Versailles",
+   "Vacances de Printemps",
+   "2027-04-03",
+   "2027-04-18"
+  ],
+  [
+   "1ac0704730c4f789a3f67c9b",
+   "Besançon",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "95b626e79b65a1f044c7d9a3",
+   "Bordeaux",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "ee95b0a10979be038178de59",
+   "Clermont-Ferrand",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "8b7155d2f94cd12c2ecb631c",
+   "Corse",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "711cc2868948bf3a1921fc09",
+   "Dijon",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "cc365f8d3f6489b40ad6b13e",
+   "Grenoble",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "d070fb277d09bdeb2c420b86",
+   "Limoges",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "cb97cbf3ba5816db092b1a65",
+   "Lyon",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "35b1dda579228a93e4de7c86",
+   "Poitiers",
+   "Vacances de Printemps",
+   "2027-04-10",
+   "2027-04-25"
+  ],
+  [
+   "61dc16205965f8c098f9719a",
+   "Saint Pierre et Miquelon",
+   "Vacances de Printemps",
+   "2027-04-16",
+   "2027-05-02"
+  ],
+  [
+   "68841506a94b570ec83293ac",
+   "Aix-Marseille",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "2f7191d50ff50ccf24bb1a18",
+   "Amiens",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "9e14bd9d2b9788436f340efa",
+   "Lille",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "de855242e0dd2bf5aff248d2",
+   "Nancy-Metz",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "683d4241e7fa5ef53fcf44ac",
+   "Nantes",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "e10e0364a2017d712528061d",
+   "Nice",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "ee688996470cb717f67b4b5e",
+   "Normandie",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "57e0bc13e5658aefc7bf7dfd",
+   "Orléans-Tours",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "c61328c41972422584f8fb4f",
+   "Reims",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "57cb9b2dfe1111c36fad4bba",
+   "Rennes",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "9ddcc1692a7b243afa5c3b5c",
+   "Strasbourg",
+   "Vacances de Printemps",
+   "2027-04-17",
+   "2027-05-02"
+  ],
+  [
+   "2a0dfaa53519ec24f7387ad5",
+   "Guyane",
+   "Pont de l'Ascension",
+   "2027-04-29",
+   "2027-05-09"
+  ],
+  [
+   "15de9fb89ecc1e299d7c7b3d",
+   "Mayotte",
+   "Vacances de Printemps",
+   "2027-04-30",
+   "2027-05-17"
+  ],
+  [
+   "25d07278205400915cf4a94f",
+   "Réunion",
+   "Vacances après 4ème période",
+   "2027-05-05",
+   "2027-05-18"
+  ],
+  [
+   "5c54cf29259428786fc92aec",
+   "Saint Pierre et Miquelon",
+   "Pont de l'Ascension",
+   "2027-05-05",
+   "2027-05-09"
+  ],
+  [
+   "77da6e8ef5660c7a717d0c73",
+   "Martinique",
+   "Pont de l'Ascension",
+   "2027-05-06",
+   "2027-05-09"
+  ],
+  [
+   "cd1500020e6e7e45e885d54d",
+   "Corse",
+   "Pont de l'Ascension",
+   "2027-05-07",
+   "2027-05-09"
+  ],
+  [
+   "a0b1b93700989919edb8e499",
+   "Polynésie",
+   "Vacances de Mai",
+   "2027-05-15",
+   "2027-05-23"
+  ],
+  [
+   "e53660fedf5e10a460c1b923",
+   "Guadeloupe",
+   "Abolition de l’esclavage",
+   "2027-05-27",
+   "2027-05-27"
+  ],
+  [
+   "5ea36f6db0891380868b2630",
+   "Guadeloupe",
+   "Abolition de l’esclavage",
+   "2027-05-28",
+   "2027-05-28"
+  ],
+  [
+   "42e3b33025fa74ddea6f27e7",
+   "Polynésie",
+   "Grandes Vacances",
+   "2027-07-02",
+   "2027-08-23"
+  ],
+  [
+   "7e0f6388e53e6b0c02c27d58",
+   "Aix-Marseille",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "a2ddd5dd2d3855253772d7c6",
+   "Amiens",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "66ec49aa21539b5bc7de56fb",
+   "Besançon",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "4e4b85365832a0c8d94bfa63",
+   "Bordeaux",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "70349d1be26d2185615091cc",
+   "Clermont-Ferrand",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "c685c9452a98a8c94a89f729",
+   "Créteil",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "64c86893d1d88bdd5bf0cb7c",
+   "Dijon",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "d5db35ca05fd0a281fd2630f",
+   "Grenoble",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "53a79a85842cdd2c5907f251",
+   "Lille",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "7445a96a0dceb306cbe15250",
+   "Limoges",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "64729aae83d570824c8ac55b",
+   "Lyon",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "55067634c0b7eac40ea0f9f3",
+   "Montpellier",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "efe99ddec087dba670721211",
+   "Nancy-Metz",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "42bea85d5c4274a1f679e49a",
+   "Nantes",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "c84c325d4c1f9a8eeb96d5bf",
+   "Nice",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "ddb3c3a92a25d60cf079f14d",
+   "Normandie",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "118c98fe2e5f5f914fe5d948",
+   "Orléans-Tours",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "b865320f4232356e931d5f98",
+   "Paris",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "059d8b48989d76b94091a92f",
+   "Poitiers",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "3e32bf14246caa33d1b29f2b",
+   "Polynésie",
+   "Grandes Vacances",
+   "2027-07-03",
+   "2027-08-23"
+  ],
+  [
+   "d453429a4f2bc62c4eb5f408",
+   "Reims",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "57a41dfdc2c11d6f398772b4",
+   "Rennes",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "36c22d96aeb695d32eace74b",
+   "Strasbourg",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "fdc4eeb33c713419a1e892e1",
+   "Toulouse",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "b98803f550af2c44e083caa9",
+   "Versailles",
+   "Vacances d'Été",
+   "2027-07-03",
+   "2027-09-01"
+  ],
+  [
+   "119431d8b6cbfb377f07cc50",
+   "Mayotte",
+   "Vacances d'Été",
+   "2027-07-10",
+   "2027-08-22"
+  ],
+  [
+   "0e946d21ef9e4c1aa4d5a043",
+   "Polynésie",
+   "Vacances de Septembre",
+   "2027-09-25",
+   "2027-10-03"
+  ],
+  [
+   "31ffaaa1f377b3281180bf13",
+   "Mayotte",
+   "Vacances de la Toussaint",
+   "2027-10-09",
+   "2027-10-24"
+  ],
+  [
+   "7af19869ad2fb5fe3c6be2c5",
+   "Aix-Marseille",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "cfeead674e3e55f64ac6487f",
+   "Amiens",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "b8eceeec28c4dcdcebe12a5c",
+   "Besançon",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "3314689127bbaccc4e9426fd",
+   "Bordeaux",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "900193746c48c28369829618",
+   "Clermont-Ferrand",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "159a9c5063cd97f28a4e6ade",
+   "Créteil",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "0a0d48834c8f790d8fed6715",
+   "Dijon",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "3a5b6d63a7c0876602357adc",
+   "Grenoble",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "58515c998a6e27b30615927f",
+   "Lille",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "ef3c90192e1de4c08baa188c",
+   "Limoges",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "76e23386925bc7f75aced987",
+   "Lyon",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "e19fbc5debc41cd33eebb58f",
+   "Montpellier",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "17d76a41226a1f3a082d4e80",
+   "Nancy-Metz",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "51e85042594560343185343c",
+   "Nantes",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "5139c09218d6c0b2aeec6177",
+   "Nice",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "2cac7b47548c49c82fae9b7f",
+   "Normandie",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "f8cd242ba72cae09d2a50928",
+   "Orléans-Tours",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "fb903c090006d0eb2ee710d7",
+   "Paris",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "86ce31803da6c5b8980b138f",
+   "Poitiers",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "82f88ec478d6ef0990b6a947",
+   "Reims",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "6d73969153d0faa119265591",
+   "Rennes",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "0c795de932c36a2769404d96",
+   "Strasbourg",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "d16a73b7e08f0b6c5a7ed0c1",
+   "Toulouse",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "a9c73d3545e9405e6c298483",
+   "Versailles",
+   "Vacances de la Toussaint",
+   "2027-10-23",
+   "2027-11-07"
+  ],
+  [
+   "bf88ab97834f1934779f33ec",
+   "Polynésie",
+   "Vacances de Novembre",
+   "2027-11-06",
+   "2027-11-14"
+  ],
+  [
+   "37cd25c542ae7aef09fae634",
+   "Mayotte",
+   "Vacances de Noël",
+   "2027-12-11",
+   "2028-01-09"
+  ],
+  [
+   "46305e9359e70501ec955698",
+   "Aix-Marseille",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "193ca3f9f9a1bf9a12835c08",
+   "Amiens",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "0d3b847616ca636affa7b613",
+   "Besançon",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "58638ee85a064014dc2b046a",
+   "Bordeaux",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "906e1f63144e539aa44e297d",
+   "Clermont-Ferrand",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "f5dfa3c81599e08d8ea17548",
+   "Créteil",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "03e19fdd6a107860a6cff431",
+   "Dijon",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "6f7eaf189e15d07d5d4b74f0",
+   "Grenoble",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "717a43d7b73300f1c68db27f",
+   "Lille",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "4f29eeee080a16cf1130e043",
+   "Limoges",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "127ca3f9338797a4ea6a2570",
+   "Lyon",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "68015c12450a6d8999b2a1f4",
+   "Montpellier",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "7b26973fbbb6225dda44c2ad",
+   "Nancy-Metz",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "8150437c85cd9f55b597a32d",
+   "Nantes",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "bbe2a5d41c2e1aa6fa4d9d76",
+   "Nice",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "bc01b45bcb7507e23225ec81",
+   "Normandie",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "7dedf4af2151ef0dc30b3109",
+   "Orléans-Tours",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "cea3ea3f16ae206d9a44a6e0",
+   "Paris",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "7f95544d1c08b3a9571fc1a9",
+   "Poitiers",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "1de9a3006f93cad00552372e",
+   "Polynésie",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-16"
+  ],
+  [
+   "f0e1fc1e384f90372357289c",
+   "Reims",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "4e05c2a57ec1acd86cba3dde",
+   "Rennes",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "17d456884c762769ddf6cb53",
+   "Strasbourg",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "4c4bf83ac3b9168f4aa9b96f",
+   "Toulouse",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "700cf46edc8eac429fcf2559",
+   "Versailles",
+   "Vacances de Noël",
+   "2027-12-18",
+   "2028-01-02"
+  ],
+  [
+   "bbbc0cd37112bc3a751fe308",
+   "Aix-Marseille",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "ef1d06e839bd418a1ca8427c",
+   "Amiens",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "f3619aa2885baee691dc8900",
+   "Lille",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "618bcef435f89c56c6eb3f96",
+   "Nancy-Metz",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "f3f3d7b519d7ffb8ff085ae0",
+   "Nantes",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "2e096d69038486ac30c8ff60",
+   "Nice",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "faa89618cb9cdc924e320709",
+   "Normandie",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "a3d6dac9859abd9cc07e0b42",
+   "Orléans-Tours",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "adb8bd3617b8d53cf316648d",
+   "Reims",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "9468bece1d035316d43e5a33",
+   "Rennes",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "c75e0bc3f180f06b14d42120",
+   "Strasbourg",
+   "Vacances d'Hiver",
+   "2028-02-05",
+   "2028-02-20"
+  ],
+  [
+   "ef922afd1920b3b6d98b4b50",
+   "Créteil",
+   "Vacances d'Hiver",
+   "2028-02-12",
+   "2028-02-27"
+  ],
+  [
+   "b643d2493890379f87e753b7",
+   "Montpellier",
+   "Vacances d'Hiver",
+   "2028-02-12",
+   "2028-02-27"
+  ],
+  [
+   "612976cf7781dde385c03965",
+   "Paris",
+   "Vacances d'Hiver",
+   "2028-02-12",
+   "2028-02-27"
+  ],
+  [
+   "f58314fa5af475f1e1248fab",
+   "Toulouse",
+   "Vacances d'Hiver",
+   "2028-02-12",
+   "2028-02-27"
+  ],
+  [
+   "9afccf105fe94b65ba86c78c",
+   "Versailles",
+   "Vacances d'Hiver",
+   "2028-02-12",
+   "2028-02-27"
+  ],
+  [
+   "6dbb55051e5ff0bbf69298d5",
+   "Besançon",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "c2322ca235447e91eb27101e",
+   "Bordeaux",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "1a2495268fe5b98839ad3d9a",
+   "Clermont-Ferrand",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "81e65f774880ec9a6ca39660",
+   "Dijon",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "32707ba04abdf308c2eff737",
+   "Grenoble",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "62caa8ed2c01cbc66953ca7d",
+   "Limoges",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "41d558505f82920f8d1546ac",
+   "Lyon",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "b47a09059cc446e24db271e6",
+   "Mayotte",
+   "Vacances de Carnaval",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "1819e9a9004c22bd8ad948da",
+   "Poitiers",
+   "Vacances d'Hiver",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "fe62a43f27cd8fb03b204af5",
+   "Polynésie",
+   "Vacances de Février",
+   "2028-02-19",
+   "2028-03-05"
+  ],
+  [
+   "ad27553300468666303494a2",
+   "Aix-Marseille",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "58bdd93113569ee7e97b81f2",
+   "Amiens",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "bf809cbf4dc32a924017e08c",
+   "Lille",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "4d0591eb29e5dc25050e114b",
+   "Nancy-Metz",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "9895ffa3f9b31d4f7cfab75e",
+   "Nantes",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "b6c9198bb8a7d463169f5b00",
+   "Nice",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "d3a3fa591efc77fc5f78d6ab",
+   "Normandie",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "31bc307adfea0cafd20ddb35",
+   "Orléans-Tours",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "f2d17dd15bda3c5f46750fcd",
+   "Polynésie",
+   "Vacances de Pâques",
+   "2028-04-08",
+   "2028-04-17"
+  ],
+  [
+   "deda45643e8f125be12424dc",
+   "Reims",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "253dcbf5e8917a38cdb2b47c",
+   "Rennes",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "60a3701b1ff451f960198a9a",
+   "Strasbourg",
+   "Vacances de Printemps",
+   "2028-04-08",
+   "2028-04-23"
+  ],
+  [
+   "d2b032d8822b6c328e6b6951",
+   "Créteil",
+   "Vacances de Printemps",
+   "2028-04-15",
+   "2028-05-01"
+  ],
+  [
+   "771e4627bec23b64de3a8149",
+   "Montpellier",
+   "Vacances de Printemps",
+   "2028-04-15",
+   "2028-05-01"
+  ],
+  [
+   "b0920b4a83333d7475b619ec",
+   "Paris",
+   "Vacances de Printemps",
+   "2028-04-15",
+   "2028-05-01"
+  ],
+  [
+   "74e2bc84941c988ee8b72ebd",
+   "Toulouse",
+   "Vacances de Printemps",
+   "2028-04-15",
+   "2028-05-01"
+  ],
+  [
+   "8d854bab00062d7311fa7db1",
+   "Versailles",
+   "Vacances de Printemps",
+   "2028-04-15",
+   "2028-05-01"
+  ],
+  [
+   "c52a6a896844945edc990d92",
+   "Besançon",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "9b81efb46e585aee3306ad34",
+   "Bordeaux",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "d4bfd9bb2de2a4d5521c5633",
+   "Clermont-Ferrand",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "97ae94a0de09a389f7743385",
+   "Dijon",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "227f3ef7f743918a2eba26a0",
+   "Grenoble",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "397fe710906e38ad4fe7982f",
+   "Limoges",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "7fd4261d1437b77f7063b89c",
+   "Lyon",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "b9f025cae1e8778982d91de6",
+   "Poitiers",
+   "Vacances de Printemps",
+   "2028-04-22",
+   "2028-05-08"
+  ],
+  [
+   "4664bfdc1d53e61e18b56085",
+   "Mayotte",
+   "Vacances de Printemps",
+   "2028-04-29",
+   "2028-05-14"
+  ],
+  [
+   "c8c3bd0b8906deb0877fd7c8",
+   "Polynésie",
+   "Vacances de Mai",
+   "2028-05-20",
+   "2028-05-28"
+  ],
+  [
+   "6473cb128d41fe0ee6440377",
+   "Aix-Marseille",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "e59eed5ae2baea878b36c741",
+   "Amiens",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "0f97ec36b2f68592ba189997",
+   "Besançon",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "3482ab2488978561ed812bbe",
+   "Bordeaux",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "6744d2dd6e9e5ca73fdb1725",
+   "Clermont-Ferrand",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "ecfbe24cc8b8fc8241fb42fb",
+   "Créteil",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "c59324b363c7494aa2e372a9",
+   "Dijon",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "435f38bf5aee525ea819d605",
+   "Grenoble",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "0abaa5eaab5463073233836e",
+   "Lille",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "04285f1f088d3bba9ad30868",
+   "Limoges",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "f873b34115fd4e513c3ede8f",
+   "Lyon",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "7f546352932117f4d41a0642",
+   "Montpellier",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "4ab1e49da4da0c10472b7696",
+   "Nancy-Metz",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "ba3b20e32a3fe3ecaf33c5e2",
+   "Nantes",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "f45988c4eb11195282478450",
+   "Nice",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "734ffed7391ca8a6048c2e2d",
+   "Normandie",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "c30f407ad819da0818c0d78f",
+   "Orléans-Tours",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "415dfed20442bfba806aaf1d",
+   "Paris",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "0e6ea3846ac9406597ce2cbe",
+   "Poitiers",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "466d34abfad5ffa0e39cc2a2",
+   "Reims",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "064f3282e55c17b872fd3166",
+   "Rennes",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "b16c4cd2c1a5130a8beb1328",
+   "Strasbourg",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "322feddc6db506b8ba9f4f9d",
+   "Toulouse",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "6fcdcf2caedd66a079e38914",
+   "Versailles",
+   "Pont de l'Ascension",
+   "2028-05-25",
+   "2028-05-28"
+  ],
+  [
+   "fa60c3b7df575eb2ad7ca075",
+   "Polynésie",
+   "Grandes Vacances",
+   "2028-07-07",
+   "2028-08-21"
+  ],
+  [
+   "4115363af77539a3fed4cee2",
+   "Mayotte",
+   "Vacances d'Été",
+   "2028-07-08",
+   "2028-08-20"
+  ],
+  [
+   "a572c805e5e5dec48080ede2",
+   "Polynésie",
+   "Grandes Vacances",
+   "2028-07-08",
+   "2028-08-21"
+  ],
+  [
+   "31e331dd4671304fb4c15ccf",
+   "Polynésie",
+   "Vacances de Septembre",
+   "2028-09-23",
+   "2028-10-01"
+  ],
+  [
+   "8628b57de4aed4cdbb73a89d",
+   "Mayotte",
+   "Vacances de la Toussaint",
+   "2028-10-07",
+   "2028-10-22"
+  ],
+  [
+   "d08da058ec71d47513863b3d",
+   "Polynésie",
+   "Vacances de Novembre",
+   "2028-11-04",
+   "2028-11-12"
+  ],
+  [
+   "f66963aebc2fb9d0d238a05b",
+   "Mayotte",
+   "Vacances de Noël",
+   "2028-12-09",
+   "2029-01-07"
+  ],
+  [
+   "07cd111486e5d52a87a8e554",
+   "Polynésie",
+   "Vacances de Noël",
+   "2028-12-16",
+   "2029-01-14"
+  ],
+  [
+   "c744076897eaa162a3b51ad1",
+   "Mayotte",
+   "Vacances de Carnaval",
+   "2029-02-17",
+   "2029-03-04"
+  ],
+  [
+   "938dbf4064fa8db7d2dad5b5",
+   "Polynésie",
+   "Vacances de Février",
+   "2029-02-17",
+   "2029-03-05"
+  ],
+  [
+   "31e085fd18c40a82b8144d92",
+   "Polynésie",
+   "Vacances de Pâques",
+   "2029-04-07",
+   "2029-04-15"
+  ],
+  [
+   "e58ede719dc314e2e160167f",
+   "Mayotte",
+   "Vacances de Printemps",
+   "2029-04-28",
+   "2029-05-13"
+  ],
+  [
+   "a3142d303d3d883c7f1212cc",
+   "Polynésie",
+   "Vacances de Mai",
+   "2029-05-19",
+   "2029-05-27"
+  ]
+ ]
+}

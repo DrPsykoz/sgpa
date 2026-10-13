@@ -21,6 +21,10 @@ use uuid::Uuid;
 use crate::db;
 use crate::state::AppState;
 
+/// Jours fériés calculés — aucune donnée, aucune requête, et ça ne périme
+/// jamais. L'open data du ministère ne les publie pas.
+pub mod feries;
+
 // ---------------------------------------------------------------------------
 // Types renvoyés au front
 // ---------------------------------------------------------------------------
@@ -136,6 +140,46 @@ pub struct DaySchedule {
     /// on obtiendrait un second appel pour le même cours.
     pub loose_seances: Vec<DaySeance>,
     pub entries: Vec<AgendaEntrySummary>,
+    /// Pourquoi personne ne fait cours ce jour-là : vacances scolaires, jour
+    /// férié, ou journée banalisée saisie à la main. Vide = jour ordinaire.
+    ///
+    /// Plusieurs raisons sont possibles le même jour — le 1er novembre est à la
+    /// fois la Toussaint et dans les vacances qui portent son nom — et on les
+    /// rend toutes plutôt que d'en choisir une : l'affichage décide, le backend
+    /// constate.
+    pub closures: Vec<DayClosure>,
+    /// Classes dont TOUTE la classe est hors cours ce jour-là — une période
+    /// d'`absence_periods` à `student_id IS NULL`, c'est-à-dire un stage.
+    ///
+    /// Une période NOMINATIVE n'y figure jamais : la classe est là, un élève
+    /// manque. Les confondre referait, à l'envers, le défaut que le palier 006
+    /// a corrigé.
+    pub sessions_away: Vec<SessionAway>,
+    /// Dernier jour que le calendrier embarqué couvre, ou `None` si le fichier
+    /// est illisible.
+    ///
+    /// **La grille DOIT l'afficher.** Passé cette date, la fonctionnalité ne
+    /// s'éteint pas : elle se met à mentir dans l'autre sens — des créneaux
+    /// redessinés pendant des vacances qu'on ne connaît plus. En septembre 2029
+    /// l'enseignant sera dans la grille, pas dans les réglages.
+    pub calendar_until: Option<String>,
+}
+
+/// Une raison de ne pas faire cours, un jour donné.
+#[derive(Debug, Clone, Serialize)]
+pub struct DayClosure {
+    pub label: String,
+    /// `ferie` (calculé, jamais en base), `officiel` ou `manuel`.
+    pub origin: String,
+}
+
+/// Une classe entière hors cours, et pourquoi.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionAway {
+    pub session_id: String,
+    pub session_name: String,
+    /// Le motif saisi sur la période — « Stage en entreprise », le plus souvent.
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -594,15 +638,38 @@ fn parity_is_used(conn: &Connection, year_start: i32) -> Result<bool, String> {
 }
 
 /// Range les séances derrière leur créneau, et laisse les autres à part.
-fn assemble_day(
-    date: NaiveDate,
+/// Les morceaux d'une journée, regroupés.
+///
+/// Ils voyagent dans une structure et non en sept paramètres de plus : avec
+/// `closures` et `sessions_away`, `assemble_day` passerait à neuf arguments et
+/// `clippy::too_many_arguments` se déclencherait — son seuil est à sept.
+struct DayParts {
     year_start: i32,
     trimester: i32,
     show_parity: bool,
     slots: Vec<TimetableSlot>,
     seances: Vec<DaySeance>,
     entries: Vec<AgendaEntrySummary>,
-) -> DaySchedule {
+    closures: Vec<DayClosure>,
+    sessions_away: Vec<SessionAway>,
+}
+
+/// Dernier jour couvert par le calendrier embarqué. Lu une fois par réponse.
+fn calendar_until() -> Option<String> {
+    db::holidays::couvert_jusqu_au()
+}
+
+fn assemble_day(date: NaiveDate, parts: DayParts) -> DaySchedule {
+    let DayParts {
+        year_start,
+        trimester,
+        show_parity,
+        slots,
+        seances,
+        entries,
+        closures,
+        sessions_away,
+    } = parts;
     let mut day_slots: Vec<DaySlot> = slots
         .into_iter()
         .map(|slot| DaySlot { slot, seance: None })
@@ -635,10 +702,101 @@ fn assemble_day(
         slots: day_slots,
         loose_seances,
         entries,
+        closures,
+        sessions_away,
+        calendar_until: calendar_until(),
     }
 }
 
-/// Journée complète en **cinq requêtes**, quel que soit le nombre de cours.
+/// Les vacances scolaires et journées banalisées qui recouvrent une plage.
+///
+/// L'académie est lue EN SOUS-REQUÊTE et non passée par le front : c'est la même
+/// doctrine que le trimestre, une seule implémentation de la règle. Le front ne
+/// choisit pas de quelle académie il parle.
+///
+/// ⚠ AUCUN filtre par année scolaire, et c'est mesuré : les vacances d'été
+/// 2026-2027 à Besançon courent du 2027-07-03 au 2027-09-01, donc à cheval sur
+/// le 1er août. Un filtre par année les ferait disparaître le 20 août, au moment
+/// précis où l'on prépare la rentrée. On interroge par plage de dates, point.
+const VACANCES_DE_LA_PERIODE: &str = "SELECT sh.start_date, sh.end_date, sh.label, sh.origin
+  FROM school_holidays sh
+ WHERE sh.academie = (SELECT academie FROM app_settings WHERE id = 1)
+   AND sh.end_date   >= ?1
+   AND sh.start_date <= ?2
+ ORDER BY sh.start_date, sh.label";
+
+/// Les classes ENTIÈRES hors cours sur une plage — les stages.
+///
+/// `p.student_id IS NULL` est la condition qui compte : une période nominative
+/// (hospitalisation, stage annulé pour un seul) ne retire JAMAIS un créneau. La
+/// classe est là, un élève manque. Les confondre referait, à l'envers, le défaut
+/// que le palier 006 a corrigé.
+const CLASSES_HORS_COURS: &str = "SELECT p.session_id, s.name, p.reason, p.start_date, p.end_date
+  FROM absence_periods p
+  JOIN sessions s ON s.id = p.session_id
+ WHERE p.student_id IS NULL
+   AND p.end_date   >= ?1
+   AND p.start_date <= ?2
+ ORDER BY s.name, p.start_date";
+
+/// Une période recouvrant des jours : les bornes, et de quoi la décrire.
+type Periode = (String, String, String, String);
+
+/// Une classe hors cours sur une période : classe, nom, motif, bornes.
+type ClasseHorsCours = (String, String, String, String, String);
+
+fn map_periode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Periode> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+}
+
+fn map_classe_hors_cours(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClasseHorsCours> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+    ))
+}
+
+/// Les raisons de ne pas faire cours un jour donné, vacances **et** fériés.
+///
+/// Les fériés viennent du calcul et ne coûtent aucune requête ; les vacances
+/// sont filtrées depuis la plage déjà chargée, pour que la semaine n'interroge
+/// pas sept fois.
+fn closures_du_jour(date: NaiveDate, jour: &str, vacances: &[Periode]) -> Vec<DayClosure> {
+    let mut closures: Vec<DayClosure> = feries::nom_du_ferie(date)
+        .map(|nom| DayClosure {
+            label: nom.to_string(),
+            origin: "ferie".to_string(),
+        })
+        .into_iter()
+        .collect();
+    for (debut, fin, label, origin) in vacances {
+        if debut.as_str() <= jour && jour <= fin.as_str() {
+            closures.push(DayClosure {
+                label: label.clone(),
+                origin: origin.clone(),
+            });
+        }
+    }
+    closures
+}
+
+/// Les classes entières hors cours un jour donné.
+fn sessions_away_du_jour(jour: &str, periodes: &[ClasseHorsCours]) -> Vec<SessionAway> {
+    periodes
+        .iter()
+        .filter(|(_, _, _, debut, fin)| debut.as_str() <= jour && jour <= fin.as_str())
+        .map(|(session_id, session_name, reason, _, _)| SessionAway {
+            session_id: session_id.clone(),
+            session_name: session_name.clone(),
+            reason: reason.clone(),
+        })
+        .collect()
+}
+
+/// Journée complète en **sept requêtes**, quel que soit le nombre de cours.
 fn day_schedule(conn: &Connection, date: NaiveDate) -> Result<DaySchedule, String> {
     let year_start = year_start_for(date);
     let jour = iso(date);
@@ -668,14 +826,31 @@ fn day_schedule(conn: &Connection, date: NaiveDate) -> Result<DaySchedule, Strin
         map_entry_summary,
     )?;
 
+    let vacances = collect(
+        conn,
+        VACANCES_DE_LA_PERIODE,
+        params![jour, jour],
+        map_periode,
+    )?;
+    let hors_cours = collect(
+        conn,
+        CLASSES_HORS_COURS,
+        params![jour, jour],
+        map_classe_hors_cours,
+    )?;
+
     Ok(assemble_day(
         date,
-        year_start,
-        trimester,
-        show_parity,
-        slots,
-        seances,
-        entries,
+        DayParts {
+            year_start,
+            trimester,
+            show_parity,
+            slots,
+            seances,
+            entries,
+            closures: closures_du_jour(date, &jour, &vacances),
+            sessions_away: sessions_away_du_jour(&jour, &hors_cours),
+        },
     ))
 }
 
@@ -714,6 +889,22 @@ fn week_schedule(conn: &Connection, monday: NaiveDate) -> Result<WeekSchedule, S
         map_entry_summary,
     )?;
 
+    // Chargées UNE FOIS pour les sept jours, puis filtrées en mémoire : la
+    // semaine ne doit pas interroger sept fois ce qu'une plage de dates rend
+    // d'un coup.
+    let vacances = collect(
+        conn,
+        VACANCES_DE_LA_PERIODE,
+        params![iso(monday), iso(sunday)],
+        map_periode,
+    )?;
+    let hors_cours = collect(
+        conn,
+        CLASSES_HORS_COURS,
+        params![iso(monday), iso(sunday)],
+        map_classe_hors_cours,
+    )?;
+
     let mut days = Vec::with_capacity(7);
     for decalage in 0..7u64 {
         let date = monday
@@ -724,16 +915,20 @@ fn week_schedule(conn: &Connection, monday: NaiveDate) -> Result<WeekSchedule, S
 
         days.push(assemble_day(
             date,
-            year_start,
-            db::trimester_for(&jour, &bounds),
-            show_parity,
-            slots
-                .iter()
-                .filter(|s| s.weekday == weekday)
-                .cloned()
-                .collect(),
-            seances.iter().filter(|s| s.date == jour).cloned().collect(),
-            entries.iter().filter(|e| e.date == jour).cloned().collect(),
+            DayParts {
+                year_start,
+                trimester: db::trimester_for(&jour, &bounds),
+                show_parity,
+                slots: slots
+                    .iter()
+                    .filter(|s| s.weekday == weekday)
+                    .cloned()
+                    .collect(),
+                seances: seances.iter().filter(|s| s.date == jour).cloned().collect(),
+                entries: entries.iter().filter(|e| e.date == jour).cloned().collect(),
+                closures: closures_du_jour(date, &jour, &vacances),
+                sessions_away: sessions_away_du_jour(&jour, &hors_cours),
+            },
         ));
     }
 
@@ -771,6 +966,24 @@ pub fn get_week_schedule(
     let date = parse_date(&monday, "La date")?;
     let conn = state.conn()?;
     week_schedule(&conn, monday_of(date)?)
+}
+
+/// Les académies pour lesquelles le calendrier embarqué porte des dates.
+///
+/// Lue DANS LES DONNÉES, jamais recopiée d'une liste administrative : mesuré,
+/// le jeu du ministère porte 36 valeurs `location` distinctes mais seules 34 ont
+/// des dates dans la fenêtre embarquée — Caen et Rouen sont fusionnées dans
+/// Normandie depuis 2020. Une liste recopiée proposerait donc des académies sans
+/// dates, c'est-à-dire un réglage qui a l'air de marcher et ne fait rien.
+#[tauri::command]
+pub fn get_available_academies(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let conn = state.conn()?;
+    collect(
+        &conn,
+        "SELECT DISTINCT academie FROM school_holidays ORDER BY academie",
+        params![],
+        |row| row.get(0),
+    )
 }
 
 /// Tous les créneaux d'une année, tous jours confondus et sans filtre de parité :

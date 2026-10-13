@@ -181,10 +181,30 @@ export default function Settings() {
     }
   }, []);
 
+  // Les académies que le calendrier embarqué couvre réellement. Lues en base,
+  // jamais recopiées d'une liste administrative : mesuré, le jeu du ministère
+  // porte 36 valeurs distinctes mais seules 34 ont des dates — Caen et Rouen
+  // sont fusionnées dans Normandie depuis 2020. Une liste recopiée proposerait
+  // donc des académies sans dates, c'est-à-dire un réglage qui a l'air de
+  // marcher et ne fait rien.
+  const [academies, setAcademies] = useState<string[]>([]);
+
+  const loadAcademies = useCallback(async () => {
+    try {
+      setAcademies(await api.getAvailableAcademies());
+    } catch {
+      // Le calendrier est une couche d'affichage : son absence ne doit pas
+      // empêcher de régler le délai de verrouillage. Le champ se contentera
+      // d'afficher la valeur enregistrée.
+      setAcademies([]);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
     void loadBackups();
-  }, [load, loadBackups]);
+    void loadAcademies();
+  }, [load, loadBackups, loadAcademies]);
 
   useEffect(() => {
     void loadBounds(boundsYear);
@@ -408,6 +428,43 @@ export default function Settings() {
                       placeholder="Collège Jean Moulin"
                     />
                   </div>
+                </div>
+
+                {/* L'académie décide des dates de vacances affichées par
+                    l'emploi du temps. Elle vit ici et non sur une classe : une
+                    clé USB, une base, un enseignant. */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="academie">Académie</Label>
+                  <Select
+                    value={form.academie === "" ? "aucune" : form.academie}
+                    onValueChange={(valeur) =>
+                      setField({ academie: valeur === "aucune" ? "" : valeur })
+                    }
+                  >
+                    <SelectTrigger id="academie">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="aucune">
+                        Non renseignée — aucune vacance affichée
+                      </SelectItem>
+                      {academies.map((nom) => (
+                        <SelectItem key={nom} value={nom}>
+                          {nom}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Elle détermine les dates de vacances scolaires affichées par
+                    l'emploi du temps, qui cesse alors d'y proposer des cours.
+                    Tant qu'elle n'est pas renseignée, aucune vacance n'est
+                    affichée — des dates fausses seraient pires que pas de
+                    dates. Les jours fériés, eux, sont calculés et ne dépendent
+                    pas de ce réglage.
+                    {academies.length > 0 &&
+                      ` ${academies.length} académies disponibles dans le calendrier embarqué.`}
+                  </p>
                 </div>
               </CardContent>
             </Card>

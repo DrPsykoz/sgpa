@@ -66,6 +66,11 @@ pub struct AppSettings {
     pub lock_on_minimize: bool,
     pub overall_average_rule: String,
     pub removed_competency_policy: String,
+    /// Académie de l'enseignant. `""` = non renseignée, et c'est le défaut : le
+    /// calendrier scolaire n'affiche alors AUCUNE vacance plutôt que celles
+    /// d'une académie au hasard — des dates fausses seraient pires que pas de
+    /// dates.
+    pub academie: String,
     pub last_backup_at: Option<String>,
 }
 
@@ -282,6 +287,34 @@ pub fn update_settings(
     }
 
     let conn = state.conn()?;
+
+    // L'académie est validée contre LES DONNÉES, jamais contre une liste
+    // recopiée : une académie sans dates serait un réglage qui a l'air de
+    // marcher et ne fait rien.
+    //
+    // Trois valeurs sont acceptées : vide (non renseignée), une académie
+    // présente dans `school_holidays`, OU LA VALEUR DÉJÀ ENREGISTRÉE. Ce
+    // troisième cas n'est pas une complaisance : le jour où une académie cesse
+    // d'être publiée, sans lui l'enseignant ne pourrait plus enregistrer son
+    // délai de verrouillage — cette commande écrit les réglages d'un bloc, et
+    // elle refuserait tout avec un message parlant d'académie.
+    let academie = settings.academie.trim();
+    if !academie.is_empty() {
+        let connue: bool = conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM school_holidays WHERE academie = ?1)
+                     OR EXISTS (SELECT 1 FROM app_settings WHERE id = 1 AND academie = ?1)",
+                params![academie],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if !connue {
+            return Err(format!(
+                "Académie inconnue : « {academie} ». Choisissez-en une dans la liste —                  elle vient du calendrier officiel embarqué, et seules celles qui ont des                  dates y figurent."
+            ));
+        }
+    }
+
     // `last_backup_at` ne figure pas dans le UPDATE : il appartient à la
     // sauvegarde. Un formulaire de réglages un peu périmé effacerait sinon la
     // date de la dernière sauvegarde.
@@ -289,7 +322,8 @@ pub fn update_settings(
         "UPDATE app_settings
             SET teacher_display_name = ?1, school_name = ?2, lock_timeout_minutes = ?3,
                 lock_on_minimize = ?4, overall_average_rule = ?5,
-                removed_competency_policy = ?6, updated_at = datetime('now')
+                removed_competency_policy = ?6, academie = ?7,
+                updated_at = datetime('now')
           WHERE id = 1",
         params![
             settings.teacher_display_name.trim(),
@@ -298,6 +332,7 @@ pub fn update_settings(
             settings.lock_on_minimize,
             settings.overall_average_rule,
             settings.removed_competency_policy,
+            academie,
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -342,7 +377,7 @@ fn require_unlocked(state: &AppState) -> Result<(), String> {
 fn read_settings(conn: &rusqlite::Connection) -> Result<AppSettings, String> {
     conn.query_row(
         "SELECT teacher_display_name, school_name, lock_timeout_minutes, lock_on_minimize,
-                overall_average_rule, removed_competency_policy, last_backup_at
+                overall_average_rule, removed_competency_policy, academie, last_backup_at
            FROM app_settings WHERE id = 1",
         [],
         |row| {
@@ -353,7 +388,8 @@ fn read_settings(conn: &rusqlite::Connection) -> Result<AppSettings, String> {
                 lock_on_minimize: row.get(3)?,
                 overall_average_rule: row.get(4)?,
                 removed_competency_policy: row.get(5)?,
-                last_backup_at: row.get(6)?,
+                academie: row.get(6)?,
+                last_backup_at: row.get(7)?,
             })
         },
     )

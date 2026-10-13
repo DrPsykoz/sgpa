@@ -1,3 +1,4 @@
+pub mod holidays;
 pub mod migrations;
 
 use std::fmt;
@@ -122,6 +123,16 @@ pub fn at(context: &'static str) -> impl FnOnce(rusqlite::Error) -> DbError {
 pub fn prepare_encrypted(layout: &PortableLayout, key: &MasterKey) -> Result<Connection, DbError> {
     let mut conn = open_encrypted(&layout.db_path, key)?;
     migrations::run(&mut conn, &layout.backups_dir)?;
+    // Le calendrier scolaire embarqué, après les migrations et **sans `?`**.
+    //
+    // L'absence de `?` est le point le plus important de cette fonction. Les
+    // vacances sont une couche d'affichage : elles n'ont pas le droit
+    // d'empêcher l'ouverture d'un bilan. Et l'erreur ne remonterait pas
+    // seulement à `unlock` — elle remonterait à `setup_lock`, où l'échec
+    // déclenche `annuler_setup`, qui SUPPRIME `data/sgpa.keys`. Une ligne de
+    // calendrier mal formée rendrait l'application définitivement impossible à
+    // configurer. `holidays::seed` ne rend donc rien, par construction.
+    holidays::seed(&mut conn);
     Ok(conn)
 }
 

@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -41,6 +41,11 @@ const STEPS: &[(i32, &str, &str)] = &[
         7,
         "motif d'annulation d'un cours",
         include_str!("sql/007_motif_annulation.sql"),
+    ),
+    (
+        8,
+        "calendrier scolaire",
+        include_str!("sql/008_calendrier_scolaire.sql"),
     ),
 ];
 
@@ -189,7 +194,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            tables, 22,
+            tables, 23,
             "18 tables au palier 003, plus timetable_slots, agenda_entries, \
              absence_periods et stage_placements"
         );
@@ -393,7 +398,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 22);
+        assert_eq!(tables, 23);
 
         let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
@@ -488,7 +493,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 22, "le palier 007 n'ajoute aucune table");
+        assert_eq!(tables, 23, "007 n'ajoute aucune table, 008 en ajoute une");
 
         // La colonne arrive vide partout, y compris sur la séance déjà annulée :
         // la migration n'invente aucun motif.

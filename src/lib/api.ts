@@ -293,6 +293,13 @@ export const api = {
 	 *  `date` en `AAAA-MM-JJ`. Le trimestre, l'année scolaire, le jour ISO et la
 	 *  parité de semaine sont calculés par le backend — ne jamais les recalculer
 	 *  ici. */
+	/** Les académies pour lesquelles le calendrier embarqué porte des dates.
+	 *
+	 *  Lue DANS les données, jamais recopiée : une liste administrative
+	 *  proposerait des académies sans dates, c'est-à-dire un réglage qui a l'air
+	 *  de marcher et ne fait rien. */
+	getAvailableAcademies: () => call<string[]>("get_available_academies"),
+
 	getDaySchedule: (date: string) =>
 		call<DaySchedule>("get_day_schedule", { date }),
 

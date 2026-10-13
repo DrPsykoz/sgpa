@@ -35,6 +35,10 @@ export interface AppSettings {
 	lock_on_minimize: boolean;
 	overall_average_rule: OverallAverageRule;
 	removed_competency_policy: RemovedCompetencyPolicy;
+	/** Académie de l'enseignant. `""` = non renseignée, et c'est le défaut : le
+	 *  calendrier n'affiche alors AUCUNE vacance plutôt que celles d'une
+	 *  académie au hasard — des dates fausses seraient pires que pas de dates. */
+	academie: string;
 	last_backup_at: string | null;
 }
 
@@ -330,6 +334,39 @@ export interface DaySchedule {
 	 *  journée, et « Créer et ouvrir » produirait un second appel du même cours. */
 	loose_seances: DaySeance[];
 	entries: AgendaEntrySummary[];
+	/** Pourquoi personne ne fait cours ce jour-là. Vide = jour ordinaire.
+	 *
+	 *  Plusieurs raisons sont possibles le même jour — le 1er novembre est à la
+	 *  fois la Toussaint et dans les vacances qui portent son nom. Le backend les
+	 *  rend toutes ; c'est l'affichage qui choisit quoi montrer. */
+	closures: DayClosure[];
+	/** Classes dont la classe ENTIÈRE est hors cours — un stage.
+	 *
+	 *  Une période nominative n'y figure jamais : la classe est là, un élève
+	 *  manque. Les confondre referait, à l'envers, le défaut que le palier 006 a
+	 *  corrigé. */
+	sessions_away: SessionAway[];
+	/** Dernier jour que le calendrier embarqué couvre, `null` si illisible.
+	 *
+	 *  **À AFFICHER DANS LA GRILLE.** Passé cette date la fonctionnalité ne
+	 *  s'éteint pas : elle se met à mentir dans l'autre sens — des créneaux
+	 *  redessinés pendant des vacances qu'on ne connaît plus. */
+	calendar_until: string | null;
+}
+
+/** Une raison de ne pas faire cours, un jour donné. */
+export interface DayClosure {
+	label: string;
+	/** `ferie` (calculé, jamais en base), `officiel` (semé) ou `manuel` (saisi). */
+	origin: "ferie" | "officiel" | "manuel";
+}
+
+/** Une classe entière hors cours, et pourquoi. */
+export interface SessionAway {
+	session_id: string;
+	session_name: string;
+	/** Le motif saisi sur la période — « Stage en entreprise », le plus souvent. */
+	reason: string;
 }
 
 export interface WeekSchedule {
