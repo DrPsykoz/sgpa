@@ -16,7 +16,7 @@ Application de bureau **portable** pour enseignant de SEGPA. Tauri v2 (Rust + ru
 ```powershell
 pnpm tauri dev          # lance l'app (Vite sur 1420 + compilation Rust)
 pnpm build              # tsc --noEmit puis vite build
-cargo test --lib        # depuis src-tauri/ — 116 tests
+cargo test --lib        # depuis src-tauri/ — 119 tests
 cargo clippy            # doit rester à zéro avertissement
 ```
 
@@ -131,6 +131,6 @@ Ces trois points appartiennent à l'enseignant ; s'y substituer produirait des d
 
 ## Tests
 
-`cargo test --lib` : 116 tests, dont 15 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher) et 9 sur l'ouverture chiffrée. Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
+`cargo test --lib` : 119 tests, dont 15 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher) et 9 sur l'ouverture chiffrée. Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
 
 Le harnais `tauri::test::mock_builder` **ne fonctionne pas ici** : ses binaires de test meurent au démarrage avec `STATUS_ENTRYPOINT_NOT_FOUND`, `tauri-build` n'embarquant son manifeste Windows que dans l'exécutable de l'application. Ne pas réessayer sans résoudre ce point d'abord.
