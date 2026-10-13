@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardList, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { schoolYearLabel } from "@/types";
 import type { Evaluation, Session, Student, TrimesterBounds } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -236,8 +237,17 @@ export function EvaluationsTab({ session, students }: EvaluationsTabProps) {
             <div className="space-y-6">
               {groups.map((group) => (
                 <div key={group.trimester} className="space-y-2">
+                  {/* L'année scolaire AVANT le trimestre. Une classe n'en
+                      couvre qu'une, donc l'année est la même partout dans cet
+                      onglet — et c'est précisément pourquoi elle manquait :
+                      « Trimestre 1 » tout seul ne dit pas de quelle année il
+                      s'agit dès qu'on travaille sur plusieurs classes, et
+                      l'ordre chronologique n'était lisible que si on le savait
+                      déjà. Elle se lit sur la classe, elle n'est pas calculée
+                      ici — le niveau et l'année ne vivent que sur la session. */}
                   <h4 className="text-sm font-semibold text-muted-foreground">
-                    Trimestre {group.trimester} — {group.items.length} évaluation
+                    {schoolYearLabel(session.year_start)} · Trimestre{" "}
+                    {group.trimester} — {group.items.length} évaluation
                     {group.items.length > 1 ? "s" : ""}
                   </h4>
                   {group.items.map((evaluation) => {
