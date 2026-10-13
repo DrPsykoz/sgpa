@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 7;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -36,6 +36,11 @@ const STEPS: &[(i32, &str, &str)] = &[
         6,
         "suivi de stage",
         include_str!("sql/006_suivi_de_stage.sql"),
+    ),
+    (
+        7,
+        "motif d'annulation d'un cours",
+        include_str!("sql/007_motif_annulation.sql"),
     ),
 ];
 
@@ -422,6 +427,105 @@ mod tests {
         assert_eq!(slot, None, "le créneau supprimé se détache de la séance");
         assert_eq!(appels, 2, "et l'appel reste intact");
 
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 007 ajoute une COLONNE, pas une table : c'est le premier du
+    /// projet dans ce cas, et les deux assertions `tables == 22` doivent rester
+    /// telles quelles. Ce test le fixe, pour qu'un futur lecteur ne « corrige »
+    /// pas un compte qu'il croit en retard.
+    ///
+    /// Il vérifie surtout qu'une base v6 PEUPLÉE traverse le palier sans rien
+    /// perdre, et que la colonne arrive à `''` partout — pas à NULL, qui
+    /// obligerait chaque lecture à traiter deux cas d'absence au lieu d'un.
+    #[test]
+    fn une_base_v6_peuplee_traverse_le_palier_007_intacte() {
+        let dir = temp_dir("v6-peuplee");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 6);
+
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026);",
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');",
+        )
+        .unwrap();
+        // Une séance tenue, et une ANNULÉE d'avant le palier : c'est elle qui
+        // doit hériter d'un motif vide sans que rien ne soit inventé.
+        conn.execute_batch(
+            "INSERT INTO seances (id, session_id, title, date, trimester, cancelled,
+                                  content_html)
+                  VALUES ('c1', 's1', 'Atelier', '2026-11-17', 1, 0,
+                          '<p>Prise de mesures</p>'),
+                         ('c2', 's1', 'Sortie', '2026-11-19', 1, 1, '<p>Musée</p>');",
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO attendance_records (seance_id, student_id, status)
+                  VALUES ('c1', 'e1', 'present');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // AUCUNE table ajoutée par ce palier.
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 22, "le palier 007 n'ajoute aucune table");
+
+        // La colonne arrive vide partout, y compris sur la séance déjà annulée :
+        // la migration n'invente aucun motif.
+        let motifs: Vec<(String, i32, String)> = conn
+            .prepare("SELECT id, cancelled, cancel_reason FROM seances ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            motifs,
+            vec![
+                ("c1".to_string(), 0, String::new()),
+                ("c2".to_string(), 1, String::new()),
+            ],
+            "aucun motif inventé, et jamais NULL"
+        );
+
+        // Ce que l'enseignant avait saisi est toujours là, au caractère près.
+        let contenu: String = conn
+            .query_row(
+                "SELECT content_html FROM seances WHERE id = 'c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(contenu, "<p>Prise de mesures</p>");
+        let appels: i64 = conn
+            .query_row("SELECT COUNT(*) FROM attendance_records", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(appels, 1);
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }

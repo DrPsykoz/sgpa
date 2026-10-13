@@ -28,6 +28,7 @@ import {
 import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
 import { SeanceDetail } from "@/pages/SessionDetail/seance/SeanceDetail";
 import { DayList } from "@/pages/Timetable/DayList";
+import { CancelReasonDialog } from "@/pages/Timetable/CancelReasonDialog";
 import { NewPlanningDialog } from "@/pages/Timetable/NewPlanningDialog";
 import { SlotDialog } from "@/pages/Timetable/SlotDialog";
 import { WeekGrid } from "@/pages/Timetable/WeekGrid";
@@ -208,6 +209,14 @@ export default function Timetable(): ReactElement {
   // vient du bouton « Ajouter… », qui ne dit qu'une chose — la journée
   // affichée.
   const [ajoutPrefill, setAjoutPrefill] = useState<AjoutPrefill | null>(null);
+  // « Ce cours n'a pas lieu » demande désormais pourquoi avant d'écrire. Le
+  // couple porte le créneau ET la date : depuis une semaine sur laquelle on a
+  // navigué, la date de la case n'est pas celle de l'onglet Journée, et c'est
+  // celle de la case qui s'écrit.
+  const [annulation, setAnnulation] = useState<{
+    slot: TimetableSlot;
+    date: string;
+  } | null>(null);
   const [entryOuverte, setEntryOuverte] = useState<string | null>(null);
 
   // La séance ouverte est hébergée ici, comme `SeancesTab` héberge la sienne :
@@ -483,14 +492,15 @@ export default function Timetable(): ReactElement {
    * rechargement suit la même règle : `rafraichirJour` lit la date de l'écran.
    */
   const marquerSansCours = useCallback(
-    async (slot: TimetableSlot, dateCible: string) => {
+    async (slot: TimetableSlot, dateCible: string, motif: string) => {
       setBusySlotId(slot.id);
       setActionError(null);
       try {
         // `cancelled = true` : la séance naît annulée, donc hors du
-        // dénominateur d'assiduité de toute la classe. Aucune confirmation —
-        // c'est l'écriture la plus inoffensive du palier pour les chiffres.
-        await api.createSeanceFromSlot(slot.id, dateCible, true);
+        // dénominateur d'assiduité de toute la classe. Le motif part dans la
+        // même écriture — c'est la même information vue de deux côtés, l'une
+        // dit QUE, l'autre dit POURQUOI.
+        await api.createSeanceFromSlot(slot.id, dateCible, true, motif);
         if (dateCible === date) await rafraichirJour();
         await rafraichirSemaine();
       } catch (err) {
@@ -834,8 +844,11 @@ export default function Timetable(): ReactElement {
                 onCreateAndOpen={(slot) => {
                   demanderCreation(slot, date);
                 }}
+                // Le clic n'écrit plus : il demande pourquoi. Le bon moment
+                // pour dire la raison d'une annulation est celui où on annule,
+                // pas trois semaines plus tard en rouvrant la séance.
                 onCancelSlot={(slot) => {
-                  void marquerSansCours(slot, date);
+                  setAnnulation({ slot, date });
                 }}
                 onOpenEntry={ouvrirEntree}
               />
@@ -986,6 +999,26 @@ export default function Timetable(): ReactElement {
           Cinq de ses six formes n'engendrent aucune séance ; la sixième, « Cours
           ponctuel », en engendre une — et une seule — qui compte au dénominateur
           d'assiduité du bilan. */}
+      {/* Il n'écrit rien lui-même : il rend un texte, et c'est
+          `marquerSansCours` qui appelle la commande. `seances` garde une porte
+          d'écriture unique. */}
+      <CancelReasonDialog
+        cible={
+          annulation && {
+            slotLabel: annulation.slot.label,
+            date: annulation.date,
+          }
+        }
+        onClose={() => setAnnulation(null)}
+        busy={annulation !== null && busySlotId === annulation.slot.id}
+        onConfirm={(motif) => {
+          if (annulation === null) return;
+          const { slot, date: dateCible } = annulation;
+          setAnnulation(null);
+          void marquerSansCours(slot, dateCible, motif);
+        }}
+      />
+
       <NewPlanningDialog
         open={ajoutOpen}
         onOpenChange={(ouvert) => {

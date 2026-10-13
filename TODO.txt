@@ -1,0 +1,11 @@
+Evaluations:
+Ajouter une note globale par eleve, note sur 20
+Tri automatique par date 
+Ajouter fiche evaluation (generé a partie des infos deja dispo sauf pour "on demande" et "on exige" il faut ajouter une ui pour modifier)
+Modifier fiche contrat (voir graph)
+
+
+Compatibilité tablete 
+
+Agenda:
+Ajouter une raison fixe pourquoi un cours n'as pas eu lieu

@@ -235,8 +235,21 @@ export const api = {
 	 *
 	 *  Elle vit avec les autres écritures de séance, comme côté backend :
 	 *  `seances` garde une porte d'écriture unique. */
-	createSeanceFromSlot: (slotId: string, date: string, cancelled: boolean) =>
-		call<Seance>("create_seance_from_slot", { slotId, date, cancelled }),
+	createSeanceFromSlot: (
+		slotId: string,
+		date: string,
+		cancelled: boolean,
+		/** Motif de « ce cours n'a pas lieu ». Ignoré côté backend quand
+		 *  `cancelled` est faux, et **non écrasé** si la séance existe déjà : le
+		 *  `ON CONFLICT DO NOTHING` protège la ligne en place. */
+		cancelReason = "",
+	) =>
+		call<Seance>("create_seance_from_slot", {
+			slotId,
+			date,
+			cancelled,
+			cancelReason,
+		}),
 
 	/** Titre, date, horaire, trimestre, annulation — n'écrit JAMAIS le cahier de
 	 *  texte, ni la classe.
@@ -251,6 +264,9 @@ export const api = {
 		endTime: string,
 		trimester: number | null,
 		cancelled: boolean,
+		/** Motif d'annulation. Le backend le vide dès que `cancelled` est faux :
+		 *  une séance qui a lieu n'a pas de raison de ne pas avoir eu lieu. */
+		cancelReason = "",
 	) =>
 		call<Seance>("update_seance_meta", {
 			id,
@@ -260,6 +276,7 @@ export const api = {
 			endTime,
 			trimester,
 			cancelled,
+			cancelReason,
 		}),
 
 	/** Cahier de texte seul — n'écrit JAMAIS le titre ni la date. */

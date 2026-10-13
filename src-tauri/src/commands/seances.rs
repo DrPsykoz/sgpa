@@ -16,6 +16,13 @@ pub struct Seance {
     pub trimester: i32,
     pub trimester_is_manual: bool,
     pub cancelled: bool,
+    /// Pourquoi ce cours n'a pas eu lieu. `""` = pas de motif.
+    ///
+    /// Texte libre, et AUCUN calcul ne s'appuie dessus : c'est `cancelled` seul
+    /// qui sort la séance du dénominateur d'assiduité. Ce champ ne s'imprime sur
+    /// aucun bilan — note de travail pour l'enseignant, pas information due aux
+    /// familles.
+    pub cancel_reason: String,
     pub content_html: String,
     pub attendance_taken_at: Option<String>,
     pub created_at: String,
@@ -53,11 +60,32 @@ const ATTENDANCE_STATUSES: [&str; 5] = ["non_fait", "present", "absent", "retard
 /// mappeur ne se voit qu'à l'exécution.
 const SEANCE_COLUMNS: &str = "id, session_id, title, date, trimester, trimester_is_manual, \
                               cancelled, content_html, attendance_taken_at, created_at, \
-                              slot_id, start_time, end_time";
+                              slot_id, start_time, end_time, cancel_reason";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Le motif d'annulation retenu pour une séance.
+///
+/// Une séance qui a lieu n'a pas de raison de ne pas avoir eu lieu : le motif
+/// est alors vidé, et non conservé « au cas où ». Décocher l'annulation puis la
+/// recocher repart donc d'un champ vide, ce qui est le comportement honnête —
+/// un motif ressorti tout seul après un aller-retour serait une affirmation que
+/// l'enseignant n'a pas refaite.
+///
+/// Cette règle vit ici, dans une fonction, plutôt que dans un `CHECK` : un CHECK
+/// ferait échouer la décoche sur la phrase brute de SQLite, en anglais, et ne se
+/// retire jamais ensuite. Et elle est extraite plutôt qu'écrite deux fois dans
+/// les deux chemins d'écriture, parce que `update_seance_meta` est une commande
+/// Tauri — non appelable en test, donc jamais éprouvée si la règle y reste.
+fn motif_retenu(cancelled: bool, cancel_reason: &str) -> String {
+    if cancelled {
+        cancel_reason.trim().to_string()
+    } else {
+        String::new()
+    }
+}
 
 fn map_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<Seance> {
     Ok(Seance {
@@ -74,6 +102,11 @@ fn map_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<Seance> {
         slot_id: row.get(10)?,
         start_time: row.get(11)?,
         end_time: row.get(12)?,
+        // Lu en DERNIER, et non à côté de `cancelled` auquel il appartient :
+        // les indices de `row.get` sont codés en dur, et insérer une colonne au
+        // milieu décalerait en silence les six suivantes. Une colonne ajoutée se
+        // lit à la fin.
+        cancel_reason: row.get(13)?,
     })
 }
 
@@ -325,9 +358,7 @@ fn insert_seance(
         "INSERT INTO seances (id, session_id, title, date, start_time, end_time,
                               trimester, trimester_is_manual)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            id, session_id, title, date, start_time, end_time, trimester, is_manual
-        ],
+        params![id, session_id, title, date, start_time, end_time, trimester, is_manual],
     )
     .map_err(|e| e.to_string())?;
 
@@ -362,6 +393,7 @@ pub fn update_seance_meta(
     end_time: String,
     trimester: Option<i32>,
     cancelled: bool,
+    cancel_reason: String,
 ) -> Result<Seance, String> {
     let title = clean_title(&title)?;
     let jour = check_date(&date)?;
@@ -390,12 +422,30 @@ pub fn update_seance_meta(
 
     let (trimester, is_manual) = resolve_or_explain(&tx, &session_id, &date, jour, trimester)?;
 
+    // Le motif ne survit pas à la levée de l'annulation : « ce cours a bien eu
+    // lieu, finalement » ne doit pas laisser derrière lui un « Sortie scolaire »
+    // que plus aucun écran n'affiche. C'est fait ICI et non par un CHECK : un
+    // CHECK ferait échouer la décoche sur la phrase brute de SQLite, en anglais,
+    // et ne se retire jamais ensuite.
+    let cancel_reason = motif_retenu(cancelled, &cancel_reason);
+
     tx.execute(
         "UPDATE seances
             SET title = ?1, date = ?2, start_time = ?3, end_time = ?4, trimester = ?5,
-                trimester_is_manual = ?6, cancelled = ?7, updated_at = datetime('now')
-          WHERE id = ?8",
-        params![title, date, start_time, end_time, trimester, is_manual, cancelled, id],
+                trimester_is_manual = ?6, cancelled = ?7, cancel_reason = ?8,
+                updated_at = datetime('now')
+          WHERE id = ?9",
+        params![
+            title,
+            date,
+            start_time,
+            end_time,
+            trimester,
+            is_manual,
+            cancelled,
+            cancel_reason,
+            id
+        ],
     )
     .map_err(slot_conflict_error)?;
 
@@ -423,13 +473,16 @@ pub fn create_seance_from_slot(
     slot_id: String,
     date: String,
     cancelled: bool,
+    // Motif, pour « ce cours n'a pas lieu ». Ignoré quand `cancelled` est faux :
+    // une séance qui a lieu n'a pas de raison de ne pas avoir eu lieu.
+    cancel_reason: String,
 ) -> Result<Seance, String> {
     let mut conn = state.conn()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     // La date se valide dans `seance_from_slot` et non ici : les tests appellent
     // le corps directement, et une garde posée sur la seule commande n'aurait
     // pas été éprouvée.
-    let seance = seance_from_slot(&tx, &slot_id, &date, cancelled)?;
+    let seance = seance_from_slot(&tx, &slot_id, &date, cancelled, &cancel_reason)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(seance)
 }
@@ -441,6 +494,7 @@ fn seance_from_slot(
     slot_id: &str,
     date: &str,
     cancelled: bool,
+    cancel_reason: &str,
 ) -> Result<Seance, String> {
     let jour = check_date(date)?;
 
@@ -485,12 +539,26 @@ fn seance_from_slot(
     // elle, SQLite refuse la requête dès la préparation.
     conn.execute(
         "INSERT INTO seances (id, session_id, slot_id, title, date, start_time, end_time,
-                              trimester, trimester_is_manual, cancelled)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                              trimester, trimester_is_manual, cancelled, cancel_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT(slot_id, date) WHERE slot_id IS NOT NULL DO NOTHING",
         params![
-            id, session_id, slot_id, title, date, start_time, end_time, trimester, is_manual,
-            cancelled
+            id,
+            session_id,
+            slot_id,
+            title,
+            date,
+            start_time,
+            end_time,
+            trimester,
+            is_manual,
+            cancelled,
+            // Même règle que `update_seance_meta`, par la même fonction. Et le
+            // `DO NOTHING` reste intact : si la séance existe déjà, ce motif
+            // n'écrase RIEN. C'est voulu — deux clics sur « ce cours n'a pas
+            // lieu » ne doivent pas se contredire en silence, et le motif se
+            // corrige depuis la séance elle-même.
+            motif_retenu(cancelled, cancel_reason)
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -713,7 +781,7 @@ mod tests {
     fn deux_clics_ne_fabriquent_qu_une_seule_seance() {
         let conn = migrated_db("idempotence");
 
-        let premiere = seance_from_slot(&conn, "t1", "2026-11-17", false).unwrap();
+        let premiere = seance_from_slot(&conn, "t1", "2026-11-17", false, "").unwrap();
         assert_eq!(premiere.title, "Atelier", "le libellé du créneau titre");
         assert_eq!(premiere.start_time, "08:00", "l'horaire est recopié");
         assert_eq!(premiere.end_time, "10:00");
@@ -722,7 +790,7 @@ mod tests {
         assert!(!premiere.cancelled);
         assert_eq!(compte(&conn), 1);
 
-        let seconde = seance_from_slot(&conn, "t1", "2026-11-17", false).unwrap();
+        let seconde = seance_from_slot(&conn, "t1", "2026-11-17", false, "").unwrap();
         assert_eq!(
             seconde.id, premiere.id,
             "c'est la séance déjà là qu'on ouvre"
@@ -730,7 +798,7 @@ mod tests {
         assert_eq!(compte(&conn), 1, "un second appel n'a pas été créé");
 
         // Une autre date reste un autre cours.
-        seance_from_slot(&conn, "t1", "2026-11-24", false).unwrap();
+        seance_from_slot(&conn, "t1", "2026-11-24", false, "").unwrap();
         assert_eq!(compte(&conn), 2);
     }
 
@@ -739,18 +807,50 @@ mod tests {
     #[test]
     fn ce_cours_n_a_pas_lieu_cree_une_seance_annulee() {
         let conn = migrated_db("annulee");
-        let seance = seance_from_slot(&conn, "t1", "2026-11-17", true).unwrap();
+        let seance = seance_from_slot(&conn, "t1", "2026-11-17", true, "Sortie scolaire").unwrap();
         assert!(seance.cancelled);
+        // Palier 007 : le motif part avec l'annulation, dans la même écriture.
+        assert_eq!(seance.cancel_reason, "Sortie scolaire");
+    }
+
+    /// Le motif n'a de sens que sur une séance annulée.
+    ///
+    /// Sans cette règle, décocher « ce cours n'a pas lieu » laisserait derrière
+    /// lui un « Sortie scolaire » que plus aucun écran n'affiche — et qui
+    /// ressortirait tel quel le jour où on recoche, comme une affirmation que
+    /// l'enseignant n'a pas refaite.
+    #[test]
+    fn le_motif_ne_survit_pas_a_la_levee_de_l_annulation() {
+        assert_eq!(motif_retenu(true, "Sortie scolaire"), "Sortie scolaire");
+        assert_eq!(motif_retenu(false, "Sortie scolaire"), "");
+        // Les espaces de bord sont retirés : un motif qui n'est qu'un espace
+        // afficherait une ligne vide sous « Ce cours n'a pas eu lieu ».
+        assert_eq!(motif_retenu(true, "  Jour férié  "), "Jour férié");
+        assert_eq!(motif_retenu(true, "   "), "");
+        assert_eq!(motif_retenu(true, ""), "");
+    }
+
+    /// Une séance qui a lieu ne porte jamais de motif, même si l'appelant en
+    /// envoie un — c'est la commande qui tranche, pas le front.
+    #[test]
+    fn une_seance_qui_a_lieu_ne_porte_aucun_motif() {
+        let conn = migrated_db("motif-sans-annulation");
+        let seance = seance_from_slot(&conn, "t1", "2026-11-17", false, "Sortie scolaire").unwrap();
+        assert!(!seance.cancelled);
+        assert_eq!(
+            seance.cancel_reason, "",
+            "le motif envoyé par l'appelant doit être ignoré"
+        );
     }
 
     #[test]
     fn un_creneau_sans_classe_n_a_rien_a_ouvrir() {
         let conn = migrated_db("sans-classe");
-        let err = seance_from_slot(&conn, "t2", "2026-11-17", false).unwrap_err();
+        let err = seance_from_slot(&conn, "t2", "2026-11-17", false, "").unwrap_err();
         assert!(err.contains("entrée datée"), "message : {err}");
         assert_eq!(compte(&conn), 0);
 
-        let err = seance_from_slot(&conn, "inconnu", "2026-11-17", false).unwrap_err();
+        let err = seance_from_slot(&conn, "inconnu", "2026-11-17", false, "").unwrap_err();
         assert_eq!(err, "Créneau introuvable");
     }
 
@@ -781,13 +881,23 @@ mod tests {
 
         // La fiche de classe n'a pas de champ horaire : elle ne doit pas en
         // hériter d'un par accident.
-        let sans = insert_seance(&conn, "s1", "Séance du jour", "2026-11-18", "", "", None).unwrap();
+        let sans =
+            insert_seance(&conn, "s1", "Séance du jour", "2026-11-18", "", "", None).unwrap();
         assert_eq!(sans.start_time, "");
         assert_eq!(sans.end_time, "");
 
         // Deux cours ponctuels le même jour restent possibles : l'index unique
         // porte sur (créneau, date), et il n'y a pas de créneau ici.
-        insert_seance(&conn, "s1", "Second remplacement", "2026-11-17", "", "", None).unwrap();
+        insert_seance(
+            &conn,
+            "s1",
+            "Second remplacement",
+            "2026-11-17",
+            "",
+            "",
+            None,
+        )
+        .unwrap();
         assert_eq!(compte(&conn), 3);
 
         let err =
@@ -799,7 +909,11 @@ mod tests {
             insert_seance(&conn, "s1", "Bancal", "2026-11-19", "16:00", "14:00", None).unwrap_err();
         assert!(err.starts_with("L'heure de fin"), "message : {err}");
 
-        assert_eq!(compte(&conn), 3, "aucun refus n'a laissé de séance derrière");
+        assert_eq!(
+            compte(&conn),
+            3,
+            "aucun refus n'a laissé de séance derrière"
+        );
     }
 
     /// Une date hors de l'année scolaire de la classe est refusée, sur les
@@ -832,10 +946,14 @@ mod tests {
         assert!(err.contains("n'est pas une date valide"), "message : {err}");
 
         // L'occurrence d'un créneau est gardée par la même fonction.
-        let err = seance_from_slot(&conn, "t1", "2028-05-01", false).unwrap_err();
+        let err = seance_from_slot(&conn, "t1", "2028-05-01", false, "").unwrap_err();
         assert!(err.contains("2026-2027"), "message : {err}");
 
-        assert_eq!(compte(&conn), 0, "aucun refus n'a laissé de séance derrière");
+        assert_eq!(
+            compte(&conn),
+            0,
+            "aucun refus n'a laissé de séance derrière"
+        );
 
         // Les deux bords de l'année scolaire restent ouverts : `year_start_for`
         // bascule au 1er août, et `trimester_for` range volontairement la
@@ -848,12 +966,9 @@ mod tests {
 
         // Et la modification d'en-tête ne peut pas faire sortir une séance de
         // l'année par la fenêtre.
-        let err = super::check_session_year(
-            &conn,
-            "s1",
-            NaiveDate::from_ymd_opt(2027, 8, 1).unwrap(),
-        )
-        .unwrap_err();
+        let err =
+            super::check_session_year(&conn, "s1", NaiveDate::from_ymd_opt(2027, 8, 1).unwrap())
+                .unwrap_err();
         assert!(err.contains("2027-2028"), "message : {err}");
     }
 
@@ -861,7 +976,7 @@ mod tests {
     #[test]
     fn deux_seances_du_meme_creneau_le_meme_jour_sont_refusees_en_francais() {
         let conn = migrated_db("conflit");
-        seance_from_slot(&conn, "t1", "2026-11-17", false).unwrap();
+        seance_from_slot(&conn, "t1", "2026-11-17", false, "").unwrap();
 
         // Déplacer une autre séance sur ce couple (créneau, date) — exactement ce
         // que fait `update_seance_meta` quand on change la date.

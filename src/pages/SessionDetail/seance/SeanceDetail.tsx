@@ -44,6 +44,7 @@ import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
 import { useDraftGuard } from "@/hooks/useDrafts";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { CANCEL_REASON_SUGGESTIONS } from "@/types";
 import type {
   AttendanceStatus,
   AttendanceWithStudent,
@@ -169,6 +170,7 @@ export function SeanceDetail({
     choiceOf(seance),
   );
   const [cancelledDraft, setCancelledDraft] = useState(seance.cancelled);
+  const [reasonDraft, setReasonDraft] = useState(seance.cancel_reason);
   const [savingMeta, setSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
 
@@ -177,7 +179,10 @@ export function SeanceDetail({
     (titleDraft !== seance.title ||
       dateDraft !== seance.date ||
       choiceDraft !== choiceOf(seance) ||
-      cancelledDraft !== seance.cancelled);
+      cancelledDraft !== seance.cancelled ||
+      // Le motif compte comme modification même s'il est le seul à bouger :
+      // corriger « Sortie » en « Sortie scolaire » est une saisie à enregistrer.
+      reasonDraft !== seance.cancel_reason);
 
   // ---- Cahier de texte ----
   // Ce brouillon ne part QUE par api.updateSeanceContent. Il est initialisé une
@@ -244,6 +249,7 @@ export function SeanceDetail({
     date: string;
     choice: TrimesterChoice;
     cancelled: boolean;
+    cancelReason: string;
   }): Promise<boolean> => {
     const title = values.title.trim();
     if (!title) {
@@ -269,6 +275,9 @@ export function SeanceDetail({
         seance.end_time,
         values.choice === "auto" ? null : Number(values.choice),
         values.cancelled,
+        // Le backend le vide lui-même si `cancelled` est faux : on ne duplique
+        // pas la règle ici, sinon les deux divergeraient au premier ajustement.
+        values.cancelReason,
       );
       await onChanged();
       setMetaOpen(false);
@@ -286,6 +295,7 @@ export function SeanceDetail({
     setDateDraft(seance.date);
     setChoiceDraft(choiceOf(seance));
     setCancelledDraft(seance.cancelled);
+    setReasonDraft(seance.cancel_reason);
     setMetaError(null);
     setMetaOpen(true);
   };
@@ -295,6 +305,7 @@ export function SeanceDetail({
     setDateDraft(seance.date);
     setChoiceDraft(choiceOf(seance));
     setCancelledDraft(seance.cancelled);
+    setReasonDraft(seance.cancel_reason);
     setMetaError(null);
     setMetaOpen(false);
   };
@@ -311,6 +322,9 @@ export function SeanceDetail({
       date: seance.date,
       choice,
       cancelled: seance.cancelled,
+      // La puce de trimestre ne touche QU'au trimestre : on fait transiter le
+      // motif inchangé. L'omettre l'effacerait au simple reclassement.
+      cancelReason: seance.cancel_reason,
     });
     // Échec : la puce doit retomber sur ce que la base contient vraiment.
     if (!saved) setChoiceDraft(choiceOf(seance));
@@ -570,6 +584,44 @@ export function SeanceDetail({
               </div>
             </div>
 
+            {/* Le motif n'apparaît que si la séance est annulée : un champ
+                « pourquoi ce cours n'a pas eu lieu » sous un cours qui a bien eu
+                lieu est une question sans objet. Le backend le vide de toute
+                façon à la décoche, donc rien ne traîne. */}
+            {cancelledDraft && (
+              <div className="space-y-2">
+                <Label htmlFor="seance-motif">
+                  Pourquoi ce cours n'a pas eu lieu
+                </Label>
+                <Input
+                  id="seance-motif"
+                  value={reasonDraft}
+                  onChange={(e) => setReasonDraft(e.target.value)}
+                  placeholder="Facultatif — pour vous, pas pour les familles"
+                  maxLength={200}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {CANCEL_REASON_SUGGESTIONS.map((motif) => (
+                    <Button
+                      key={motif}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs font-normal"
+                      onClick={() => setReasonDraft(motif)}
+                    >
+                      {motif}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Ce motif ne figure sur aucun bilan : il est là pour vous
+                  rappeler ce qui s'est passé, pas pour être remis aux familles.
+                  C'est l'annulation seule qui retire la séance de l'assiduité.
+                </p>
+              </div>
+            )}
+
             {metaError && (
               <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -587,6 +639,7 @@ export function SeanceDetail({
                     date: dateDraft,
                     choice: choiceDraft,
                     cancelled: cancelledDraft,
+                    cancelReason: reasonDraft,
                   })
                 }
               >
@@ -630,8 +683,10 @@ export function SeanceDetail({
           {seance.cancelled ? (
             <p className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
               <Ban className="mt-0.5 h-4 w-4 shrink-0" />
-              Séance annulée : elle ne compte dans l'assiduité d'aucun bilan.
-              L'appel reste modifiable si vous la rétablissez.
+              Séance annulée
+              {seance.cancel_reason && ` — ${seance.cancel_reason}`} : elle ne
+              compte dans l'assiduité d'aucun bilan. L'appel reste modifiable si
+              vous la rétablissez.
             </p>
           ) : (
             seance.attendance_taken_at === null && (

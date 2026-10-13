@@ -1,0 +1,53 @@
+-- ===========================================================================
+-- seances.cancel_reason. POURQUOI UN COURS N'A PAS EU LIEU.
+--
+--         LE COMPTE DE TABLES NE BOUGE PAS — toujours 22, comme au palier 006.
+--         C'est le premier palier du projet qui n'en ajoute aucune : les deux
+--         assertions `tables == 22` de `migrations.rs` restent donc telles
+--         quelles, et c'est normal, pas un oubli.
+--
+--         Aucune table neuve : une seule colonne, sur la ligne qui porte déjà
+--         `cancelled`. Le motif et l'annulation sont la même information vue de
+--         deux côtés — l'un dit QUE, l'autre dit POURQUOI — et ils s'écrivent
+--         donc ensemble, par `update_seance_meta`.
+--
+--         CE QU'ELLE NE CHANGE PAS : rien. `cancelled` décidait déjà seul de la
+--         sortie du dénominateur d'assiduité ; ce texte ne fait qu'expliquer une
+--         décision déjà prise. AUCUN calcul ne s'appuie dessus, et il ne
+--         s'imprime sur AUCUN bilan — c'est une note de travail pour
+--         l'enseignant, pas une information due aux familles.
+--
+--         TEXTE LIBRE, et c'est un choix de l'auteur. Pas de `CHECK IN
+--         ('sortie', 'ferie', …)`, pas de table de motifs : un CHECK ne se
+--         retire pas en SQLite, et une liste fermée inventée par l'application
+--         figerait à vie du vocabulaire scolaire que personne n'a confirmé.
+--         L'interface propose des pastilles cliquables pour aller vite ; elles
+--         remplissent le champ, elles ne le contraignent pas. Quatrième cas du
+--         même traitement qu'`absence_periods.reason`,
+--         `stage_placements.end_reason` et `agenda_entries.title`.
+--
+--         PRIX ASSUMÉ, dit franchement : aucune statistique ne sera possible.
+--         « Combien de cours perdus pour sortie scolaire cette année ? » n'a pas
+--         de réponse fiable sur du texte libre, et ne l'aura jamais sans une
+--         reprise de saisie. C'est le compromis que l'auteur a retenu contre la
+--         liste fermée, en connaissance de cause.
+--
+--         '' = pas de motif. JAMAIS NULL : la colonne est ajoutée à des lignes
+--         existantes, et un `DEFAULT ''` les remplit toutes sans distinguer
+--         « annulé sans motif » de « annulé avant que cette colonne existe » —
+--         distinction que personne ne saurait exploiter et qui obligerait
+--         chaque lecture à traiter deux cas d'absence au lieu d'un.
+--
+--         PAS de contrainte liant le motif à `cancelled`. Un
+--         « CHECK (cancelled = 1 OR cancel_reason = '') » paraît juste et serait
+--         un piège : décocher l'annulation d'une séance qui porte un motif
+--         échouerait sur la phrase brute de SQLite, et l'enseignant devrait
+--         vider un champ qu'il ne voit peut-être plus. La commande efface le
+--         motif quand l'annulation est levée ; c'est réparable en une ligne,
+--         un CHECK ne l'est pas.
+-- ===========================================================================
+ALTER TABLE seances ADD COLUMN cancel_reason TEXT NOT NULL DEFAULT '';
+
+-- PAS D'INDEX. Il ne servirait aucune requête : le motif se lit toujours avec
+-- la séance qu'on a déjà sous la main, jamais pour chercher des séances. Un
+-- index sur du texte libre que rien ne filtre est un coût d'écriture pur.
