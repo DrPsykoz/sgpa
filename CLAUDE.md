@@ -16,7 +16,7 @@ Application de bureau **portable** pour enseignant de SEGPA. Tauri v2 (Rust + ru
 ```powershell
 pnpm tauri dev          # lance l'app (Vite sur 1420 + compilation Rust)
 pnpm build              # tsc --noEmit puis vite build
-cargo test --lib        # depuis src-tauri/ — 119 tests
+cargo test --lib        # depuis src-tauri/ — 131 tests
 cargo clippy            # doit rester à zéro avertissement
 ```
 
@@ -27,11 +27,15 @@ obligatoires, et sans eux le build s'arrête sur « Command 'perl' not found ».
 
 `.node-version` épingle Node à la version avec laquelle le projet est bâti. Si
 `pnpm` est introuvable dans un terminal, c'est que le crochet fnm n'est pas
-chargé : voir `Microsoft.PowerShell_profile.ps1` dans `Documents`, qui pose le
-chemin de fnm et explique pourquoi la méthode normale (`fnm env |
-Invoke-Expression`) échoue sur ce poste — le PATH **machine** contient un bloc
-Python collé avec ses guillemets, qui casse toute réémission du PATH. À défaut
-de profil, la ligne de secours est :
+chargé : voir `Documents\WindowsPowerShell\profile.ps1`, qui pose le chemin de
+fnm et explique pourquoi la méthode normale (`fnm env | Invoke-Expression`)
+échoue sur ce poste — le PATH **machine** contient un bloc
+Python collé avec ses guillemets, qui casse toute réémission du PATH.
+
+**C'est `profile.ps1` (tous les hôtes), pas `Microsoft.PowerShell_profile.ps1`.**
+Le profil nommé ne vaut que pour `ConsoleHost` : le terminal intégré de VS Code
+est un autre hôte, ne le lit pas, et `pnpm` y redevient introuvable alors qu'il
+marche dans la console. À défaut de profil, la ligne de secours est :
 
 ```powershell
 $env:PATH = "$env:APPDATA\fnm\node-versions\v24.14.1\installation;$env:PATH"
@@ -131,6 +135,6 @@ Ces trois points appartiennent à l'enseignant ; s'y substituer produirait des d
 
 ## Tests
 
-`cargo test --lib` : 119 tests, dont 15 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher) et 9 sur l'ouverture chiffrée. Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
+`cargo test --lib` : 131 tests, dont 15 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher), 9 sur l'ouverture chiffrée et 8 sur `db/holidays.rs` (dont celui qui vérifie qu'un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys`). Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
 
 Le harnais `tauri::test::mock_builder` **ne fonctionne pas ici** : ses binaires de test meurent au démarrage avec `STATUS_ENTRYPOINT_NOT_FOUND`, `tauri-build` n'embarquant son manifeste Windows que dans l'exécutable de l'application. Ne pas réessayer sans résoudre ce point d'abord.
