@@ -61,6 +61,23 @@ const CIPHERTEXT_LEN: usize = MASTER_KEY_LEN + 16;
 const AAD_PREFIX: &str = "sgpa-keys-v1";
 const WRAP_PASSWORD: &str = "password";
 const WRAP_RECOVERY: &str = "recovery";
+const WRAP_PIN: &str = "pin";
+
+/// Longueur imposée du code PIN. Exactement six chiffres : ni cinq, ni sept.
+///
+/// Six chiffres ne font qu'un million de combinaisons, ce qui serait dérisoire
+/// si le PIN ouvrait seul une enveloppe. Il n'en ouvre jamais seul : l'autre
+/// moitié du secret est les 32 octets de `device.rs`, qui restent sur le poste
+/// et ne suivent pas la clé USB.
+pub const PIN_LEN: usize = 6;
+
+/// Nombre d'enveloppes PIN conservées dans le fichier.
+///
+/// Une par poste où l'enseignant a activé le PIN. La borne existe pour qu'un
+/// fichier de clés reste un fichier de 1 Ko : au-delà, la plus ancienne part, et
+/// le poste correspondant redemandera le mot de passe. Huit postes, c'est déjà
+/// bien plus que « la salle de classe et la maison ».
+const MAX_PIN_WRAPS: usize = 8;
 
 /// Alphabet base32 sans caractères ambigus : ni I, ni L, ni O, ni U.
 const ALPHABET: &[u8; 32] = b"ABCDEFGHJKMNPQRSTVWXYZ0123456789";
@@ -101,6 +118,11 @@ pub enum KeyError {
     /// La saisie n'a pas la forme d'une phrase de récupération.
     MalformedRecovery,
     PasswordTooShort,
+    WrongPin,
+    /// La saisie n'est pas un code PIN : ce n'est pas six chiffres.
+    MalformedPin,
+    /// Ce poste n'a pas d'enveloppe PIN dans ce fichier de clés.
+    PinAbsent,
     /// Panne d'une primitive cryptographique ou du générateur d'aléa.
     Internal(&'static str),
 }
@@ -167,6 +189,20 @@ impl fmt::Display for KeyError {
                  Il ne verrouille plus seulement l'écran : c'est lui qui protège le \
                  contenu de la base. Une phrase facile à retenir vaut mieux qu'un \
                  mot court et compliqué."
+            ),
+            KeyError::WrongPin => write!(f, "Code PIN incorrect."),
+            KeyError::MalformedPin => write!(
+                f,
+                "Le code PIN doit être composé de {PIN_LEN} chiffres, sans espace ni \
+                 lettre."
+            ),
+            KeyError::PinAbsent => write!(
+                f,
+                "Aucun code PIN n'est enregistré pour ce poste.\n\n\
+                 Le code PIN ne vaut que sur l'ordinateur où il a été activé : la \
+                 moitié de son secret y reste et ne suit pas la clé USB. \
+                 Déverrouillez avec votre mot de passe, puis activez-le depuis les \
+                 réglages si vous voulez vous en servir ici."
             ),
             KeyError::Internal(step) => write!(
                 f,
@@ -305,10 +341,32 @@ struct Envelope {
     ciphertext: String,
 }
 
+/// Enveloppe PIN d'un poste.
+///
+/// `device_id` n'est pas un secret : il ne sert qu'à retrouver la bonne
+/// enveloppe, il est tiré au hasard, et il ne dit rien du poste — surtout pas
+/// son nom. La règle « une clé USB trouvée ne doit pas dire à qui elle
+/// appartient » vaut aussi ici.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PinWrap {
+    device_id: String,
+    #[serde(default)]
+    created_at: String,
+    envelope: Envelope,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Wraps {
     password: Envelope,
     recovery: Envelope,
+    /// Zéro, une ou plusieurs enveloppes PIN, une par poste.
+    ///
+    /// `default` : les fichiers écrits avant le code PIN n'ont pas ce champ et
+    /// doivent rester lisibles. `skip_serializing_if` : tant qu'aucun PIN n'est
+    /// activé, le fichier garde exactement la forme qu'il avait — activer puis
+    /// oublier ne laisse donc aucune trace dans `sgpa.keys`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pin: Vec<PinWrap>,
 }
 
 /// Contenu de `data/sgpa.keys`.
@@ -364,10 +422,11 @@ pub fn create(root: &Path, password: &str) -> Result<(MasterKey, RecoveryPhrase)
                 WRAP_RECOVERY,
                 &kdf,
             )?,
+            pin: Vec::new(),
         },
         kdf,
         hint: String::new(),
-        created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        created_at: now(),
     };
     write_atomic(root, &file)?;
 
@@ -446,6 +505,132 @@ pub fn set_hint(root: &Path, hint: &str) -> Result<(), KeyError> {
     let mut file = read(root)?;
     file.hint = hint.trim().to_string();
     write_atomic(root, &file)
+}
+
+// ---------------------------------------------------------------------------
+// Enveloppe PIN — une par poste
+// ---------------------------------------------------------------------------
+
+/// Refuse tout ce qui n'est pas exactement six chiffres ASCII.
+///
+/// Publique, et appelée **avant** d'écrire quoi que ce soit : un PIN mal formé
+/// ne doit pas laisser derrière lui un fichier de poste à moitié créé.
+pub fn check_pin(pin: &str) -> Result<(), KeyError> {
+    if pin.len() != PIN_LEN || !pin.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(KeyError::MalformedPin);
+    }
+    Ok(())
+}
+
+/// Vrai si ce poste a une enveloppe PIN dans ce fichier.
+///
+/// Comme `read_hint`, cette fonction ne fait pas échouer l'écran de
+/// déverrouillage : un fichier illisible répond « non », et c'est le mot de
+/// passe qui dira pourquoi.
+pub fn has_pin(root: &Path, device_id: &str) -> bool {
+    read(root)
+        .map(|file| file.wraps.pin.iter().any(|w| w.device_id == device_id))
+        .unwrap_or(false)
+}
+
+/// Pose — ou remplace — l'enveloppe PIN de ce poste autour de la clé maître.
+///
+/// La clé maître ne change pas : comme pour un changement de mot de passe, ni la
+/// base ni les sauvegardes déjà prises n'ont à être rechiffrées.
+pub fn set_pin(
+    root: &Path,
+    master: &MasterKey,
+    device_id: &str,
+    device_secret: &[u8],
+    pin: &str,
+) -> Result<(), KeyError> {
+    check_pin(pin)?;
+    let mut file = read(root)?;
+
+    let secret = pin_secret(device_secret, pin);
+    let envelope = wrap(&master.0, &secret, &pin_name(device_id), &file.kdf)?;
+
+    // Réactiver sur un poste déjà connu remplace son enveloppe au lieu d'en
+    // ajouter une seconde : deux enveloppes pour un même poste signifieraient
+    // qu'un ancien PIN ouvre encore la base.
+    file.wraps.pin.retain(|w| w.device_id != device_id);
+    file.wraps.pin.push(PinWrap {
+        device_id: device_id.to_string(),
+        created_at: now(),
+        envelope,
+    });
+    while file.wraps.pin.len() > MAX_PIN_WRAPS {
+        file.wraps.pin.remove(0);
+    }
+
+    write_atomic(root, &file)
+}
+
+/// Déballe la clé maître avec les deux moitiés du secret : les 32 octets du
+/// poste et les six chiffres.
+pub fn unwrap_with_pin(
+    root: &Path,
+    device_id: &str,
+    device_secret: &[u8],
+    pin: &str,
+) -> Result<MasterKey, KeyError> {
+    check_pin(pin)?;
+    let file = read(root)?;
+    let entry = file
+        .wraps
+        .pin
+        .iter()
+        .find(|w| w.device_id == device_id)
+        .ok_or(KeyError::PinAbsent)?;
+
+    let secret = pin_secret(device_secret, pin);
+    open_envelope(
+        &entry.envelope,
+        &secret,
+        &pin_name(device_id),
+        &file.kdf,
+        KeyError::WrongPin,
+    )
+}
+
+/// Retire l'enveloppe PIN d'un poste.
+///
+/// Un poste inconnu n'est pas une erreur : l'état visé est « plus d'enveloppe »,
+/// et il est déjà atteint. Le fichier n'est alors même pas réécrit.
+pub fn remove_pin(root: &Path, device_id: &str) -> Result<(), KeyError> {
+    let mut file = read(root)?;
+    let before = file.wraps.pin.len();
+    file.wraps.pin.retain(|w| w.device_id != device_id);
+    if file.wraps.pin.len() == before {
+        return Ok(());
+    }
+    write_atomic(root, &file)
+}
+
+/// Nom d'enveloppe d'un poste, donc ses données associées.
+///
+/// Le `device_id` entre dans l'AAD : échanger deux enveloppes PIN dans le
+/// fichier les rend toutes deux inouvrables, exactement comme intervertir
+/// « password » et « recovery ».
+fn pin_name(device_id: &str) -> String {
+    format!("{WRAP_PIN}:{device_id}")
+}
+
+/// Secret de l'enveloppe PIN : les octets du poste, puis les chiffres.
+///
+/// La concaténation est sans ambiguïté parce que la moitié du poste a une
+/// longueur fixe : aucune paire (secret, PIN) différente ne peut produire la
+/// même suite d'octets.
+fn pin_secret(device_secret: &[u8], pin: &str) -> Zeroizing<Vec<u8>> {
+    let mut out = Zeroizing::new(Vec::with_capacity(device_secret.len() + pin.len()));
+    out.extend_from_slice(device_secret);
+    out.extend_from_slice(pin.as_bytes());
+    out
+}
+
+/// Horodatage des écritures du fichier, en UTC et à la seconde.
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -1052,6 +1237,222 @@ mod tests {
             Err(KeyError::PasswordTooShort)
         ));
         assert!(matches!(create(&root, MDP), Err(KeyError::AlreadyExists)));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // -----------------------------------------------------------------------
+    // Enveloppe PIN
+    // -----------------------------------------------------------------------
+
+    const POSTE: &str = "poste-de-la-salle-12";
+    const SECRET: [u8; 32] = [0x5a; 32];
+
+    #[test]
+    fn le_pin_ouvre_la_meme_cle_que_le_mot_de_passe() {
+        let root = dir("pin-aller-retour");
+        let (key, _) = create(&root, MDP).unwrap();
+        assert!(!has_pin(&root, POSTE));
+
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+        assert!(has_pin(&root, POSTE));
+
+        let ouverte = unwrap_with_pin(&root, POSTE, &SECRET, "042195").unwrap();
+        assert_eq!(literal(&key), literal(&ouverte));
+        // Le mot de passe reste la vraie clé : poser un PIN ne le touche pas.
+        assert_eq!(
+            literal(&unwrap_with_password(&root, MDP).unwrap()),
+            literal(&key)
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn un_pin_faux_ou_mal_forme_se_distinguent() {
+        let root = dir("pin-faux");
+        let (key, _) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+
+        match unwrap_with_pin(&root, POSTE, &SECRET, "042196") {
+            Err(KeyError::WrongPin) => {}
+            other => panic!("attendu WrongPin, obtenu {other:?}"),
+        }
+        // Ces saisies ne dérivent rien : l'appelant ne doit pas les compter
+        // comme des essais, il lui faut donc une erreur différente. La dernière
+        // porte un chiffre pleine largeur — `is_ascii_digit` le refuse, et c'est
+        // voulu : six octets ASCII, pas six « chiffres » au sens d'Unicode.
+        for saisie in ["", "0421", "0421956", "04219a", "04 195", "04219５"] {
+            match unwrap_with_pin(&root, POSTE, &SECRET, saisie) {
+                Err(KeyError::MalformedPin) => {}
+                other => panic!("attendu MalformedPin pour « {saisie} », obtenu {other:?}"),
+            }
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sans_le_secret_du_poste_le_pin_n_ouvre_rien() {
+        let root = dir("pin-sans-poste");
+        let (key, _) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+
+        // Le bon code, mais les 32 octets d'un autre poste : c'est la situation
+        // de qui ramasse la clé USB et essaie des codes. Elle doit échouer même
+        // avec le code juste — c'est tout ce sur quoi repose la fonction.
+        match unwrap_with_pin(&root, POSTE, &[0x5b; 32], "042195") {
+            Err(KeyError::WrongPin) => {}
+            other => panic!("attendu WrongPin, obtenu {other:?}"),
+        }
+        // Un poste inconnu se distingue d'un code faux : il n'y a rien à
+        // essayer, et l'écran doit proposer le mot de passe au lieu de compter
+        // un essai.
+        match unwrap_with_pin(&root, "autre-poste", &SECRET, "042195") {
+            Err(KeyError::PinAbsent) => {}
+            other => panic!("attendu PinAbsent, obtenu {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn echanger_deux_enveloppes_pin_les_rend_inouvrables() {
+        let root = dir("pin-echange");
+        let (key, _) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, "poste-a", &SECRET, "111111").unwrap();
+        set_pin(&root, &key, "poste-b", &[0x77; 32], "222222").unwrap();
+
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path(&root)).unwrap()).unwrap();
+        let a = value["wraps"]["pin"][0]["envelope"].clone();
+        let b = value["wraps"]["pin"][1]["envelope"].clone();
+        value["wraps"]["pin"][0]["envelope"] = b;
+        value["wraps"]["pin"][1]["envelope"] = a;
+        fs::write(path(&root), value.to_string()).unwrap();
+
+        // Le `device_id` entre dans les données associées : une enveloppe
+        // déplacée d'un poste à l'autre ne s'ouvre plus, même avec le bon secret
+        // et le bon code.
+        assert!(matches!(
+            unwrap_with_pin(&root, "poste-a", &SECRET, "111111"),
+            Err(KeyError::WrongPin)
+        ));
+        assert!(matches!(
+            unwrap_with_pin(&root, "poste-b", &[0x77; 32], "222222"),
+            Err(KeyError::WrongPin)
+        ));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn changer_de_mot_de_passe_ne_casse_pas_le_pin() {
+        let root = dir("pin-changement-mdp");
+        let (key, phrase) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+
+        change_password(&root, MDP, "nouveau-chateau").unwrap();
+        // La clé maître ne bouge pas : l'enveloppe PIN entoure toujours la même
+        // clé. C'est la raison d'être du bouton « Oublier ce poste » — changer
+        // le mot de passe ne retire pas le PIN, et l'interface doit le dire.
+        assert_eq!(
+            literal(&unwrap_with_pin(&root, POSTE, &SECRET, "042195").unwrap()),
+            literal(&key)
+        );
+        regenerate_recovery(&root, "nouveau-chateau").unwrap();
+        assert!(unwrap_with_pin(&root, POSTE, &SECRET, "042195").is_ok());
+        assert!(unwrap_with_recovery(&root, phrase.as_str()).is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reactiver_remplace_l_enveloppe_du_poste() {
+        let root = dir("pin-reactivation");
+        let (key, _) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "111111").unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "222222").unwrap();
+
+        // Une seule enveloppe par poste : l'ancien code doit cesser d'ouvrir la
+        // base, sinon changer de PIN ne servirait à rien.
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path(&root)).unwrap()).unwrap();
+        assert_eq!(value["wraps"]["pin"].as_array().unwrap().len(), 1);
+        assert!(unwrap_with_pin(&root, POSTE, &SECRET, "222222").is_ok());
+        assert!(matches!(
+            unwrap_with_pin(&root, POSTE, &SECRET, "111111"),
+            Err(KeyError::WrongPin)
+        ));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn oublier_un_poste_retire_son_enveloppe() {
+        let root = dir("pin-oubli");
+        let (key, _) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+
+        remove_pin(&root, POSTE).unwrap();
+        assert!(!has_pin(&root, POSTE));
+        assert!(matches!(
+            unwrap_with_pin(&root, POSTE, &SECRET, "042195"),
+            Err(KeyError::PinAbsent)
+        ));
+        // Oublier est un état visé, pas une opération : le refaire ne doit pas
+        // échouer, et un poste inconnu non plus.
+        remove_pin(&root, POSTE).unwrap();
+        remove_pin(&root, "jamais-vu").unwrap();
+
+        // Le fichier reprend exactement la forme qu'il avait avant le PIN :
+        // « pin » disparaît au lieu de rester un tableau vide.
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path(&root)).unwrap()).unwrap();
+        assert!(value["wraps"].get("pin").is_none());
+        assert!(unwrap_with_password(&root, MDP).is_ok());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn le_nombre_d_enveloppes_pin_est_borne() {
+        let root = dir("pin-borne");
+        let (key, _) = create(&root, MDP).unwrap();
+        for n in 0..=MAX_PIN_WRAPS {
+            set_pin(&root, &key, &format!("poste-{n}"), &SECRET, "042195").unwrap();
+        }
+
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path(&root)).unwrap()).unwrap();
+        assert_eq!(
+            value["wraps"]["pin"].as_array().unwrap().len(),
+            MAX_PIN_WRAPS
+        );
+        // C'est la plus ancienne qui part, et le poste concerné redemandera le
+        // mot de passe — jamais le fichier de clés qui enfle sans borne.
+        assert!(!has_pin(&root, "poste-0"));
+        assert!(has_pin(&root, &format!("poste-{MAX_PIN_WRAPS}")));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn un_fichier_ecrit_avant_le_pin_reste_lisible() {
+        let root = dir("pin-compatibilite");
+        let (key, phrase) = create(&root, MDP).unwrap();
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+
+        // Un fichier de clés d'avant cette version n'a aucun champ « pin ».
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path(&root)).unwrap()).unwrap();
+        value["wraps"]
+            .as_object_mut()
+            .unwrap()
+            .remove("pin")
+            .expect("l'enveloppe PIN vient d'être posée");
+        fs::write(path(&root), value.to_string()).unwrap();
+
+        assert_eq!(
+            literal(&unwrap_with_password(&root, MDP).unwrap()),
+            literal(&key)
+        );
+        assert!(unwrap_with_recovery(&root, phrase.as_str()).is_ok());
+        assert!(!has_pin(&root, POSTE));
+        // Et le PIN peut être reposé par-dessus un tel fichier.
+        set_pin(&root, &key, POSTE, &SECRET, "042195").unwrap();
+        assert!(unwrap_with_pin(&root, POSTE, &SECRET, "042195").is_ok());
         let _ = fs::remove_dir_all(&root);
     }
 

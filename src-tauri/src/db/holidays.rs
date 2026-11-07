@@ -67,7 +67,7 @@ pub fn couvert_jusqu_au() -> Option<String> {
 /// **Ne rend rien, volontairement.** Voir la règle en tête de fichier.
 pub fn seed(conn: &mut Connection) {
     if let Err(message) = tenter(conn) {
-        eprintln!("[sgpa] calendrier scolaire non semé : {message}");
+        crate::journal::erreur("calendrier scolaire", &message);
     }
 }
 
@@ -136,14 +136,20 @@ fn tenter(conn: &mut Connection) -> Result<(), String> {
             continue;
         }
         if let Err(e) = pose_une.execute([id, academie, label, debut, fin]) {
-            eprintln!("[sgpa] période de vacances ignorée ({id}) : {e}");
+            crate::journal::erreur(
+                "calendrier scolaire",
+                &format!("période {id} ignorée : {e}"),
+            );
             ecartees += 1;
         }
     }
     drop(pose_une);
 
     if ecartees > 0 {
-        eprintln!("[sgpa] calendrier scolaire : {ecartees} période(s) écartée(s)");
+        crate::journal::avis(
+            "calendrier scolaire",
+            &format!("{ecartees} période(s) écartée(s)"),
+        );
     }
 
     // 3. Le millésime, dans la MÊME transaction : pas de semis à moitié appliqué.

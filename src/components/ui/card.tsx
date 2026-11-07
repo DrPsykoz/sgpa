@@ -9,7 +9,11 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border border-border bg-card text-card-foreground shadow",
+      // `shadow-carte` et non `shadow` : le relief est un jeton, réglé une fois
+      // dans `:root`. Une ombre Tailwind écrite ici serait une valeur de plus à
+      // retrouver le jour où le relief change — et elle ne suivrait pas le mode
+      // sombre à venir, qui redéfinira le jeton et rien d'autre.
+      "rounded-xl border border-border bg-card text-card-foreground shadow-carte",
       className
     )}
     {...props}

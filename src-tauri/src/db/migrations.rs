@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 17;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -47,6 +47,51 @@ const STEPS: &[(i32, &str, &str)] = &[
         "calendrier scolaire",
         include_str!("sql/008_calendrier_scolaire.sql"),
     ),
+    (
+        9,
+        "référentiel du socle, champs professionnels, savoirs",
+        include_str!("sql/009_referentiel_socle.sql"),
+    ),
+    (
+        10,
+        "fiche contrat : ses trois tableaux, et la compétence référencée",
+        include_str!("sql/010_fiche_contrat.sql"),
+    ),
+    (
+        11,
+        "code du domaine du socle",
+        include_str!("sql/011_code_domaine.sql"),
+    ),
+    (
+        12,
+        "pièces jointes au cahier de texte",
+        include_str!("sql/012_pieces_jointes.sql"),
+    ),
+    (
+        13,
+        "besoins particuliers des élèves",
+        include_str!("sql/013_besoins_particuliers.sql"),
+    ),
+    (
+        14,
+        "« rien à écrire » dans le cahier de texte",
+        include_str!("sql/014_cahier_sans_contenu.sql"),
+    ),
+    (
+        15,
+        "règles de calcul arrêtées : les notes d'une compétence retirée sortent des moyennes",
+        include_str!("sql/015_regles_de_calcul.sql"),
+    ),
+    (
+        16,
+        "la classe d'un rendez-vous",
+        include_str!("sql/016_rendez_vous_classe.sql"),
+    ),
+    (
+        17,
+        "le compte rendu d'un rendez-vous",
+        include_str!("sql/017_rendez_vous_compte_rendu.sql"),
+    ),
 ];
 
 pub fn run(conn: &mut Connection, backups_dir: &Path) -> Result<(), DbError> {
@@ -87,9 +132,23 @@ pub fn run(conn: &mut Connection, backups_dir: &Path) -> Result<(), DbError> {
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(at("rétablissement des clés étrangères"))?;
 
+        if let Err(e) = &outcome {
+            // L'échec le plus coûteux de toute l'application : la base ne
+            // s'ouvre plus après une mise à jour. Le message rendu à
+            // l'enseignant ne nomme pas le palier qui a buté ; le journal, lui,
+            // le nomme. Le `Drop` de la transaction a déjà tout annulé, donc ce
+            // qu'on inscrit ici décrit une base restée intacte.
+            crate::journal::erreur(
+                "migration",
+                &format!("palier {target} ({label}) : {e}"),
+            );
+        }
         outcome?;
         version = target;
-        eprintln!("[sgpa] migration appliquée : palier {target} — {label}");
+        crate::journal::avis(
+            "migration",
+            &format!("palier {target} appliqué — {label}"),
+        );
     }
 
     Ok(())
@@ -194,9 +253,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            tables, 23,
-            "18 tables au palier 003, plus timetable_slots, agenda_entries, \
-             absence_periods et stage_placements"
+            tables, TABLES_ATTENDUES,
+            "la liste des tables attendues est documentée sur TABLES_ATTENDUES"
         );
 
         // Palier 003 : le verrou ne laisse plus rien dans la base. Un condensat
@@ -226,7 +284,7 @@ mod tests {
         let cycles: i64 = conn
             .query_row("SELECT COUNT(*) FROM cycles", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(cycles, 1, "le semis ne doit pas être rejoué");
+        assert_eq!(cycles, 2, "le semis ne doit pas être rejoué");
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -266,30 +324,113 @@ mod tests {
     fn le_semis_pose_le_socle_commun() {
         let dir = temp_dir("semis");
         let conn = fresh(&dir);
-        let domains: i64 = conn
-            .query_row("SELECT COUNT(*) FROM domains", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(domains, 5, "les 5 domaines du socle commun");
-        let fields: i64 = conn
-            .query_row("SELECT COUNT(*) FROM fields", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(fields, 4, "les 4 composantes du domaine 1");
-        let competencies: i64 = conn
-            .query_row("SELECT COUNT(*) FROM competencies", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(competencies, 0, "aucune compétence n'est inventée");
-        let pro: i64 = conn
-            .query_row("SELECT COUNT(*) FROM professional_fields", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
+        let compte = |sql: &str| -> i64 { conn.query_row(sql, [], |row| row.get(0)).unwrap() };
+
+        assert_eq!(compte("SELECT COUNT(*) FROM cycles"), 2, "cycles 3 et 4");
         assert_eq!(
-            pro, 0,
-            "les champs professionnels attendent la liste de l'auteur"
+            compte("SELECT COUNT(*) FROM domains"),
+            10,
+            "les 5 domaines du socle, une copie par cycle"
         );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM fields"),
+            27,
+            "4 composantes du domaine 1 semées en 002, plus 23 champs en 009"
+        );
+        assert_eq!(compte("SELECT COUNT(*) FROM competencies"), 53);
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM professional_fields"),
+            5,
+            "les cinq champs professionnels, confirmés par l'auteur"
+        );
+
+        // Deux champs sans aucune compétence, et c'est voulu : le tableau de
+        // l'enseignant n'en attribue aucune à la langue étrangère ni aux arts et
+        // au corps, les deux composantes du domaine 1 que 002 a semées sans
+        // suite. Ce compte fige l'intention — un troisième champ vide serait un
+        // oubli, pas un choix.
+        assert_eq!(
+            compte(
+                "SELECT COUNT(*) FROM fields f
+                 WHERE NOT EXISTS (SELECT 1 FROM competencies c WHERE c.field_id = f.id)"
+            ),
+            2
+        );
+
+        // La règle de l'auteur : le domaine qui est à gauche d'une compétence dans
+        // son classeur fait foi. « Organiser seul ou en groupe un espace de
+        // réalisation expérimentale » est donc en domaine 3, là où sa feuille la
+        // range, et NON en domaine 2 où le programme de Sciences et Technologie
+        // la classe. Ce test existe parce que le déplacer paraît être une
+        // correction : c'en serait une contre son outil de travail.
+        assert_eq!(
+            conn.query_row(
+                "SELECT d.name FROM competencies c
+                 JOIN fields  f ON f.id = c.field_id
+                 JOIN domains d ON d.id = f.domain_id
+                 WHERE c.id = 'seed-c3-l31'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "La formation de la personne et du citoyen"
+        );
+
+        // LE test qui compte. Le classeur source portait « Choisir ou utiliser le
+        // matériel adapté… » QUATRE fois dans la seule feuille Cycle 3. La note
+        // /20 moyennant les niveaux acquis, semer ces doublons aurait fait peser
+        // cette compétence quatre fois dans la moyenne d'un élève, en silence.
+        assert_eq!(
+            compte(
+                "SELECT COUNT(*) FROM (
+                     SELECT 1 FROM competencies c
+                     JOIN fields  f ON f.id = c.field_id
+                     JOIN domains d ON d.id = f.domain_id
+                     GROUP BY d.cycle_id, c.name
+                     HAVING COUNT(*) > 1
+                 )"
+            ),
+            0,
+            "deux compétences de même libellé dans un même cycle"
+        );
+
+        // Les savoirs du champ Habitat. Les autres champs n'ont pas encore de
+        // liste : leur absence ici est attendue, pas un trou.
+        assert_eq!(compte("SELECT COUNT(*) FROM savoir_groups"), 7);
+        assert_eq!(compte("SELECT COUNT(*) FROM savoirs"), 91);
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM savoirs WHERE physics_reminder = 1"),
+            10,
+            "S1.01 à S1.09 et S1.13"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM savoirs WHERE name LIKE '*%'"),
+            0,
+            "l'astérisque est un drapeau, il ne doit pas rester dans le libellé"
+        );
+        assert_eq!(
+            compte(
+                "SELECT COUNT(*) FROM savoirs s
+                 JOIN savoir_groups g ON g.id = s.savoir_group_id
+                 WHERE g.professional_field_id <> 'seed-pf-habitat'"
+            ),
+            0
+        );
+
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Nombre de tables attendu après la chaîne complète des paliers.
+    ///
+    /// Une seule définition, parce que cinq tests l'affirment : 18 tables au
+    /// palier 003, plus `timetable_slots`, `agenda_entries`, `absence_periods`,
+    /// `stage_placements`, `school_holidays`, `savoir_groups`, `savoirs`,
+    /// `contract_sheet_savoirs`, `contract_sheet_requirements`,
+    /// `seance_attachments`, `student_need_tags`, `student_needs` et
+    /// `agenda_entry_attachments`. Un palier qui ajoute une table change cette
+    /// ligne, et une seule.
+    const TABLES_ATTENDUES: i64 = 31;
 
     /// Applique les paliers un par un **sans** passer par `run`, pour fabriquer
     /// une base telle qu'elle existe chez l'enseignant *avant* la mise à jour :
@@ -398,7 +539,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 23);
+        assert_eq!(tables, TABLES_ATTENDUES);
 
         let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
@@ -493,7 +634,12 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 23, "007 n'ajoute aucune table, 008 en ajoute une");
+        assert_eq!(
+            tables, TABLES_ATTENDUES,
+            "007 n'ajoute aucune table, 008 en ajoute une, 009 en ajoute trois, \
+             010 en ajoute une, 012 en ajoute une, 013 en ajoute deux, \
+             017 en ajoute une"
+        );
 
         // La colonne arrive vide partout, y compris sur la séance déjà annulée :
         // la migration n'invente aucun motif.
@@ -837,6 +983,366 @@ SELECT st.id,
         );
         drop(stmt);
 
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 015 ne touche ni table ni colonne : il arrête une RÈGLE restée
+    /// « en attente » depuis le palier 001.
+    ///
+    /// Ce que ce test garde, c'est la promesse faite à l'enseignant quand il a
+    /// choisi « sortir des moyennes » : les notes ne bougent pas. Une variante
+    /// qui aurait supprimé les notes des compétences retirées aurait produit le
+    /// même bilan et serait irréversible — et c'est exactement l'erreur qu'un
+    /// lecteur pressé pourrait trouver « plus propre ».
+    #[test]
+    fn une_base_v14_peuplee_traverse_le_palier_015_intacte() {
+        let dir = temp_dir("v14-peuplee");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 14);
+
+        let avant: String = conn
+            .query_row(
+                "SELECT removed_competency_policy FROM app_settings WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(avant, "keep", "l'emplacement tenu par le palier 001");
+
+        // Une évaluation notée, puis la compétence RETIRÉE de l'évaluation : le
+        // cas précis que la règle arbitre. La note reste en base, orpheline du
+        // lien, et c'est elle qu'on retrouvera intacte après la migration.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème A', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO evaluations (id, session_id, title, date, trimester)
+                  VALUES ('ev1', 's1', 'Séquence 1', '2026-11-17', 1);
+             INSERT INTO evaluation_competencies (evaluation_id, competency_id)
+                  VALUES ('ev1', 'seed-c3-l31');
+             INSERT INTO grades (evaluation_id, student_id, competency_id, level)
+                  VALUES ('ev1', 'e1', 'seed-c3-l31', 3);
+             DELETE FROM evaluation_competencies
+              WHERE evaluation_id = 'ev1' AND competency_id = 'seed-c3-l31';",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        let (moyenne, retirees): (String, String) = conn
+            .query_row(
+                "SELECT overall_average_rule, removed_competency_policy
+                   FROM app_settings WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            retirees, "ignore",
+            "la règle arrêtée par l'enseignant le 2026-11-06"
+        );
+        assert_eq!(
+            moyenne, "unweighted_mean",
+            "la moyenne générale ne bouge pas : le palier n'écrit que ce qui change"
+        );
+
+        // LE point du palier. « Sortir des moyennes » est une règle de LECTURE :
+        // la note est toujours là, et remettre la compétence la remettrait dans
+        // le calcul.
+        let (niveau, notes): (i32, i64) = conn
+            .query_row(
+                "SELECT (SELECT level FROM grades
+                          WHERE evaluation_id = 'ev1' AND student_id = 'e1'),
+                        (SELECT COUNT(*) FROM grades)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(notes, 1, "changer de règle ne supprime aucune note");
+        assert_eq!(niveau, 3, "et n'en modifie aucune");
+
+        // Aucune table ajoutée : 015 ne corrige qu'une valeur.
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "015 n'ajoute aucune table");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 016 ajoute `agenda_entries.session_id` et REPREND les entrées
+    /// déjà saisies : celles qui désignent un élève connaissent sa classe.
+    ///
+    /// Ce test tient les trois promesses du palier, et chacune se casserait
+    /// silencieusement : la reprise ne doit rien inventer pour une réunion sans
+    /// élève, elle ne doit toucher aucun compte rendu, et le CASCADE posé par
+    /// l'ALTER TABLE doit être VIVANT — une action ON DELETE ajoutée après coup
+    /// est précisément ce dont on peut douter, et c'est elle qui garantit qu'une
+    /// classe supprimée ne laisse pas derrière elle un conseil de classe
+    /// orphelin.
+    #[test]
+    fn une_base_v15_peuplee_traverse_le_palier_016_intacte() {
+        let dir = temp_dir("v15-peuplee");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 15);
+
+        // Deux entrées datées, telles que la v15 savait les écrire : l'une
+        // nominative, l'autre non. Aucune des deux ne connaît sa classe.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème A', '4eme', 2026),
+                         ('s2', '3ème B', '3eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO agenda_entries (id, date, title, student_id, content_html)
+                  VALUES ('a1', '2026-11-17', 'Visite de stage', 'e1',
+                          '<p>Bon accueil</p>');
+             INSERT INTO agenda_entries (id, date, title, content_html)
+                  VALUES ('a2', '2026-11-18', 'Réunion de secteur',
+                          '<p>Compte rendu diffusé</p>');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // LA reprise : l'entrée nominative hérite de la classe de son élève.
+        let (classe, rendu): (Option<String>, String) = conn
+            .query_row(
+                "SELECT session_id, content_html FROM agenda_entries WHERE id = 'a1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            classe.as_deref(),
+            Some("s1"),
+            "la classe d'une entrée nominative se déduit de l'élève"
+        );
+        assert_eq!(rendu, "<p>Bon accueil</p>", "et le compte rendu ne bouge pas");
+
+        // Et la réunion sans élève reste SANS classe : deviner la sienne d'après
+        // son intitulé aurait été inventer une donnée.
+        let (sans_classe, rendu2): (Option<String>, String) = conn
+            .query_row(
+                "SELECT session_id, content_html FROM agenda_entries WHERE id = 'a2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(sans_classe, None, "la reprise n'invente aucune classe");
+        assert_eq!(rendu2, "<p>Compte rendu diffusé</p>");
+
+        // ⚠ CASCADE, et il doit être vivant. Un conseil de classe n'a pas
+        // d'élève : si l'action posée par l'ALTER TABLE était inerte, il
+        // survivrait à la suppression de sa classe et désignerait le vide.
+        conn.execute_batch(
+            "INSERT INTO agenda_entries (id, date, title, session_id, content_html)
+                  VALUES ('a3', '2026-12-08', 'Conseil de classe', 's2',
+                          '<p>Trois passages de justesse</p>');
+             DELETE FROM sessions WHERE id = 's2';",
+        )
+        .unwrap();
+        let restantes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agenda_entries WHERE id = 'a3'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            restantes, 0,
+            "le conseil de classe part avec la classe qu'il désignait"
+        );
+
+        // Les deux premières entrées sont toujours là : la suppression de 's2'
+        // n'a emporté que ce qui la désignait.
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM agenda_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(total, 2);
+
+        // Aucune table ajoutée : 016 est une colonne et un index.
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "016 n'ajoute aucune table");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 017 donne au rendez-vous les deux sorties du cahier de texte :
+    /// une pièce jointe et un « rien à écrire ».
+    ///
+    /// Ce test tient ce qui peut casser en silence : la colonne arrive **vide**
+    /// partout — un rendez-vous déjà saisi ne doit pas sortir de
+    /// « À reprendre » sans que personne ne l'ait décidé —, les comptes
+    /// rendus ne bougent pas, et le CASCADE de la nouvelle table est vivant.
+    /// Ce dernier point est le plus coûteux à manquer : un BLOB orphelin ne
+    /// s'affiche nulle part, grossit la base, et les dix copies de
+    /// `data/backups/` le recopient fidèlement.
+    #[test]
+    fn une_base_v16_peuplee_traverse_le_palier_017_intacte() {
+        let dir = temp_dir("v16-peuplee");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 16);
+
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème A', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO agenda_entries (id, date, title, session_id, student_id, content_html)
+                  VALUES ('a1', '2026-11-17', 'Visite de stage', 's1', 'e1',
+                          '<p>Tuteur satisfait</p>');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // La colonne arrive NULLE, et le compte rendu est intact. Un palier qui
+        // aurait posé `datetime('now')` par défaut aurait fait disparaître d'un
+        // coup tous les rendez-vous en retard de l'accueil.
+        let (renonce, rendu): (Option<String>, String) = conn
+            .query_row(
+                "SELECT content_waived_at, content_html
+                   FROM agenda_entries WHERE id = 'a1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(renonce, None, "017 ne renonce à aucun compte rendu");
+        assert_eq!(rendu, "<p>Tuteur satisfait</p>");
+
+        // ⚠ CASCADE de la nouvelle table, et il doit être vivant : supprimer le
+        // rendez-vous doit emporter ses octets.
+        conn.execute_batch(
+            "INSERT INTO agenda_entry_attachments
+                  (id, entry_id, file_name, mime_type, size_bytes, content)
+                  VALUES ('p1', 'a1', 'rapport.pdf', 'application/pdf', 3,
+                          x'252044');",
+        )
+        .unwrap();
+        let avant: i64 = conn
+            .query_row("SELECT COUNT(*) FROM agenda_entry_attachments", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(avant, 1);
+
+        conn.execute_batch("DELETE FROM agenda_entries WHERE id = 'a1';")
+            .unwrap();
+        let apres: i64 = conn
+            .query_row("SELECT COUNT(*) FROM agenda_entry_attachments", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            apres, 0,
+            "la pièce jointe part avec le rendez-vous qu'elle documentait"
+        );
+
+        // Et la suppression d'une CLASSE emporte la chaîne entière : le
+        // rendez-vous par son `session_id` du palier 016, puis ses octets par
+        // celui-ci. Deux CASCADE enchaînés, que `foreign_key_check` vérifie
+        // juste après.
+        conn.execute_batch(
+            "INSERT INTO agenda_entries (id, date, title, session_id)
+                  VALUES ('a2', '2026-12-08', 'Conseil de classe', 's1');
+             INSERT INTO agenda_entry_attachments
+                  (id, entry_id, file_name, mime_type, size_bytes, content)
+                  VALUES ('p2', 'a2', 'releve.pdf', 'application/pdf', 3, x'252044');
+             DELETE FROM sessions WHERE id = 's1';",
+        )
+        .unwrap();
+        let restantes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM agenda_entry_attachments", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(restantes, 0, "aucun octet ne survit à sa classe");
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "017 ajoute une table, pas deux");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Une base neuve naît avec la règle arrêtée, pas avec l'emplacement tenu.
+    ///
+    /// Le palier 015 est un UPDATE conditionnel : sur une base neuve il suit
+    /// immédiatement le 001 qui vient d'insérer 'keep'. Ce test vérifie que la
+    /// chaîne complète des paliers aboutit bien à 'ignore' — sans lui, un 015
+    /// dont le WHERE serait trop étroit passerait inaperçu, le test de base
+    /// peuplée ci-dessus étant le seul à regarder cette colonne.
+    #[test]
+    fn une_base_neuve_nait_avec_les_regles_arretees() {
+        let dir = temp_dir("regles-neuves");
+        let conn = fresh(&dir);
+        let (moyenne, retirees): (String, String) = conn
+            .query_row(
+                "SELECT overall_average_rule, removed_competency_policy
+                   FROM app_settings WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(moyenne, "unweighted_mean");
+        assert_eq!(retirees, "ignore");
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }

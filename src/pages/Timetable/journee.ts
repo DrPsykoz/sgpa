@@ -6,7 +6,8 @@
  * semaine (`WeekGrid`), en sept colonnes datées. Les aides de ce fichier sont
  * leur règle commune : `buildRows` dit quelles lignes une journée porte,
  * `motifDeFermeture` et `motifDuCreneau` disent pourquoi elle n'en porte pas,
- * `timeLabel`, `slotTitle` et `studentName` disent comment elles s'écrivent.
+ * `timeLabel`, `slotTitle`, `studentName` et `cibleDuRendezVous` disent comment
+ * elles s'écrivent.
  *
  * Deux fonctions décidant chacune de son côté ce qu'une journée contient
  * auraient divergé au premier créneau à quinzaine, et l'accueil aurait annoncé
@@ -163,4 +164,21 @@ export function studentName(entry: AgendaEntrySummary): string | null {
   const name =
     `${entry.student_last_name ?? ""} ${entry.student_first_name ?? ""}`.trim();
   return name || null;
+}
+
+/**
+ * Qui ou quoi un rendez-vous concerne, en une ligne : l'élève s'il y en a un,
+ * sinon la classe, sinon rien.
+ *
+ * L'élève passe devant la classe parce qu'il la contient — un élève
+ * n'appartient qu'à une classe, donc nommer les deux sur une carte de 7 rem
+ * répéterait une information pour en chasser une autre. Un conseil de classe,
+ * lui, n'a que sa classe à dire.
+ *
+ * `null` est une réponse normale, pas un défaut : une réunion de secteur ne
+ * concerne ni classe ni élève, et la carte n'affiche alors pas de seconde
+ * ligne.
+ */
+export function cibleDuRendezVous(entry: AgendaEntrySummary): string | null {
+  return studentName(entry) ?? entry.session_name ?? null;
 }

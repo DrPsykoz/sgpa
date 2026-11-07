@@ -53,8 +53,12 @@ opt-level = 3
 # Boîte de dialogue native pour signaler une erreur fatale survenue avant la
 # création de la fenêtre — en release, windows_subsystem="windows" supprime la
 # console et l'application se fermerait sinon sans message.
+# `Win32_Security_Cryptography` : DPAPI, pour le secret de poste du code PIN
+# (voir `device.rs`). C'est Windows qui lie ce secret au compte de session, ce
+# qu'aucune bibliothèque portable ne sait faire.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Security_Cryptography",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

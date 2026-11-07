@@ -13,6 +13,11 @@ export interface LockStatus {
 	configured: boolean;
 	unlocked: boolean;
 	password_hint: string;
+	/** Vrai si CE poste peut ouvrir CETTE base par un code PIN : il y faut
+	 *  l'enveloppe sur la clé USB **et** le secret du poste dans le profil
+	 *  Windows. Faux sur tout autre ordinateur, et l'écran de déverrouillage n'y
+	 *  propose alors même pas le champ. */
+	pin_available: boolean;
 }
 
 /** Retour de `setup_lock`. La phrase n'est PAS relisible ensuite : elle n'existe
@@ -24,6 +29,31 @@ export interface SetupResult {
 
 export type OverallAverageRule = "unweighted_mean" | "weighted_by_count";
 export type RemovedCompetencyPolicy = "keep" | "ignore";
+
+/** Les deux règles de calcul, dites en français.
+ *
+ *  Elles vivent ici et non dans l'écran qui les affiche, parce que trois écrans
+ *  les nomment : le sélecteur des Réglages, le pied des bilans et celui des PDF.
+ *  Recopiées, la même règle finissait par porter trois noms — et depuis qu'elle
+ *  est modifiable, l'enseignant peut faire apparaître l'écart en un clic.
+ *
+ *  Deux registres, parce que ce sont deux usages et non deux formulations :
+ *  `_LABELS` est une entrée de menu, autonome et capitalisée ; `_PHRASES` est un
+ *  fragment de phrase, qui se lit après « Moyenne générale : ». */
+export const AVERAGE_RULE_LABELS: Record<OverallAverageRule, string> = {
+	unweighted_mean: "Moyenne non pondérée des moyennes par compétence",
+	weighted_by_count: "Moyenne pondérée par le nombre de notes",
+};
+
+export const AVERAGE_RULE_PHRASES: Record<OverallAverageRule, string> = {
+	unweighted_mean: "moyenne non pondérée des compétences",
+	weighted_by_count: "moyenne pondérée par le nombre de notes",
+};
+
+export const REMOVED_POLICY_LABELS: Record<RemovedCompetencyPolicy, string> = {
+	keep: "Conserver les notes des compétences retirées d'une évaluation",
+	ignore: "Ignorer les notes des compétences retirées d'une évaluation",
+};
 
 /** `password_hint` n'en fait plus partie : l'indice a quitté la base pour
  *  `data/sgpa.keys`, afin d'être lisible avant tout déverrouillage. Il se lit
@@ -173,7 +203,103 @@ export interface Seance {
 	 *  historique, pas au modèle. `""` = séance hors créneau. */
 	start_time: string;
 	end_time: string;
+	/** Quand l'enseignant a déclaré qu'il n'y avait **rien à écrire** au cahier de
+	 *  texte, `null` s'il n'a rien déclaré.
+	 *
+	 *  Ce n'est pas une annulation : la séance a eu lieu, l'appel y compte. Elle
+	 *  sort seulement de « À reprendre » sur l'accueil, qui autrement réclamerait
+	 *  sans fin le compte rendu d'une évaluation surveillée ou d'une sortie. */
+	content_waived_at: string | null;
+
+	/** Vrai si la séance porte au moins une pièce jointe. **Dérivé, jamais
+	 *  écrit** : aucune commande ne le reçoit, il est recalculé à chaque lecture.
+	 *  Ne pas le lire seul — une séance est réglée de trois façons : passer par
+	 *  `renduDeLaSeance` de `lib/contenu.ts`. */
+	has_attachment: boolean;
 }
+
+// ---- Besoins particuliers des élèves ----
+
+/** Une étiquette du vocabulaire de l'enseignant : « Dysorthographie », « AESH »,
+ *  « PAP »… L'application n'en fournit AUCUNE, et c'est délibéré : les libellés
+ *  exacts viennent des notifications MDPH et des PAP de son établissement. */
+export interface NeedTag {
+	id: string;
+	label: string;
+	/** Abréviation pour les écrans denses. `""` = aucune, et l'affichage retombe
+	 *  sur le libellé complet. **Ne jamais tronquer côté front** : « Dys »
+	 *  conviendrait autant à « Dyscalculie » qu'à « Dysorthographie », qui ne
+	 *  demandent pas les mêmes aménagements. */
+	short_label: string;
+	position: number;
+	/** Nombre d'élèves qui la portent, toutes classes et années confondues. Sert à
+	 *  dire ce qu'une suppression va emporter AVANT de la proposer. */
+	student_count: number;
+}
+
+/** Les besoins d'un élève. Un élève sans étiquette ni note n'a pas de ligne :
+ *  `get_session_needs` est une table d'appoint, pas une projection de classe. */
+export interface StudentNeeds {
+	student_id: string;
+	tag_ids: string[];
+	/** `""` = rien à signaler. */
+	note: string;
+}
+
+/** Jamais imprimé. **Sur aucun document.**
+ *
+ *  Décision explicite de l'auteur : ce sont des données de santé concernant des
+ *  mineurs, et un bilan trimestriel remis à une famille, une fiche contrat ou
+ *  une liste d'appel oubliée en salle des profs n'ont aucune raison de les
+ *  porter. `src/lib/pdf.ts` ne lit ni `NeedTag` ni `StudentNeeds` — ajouter
+ *  l'un des deux à une génération de PDF serait un bug, pas une amélioration.
+ *  Cette constante existe pour que la règle ait un nom qu'on puisse citer. */
+export const BESOINS_JAMAIS_IMPRIMES = true;
+
+// ---- Pièces jointes d'un compte rendu ----
+
+/** Une pièce jointe **sans ses octets**.
+ *
+ *  C'est la forme que rend tout listage : le BLOB vit en dernière colonne
+ *  de la table pour qu'afficher « 312 Ko » ne le lise pas. Les octets ne
+ *  viennent que sur un geste explicite, par `readSeanceAttachment` ou
+ *  `readEntryAttachment`. */
+export interface Attachment {
+	id: string;
+
+	/** La séance **ou le rendez-vous** qui la porte. Nommé `owner_id` et non
+	 *  `seance_id` depuis le palier 017 : les deux portent des pièces jointes,
+	 *  par le même écran, et un champ qui mentirait sur la moitié des cas
+	 *  aurait fini par être lu de travers. */
+	owner_id: string;
+	file_name: string;
+
+	/** Type MIME annoncé par le navigateur à l'ajout. **Indicatif** : il ne
+	 *  décide que du mode d'aperçu, jamais d'une autorisation. `""` = inconnu. */
+	mime_type: string;
+
+	/** Taille des octets stockés, après redimensionnement éventuel. */
+	size_bytes: number;
+	created_at: string;
+}
+
+/** Une pièce jointe **avec** ses octets, en base64 sans en-tête `data:`. */
+export interface AttachmentContent {
+	id: string;
+	file_name: string;
+	mime_type: string;
+	size_bytes: number;
+	content_base64: string;
+}
+
+/** Plafond par fichier, **le même nombre que `attachments::MAX_ATTACHMENT_BYTES`**.
+ *
+ *  Il est répété ici pour refuser le fichier avant de l'encoder en base64 et
+ *  de le pousser dans l'IPC — faire 13 Mo de chaîne pour s'entendre dire non
+ *  fige la fenêtre une seconde. Le refus qui compte reste celui du backend :
+ *  celui-ci n'est qu'une politesse, et une divergence ne laisserait jamais
+ *  passer un fichier trop gros. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 // ---- Emploi du temps ----
 
@@ -265,6 +391,13 @@ export interface DaySeance {
 	trimester: number;
 	cancelled: boolean;
 	has_content: boolean;
+
+	/** Les deux sorties du palier 014, lues par `etatDuCompteRendu` et par rien
+	 *  d'autre : « cahier vide » sous une séance dont l'enseignant a dit « rien à
+	 *  écrire », ou qui porte la photo du tableau, réclamerait ce que l'accueil
+	 *  ne demande plus. */
+	content_waived: boolean;
+	has_attachment: boolean;
 	attendance_taken_at: string | null;
 	/** Élèves inscrits ce jour-là dans la classe. */
 	attendance_total: number;
@@ -288,10 +421,21 @@ export interface AgendaEntrySummary {
 	start_time: string;
 	end_time: string;
 	title: string;
+	/** Classe concernée, quand le rendez-vous en nomme une. Déduite de l'élève
+	 *  dès qu'il y en a un : un élève n'appartient qu'à une classe, donc les deux
+	 *  champs ne peuvent pas se contredire. */
+	session_id: string | null;
+	session_name: string | null;
 	student_id: string | null;
 	student_first_name: string | null;
 	student_last_name: string | null;
 	has_content: boolean;
+
+	/** Les deux sorties du palier 017, lues par `etatDuCompteRendu` et par rien
+	 *  d'autre : un écran qui réclamerait un compte rendu déjà réglé
+	 *  contredirait l'accueil, qui a cessé de le demander. */
+	content_waived: boolean;
+	has_attachment: boolean;
 	created_at: string;
 	updated_at: string;
 }
@@ -304,10 +448,19 @@ export interface AgendaEntry {
 	start_time: string;
 	end_time: string;
 	title: string;
+	session_id: string | null;
+	session_name: string | null;
 	student_id: string | null;
 	student_first_name: string | null;
 	student_last_name: string | null;
 	content_html: string;
+
+	/** Horodatage du « rien à écrire », `null` tant qu'il n'a pas été déclaré.
+	 *
+	 *  Même sens que sur une séance, et la même mise en garde : ce n'est **pas**
+	 *  une annulation. Le rendez-vous a eu lieu ; il n'y a rien à en consigner,
+	 *  donc l'accueil ne le réclame plus. */
+	content_waived_at: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -331,7 +484,8 @@ export interface DaySchedule {
 	slots: DaySlot[];
 	/** Séances du jour qui ne viennent d'aucun créneau affiché. Sans elles, une
 	 *  séance créée depuis l'écran de la classe n'apparaîtrait pas dans la
-	 *  journée, et « Créer et ouvrir » produirait un second appel du même cours. */
+	 *  journée, et l'accueil proposerait de créer une occurrence déjà créée —
+	 *  donc un second appel du même cours. */
 	loose_seances: DaySeance[];
 	entries: AgendaEntrySummary[];
 	/** Pourquoi personne ne fait cours ce jour-là. Vide = jour ordinaire.
@@ -462,6 +616,11 @@ export interface CompetencyInfo {
 	field_name: string;
 	domain_name: string;
 	cycle_name: string;
+	/** Le domaine désigné sans ambiguïté : « D3 — La formation de la personne et
+	 *  du citoyen (Cycle 3) ». Composé par le backend, jamais ici — les cinq
+	 *  domaines portent les mêmes noms d'un cycle à l'autre, et recomposer la
+	 *  règle à deux endroits la ferait diverger du texte enregistré. */
+	socle_reference: string;
 	archived: boolean;
 }
 
@@ -619,10 +778,32 @@ export interface ContractRow {
 	 *  tout supprimer et réinsérer. */
 	id: string | null;
 	position: number;
+	/** « activités des élèves » sur la fiche contrat, « ON DEMANDE » sur la fiche
+	 *  d'évaluation : c'est le même texte dans ses deux documents. */
 	student_activity: string;
 	training_activity: string;
+	/** Lien vers le référentiel. Deux lignes VOISINES qui portent le même
+	 *  identifiant s'affichent et s'impriment sous une seule cellule fusionnée —
+	 *  c'est ce qui évite de recopier une compétence, donc de la compter
+	 *  plusieurs fois dans une note. */
+	competency_id: string | null;
+	/** Libellés figés : le référentiel les remplit s'ils sont vides, et ne
+	 *  réécrit jamais une formulation saisie. */
 	socle_domain_label: string;
 	socle_competency_label: string;
+	/** « ON EXIGE » de la fiche d'évaluation, en face de cette activité. */
+	required_text: string;
+}
+
+/** Une ligne du tableau ON DONNE / ON DEMANDE / ON EXIGE. Trois colonnes
+ *  alignées : l'alignement EST l'information, « les plans » répond à
+ *  « identifier et interpréter un document » et à rien d'autre. */
+export interface ContractRequirement {
+	id: string | null;
+	position: number;
+	given_text: string;
+	asked_text: string;
+	required_text: string;
 }
 
 export interface ContractSheet {
@@ -631,25 +812,24 @@ export interface ContractSheet {
 	project_title: string;
 	professional_field_id: string | null;
 	professional_field_label: string;
-	socle_domain: string;
+	/** Sous-ensemble du champ professionnel — « AMENAGEMENT AGENCEMENT FINITION »
+	 *  sur sa fiche. Son classeur intitule cette colonne « domaine du socle », à
+	 *  tort : les domaines du socle sont dans les lignes. */
+	professional_subset: string;
 	reference_activities: string;
 	target_careers: string;
-	given_text: string;
-	asked_text: string;
-	required_text: string;
 	rows: ContractRow[];
+	requirements: ContractRequirement[];
 }
 
-export interface ContractSheetInput {
+export type ContractSheetInput = Omit<ContractSheet, "id" | "evaluation_id">;
+
+/** Proposition composée depuis l'évaluation, jamais écrite en base. */
+export interface ContractSuggestion {
 	project_title: string;
-	professional_field_id: string | null;
-	professional_field_label: string;
-	socle_domain: string;
-	reference_activities: string;
-	target_careers: string;
-	given_text: string;
-	asked_text: string;
-	required_text: string;
+	session_name: string;
+	level_code: LevelCode;
+	year_start: number;
 	rows: ContractRow[];
 }
 
@@ -714,4 +894,91 @@ export interface BackupInfo {
 	file_name: string;
 	size_bytes: number;
 	created_at: string;
+}
+
+/** Ce que l'écran de réglages sait du journal de diagnostic.
+ *
+ *  `recent_lines` est du texte déjà mis en forme par Rust, dans l'ordre du
+ *  fichier. Le front ne le réanalyse pas : un format de ligne redécoupé ici
+ *  divergerait de celui qui s'écrit là-bas au premier changement.
+ *
+ *  Ces lignes ne contiennent **aucune donnée personnelle**, par construction
+ *  et non par hasard — voir `src-tauri/src/journal.rs`. C'est ce qui permet de
+ *  les afficher à l'écran, et à l'enseignant d'envoyer le fichier sans y
+ *  regarder à deux fois. */
+export interface JournalInfo {
+	folder: string;
+	today_file: string;
+	today_bytes: number;
+	file_count: number;
+	recent_lines: string[];
+}
+
+// ---- Accueil ----
+
+/** Les six natures de rappel de l'accueil.
+ *
+ *  Le backend les nomme (`commands/home.rs`), le front choisit la phrase et
+ *  l'icône. L'union est FERMÉE pour une raison précise : un `kind` inconnu
+ *  produirait une carte sans titre et sans lien, c'est-à-dire un rappel muet.
+ *  Ajouter un groupe côté Rust doit donc casser la compilation ici. */
+export type ReminderKind =
+	| "appel_incomplet"
+	| "cahier_vide"
+	| "annulee_sans_motif"
+	| "evaluation_incomplete"
+	| "evaluation_sans_competence"
+	| "compte_rendu_manquant";
+
+/** Un cas précis à traiter. Aucune phrase ici, seulement des faits : le
+ *  backend rend les nombres, l'affichage rend le français. */
+export interface ReminderItem {
+	id: string;
+	title: string;
+	date: string;
+	/** Classe concernée, quand le rappel en a une. Un rendez-vous peut n'en
+	 *  nommer aucune — réunion de secteur, médecine scolaire — et reste alors un
+	 *  rappel sans classe.
+	 *
+	 *  Renseignée n'implique pas « cliquable » : `reminderHref` exige aussi un
+	 *  onglet, et le compte rendu d'un rendez-vous n'en a pas. */
+	session_id: string | null;
+	session_name: string | null;
+	/** Élève concerné, quand le rappel est nominatif. */
+	student_name: string | null;
+	/** Vrai si l'entrée d'agenda est rattachée à un placement de stage. Toujours
+	 *  faux aujourd'hui : aucune commande ne sait encore créer un placement. */
+	is_stage_visit: boolean;
+	/** Avancement, quand le rappel en a un : 14 appels faits sur 18, 32 notes
+	 *  saisies sur 45. `null` pour les rappels binaires. */
+	done: number | null;
+	total: number | null;
+}
+
+export interface ReminderGroup {
+	kind: ReminderKind;
+	/** Nombre total de cas. **Jamais `items.length`** : la liste est tronquée à
+	 *  cinq par le backend, le compte ne l'est pas. */
+	count: number;
+	/** Dénominateur : combien d'objets de cette nature le passé contient. Zéro
+	 *  veut dire « rien de comparable encore », pas « aucun problème ». */
+	scope: number;
+	items: ReminderItem[];
+}
+
+export interface HomeOverview {
+	today: string;
+	year_start: number;
+	/** Trimestre du jour, calculé par le backend. */
+	trimester: number;
+	trimester_start: string;
+	trimester_end: string;
+	/** Jours restants, bornes comprises. **Peut être négatif** : les bornes par
+	 *  défaut arrêtent l'année au 7 juillet, et un rattrapage du 15 juillet reste
+	 *  en T3. `null` si la borne enregistrée n'est pas une date lisible. */
+	trimester_days_left: number | null;
+	/** Les six groupes, dans l'ordre d'affichage, **vides compris** : un groupe à
+	 *  zéro affirme que l'application a regardé, un groupe absent laisse croire
+	 *  qu'elle ne l'a pas fait. */
+	groups: ReminderGroup[];
 }

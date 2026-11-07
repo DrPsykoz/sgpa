@@ -190,9 +190,28 @@ pub fn save_export(
             .to_string());
     }
 
-    let safe_name = sanitize_file_name(&file_name)?;
+    write_export(&state.layout.exports_dir, &file_name, &bytes, open_after)
+}
 
-    let dir = &state.layout.exports_dir;
+/// Écrit `bytes` dans `exports/` sous un nom assaini, et l'ouvre si demandé.
+///
+/// Partagée avec `attachments::export_seance_attachment`, et c'est la raison
+/// de la scission : une pièce jointe de 9 Mo n'a aucune raison de traverser
+/// l'IPC en tableau de nombres JSON pour revenir se faire écrire ici. Elle va
+/// de la base au fichier sans jamais passer par le front.
+///
+/// **Ce fichier est en clair**, comme tout ce qui vit dans `exports/` : aucune
+/// application du poste ne sait lire dans une base SQLCipher. Le chemin rendu
+/// n'est donc pas un simple accusé de réception — c'est l'information que
+/// l'appelant doit remonter à l'écran.
+pub(super) fn write_export(
+    dir: &Path,
+    file_name: &str,
+    bytes: &[u8],
+    open_after: bool,
+) -> Result<String, String> {
+    let safe_name = sanitize_file_name(file_name)?;
+
     std::fs::create_dir_all(dir).map_err(|e| {
         format!(
             "Le dossier des exports n'a pas pu être créé.\n\
@@ -205,7 +224,7 @@ pub fn save_export(
 
     let (path, mut file) = create_export_file(dir, &safe_name)?;
 
-    let mut outcome = file.write_all(&bytes);
+    let mut outcome = file.write_all(bytes);
     if outcome.is_ok() {
         // `sync_all` avant de rendre la main : sur une clé USB retirée sans
         // précaution, un document resté dans le cache d'écriture n'existe pas.
@@ -370,9 +389,9 @@ fn rotate(dir: &Path) {
         // Un échec de suppression ne doit pas transformer une sauvegarde réussie
         // en erreur : la copie est écrite, c'est ce qui compte.
         if let Err(e) = std::fs::remove_file(&path) {
-            eprintln!(
-                "[sgpa] rotation des sauvegardes : {} non supprimé ({e})",
-                path.display()
+            crate::journal::erreur(
+                "sauvegardes/rotation",
+                &format!("{} non supprimé ({e})", path.display()),
             );
         }
     }
@@ -424,6 +443,10 @@ fn stamp_to_datetime(stamp: &str) -> Option<String> {
 
 /// Transforme un libellé venu du front en nom de fichier sûr.
 ///
+/// Partagée avec `attachments` : le nom d'une pièce jointe subit le même
+/// traitement, et pour la même raison — il finira comme nom de fichier dans
+/// `exports/` le jour où l'enseignant ouvre la pièce dans Word.
+///
 /// Deux traitements distincts, parce que les deux fautes n'ont pas la même
 /// origine :
 /// - un séparateur de chemin ne sort pas d'une frappe légitime, c'est un chemin
@@ -432,7 +455,7 @@ fn stamp_to_datetime(stamp: &str) -> Option<String> {
 /// - les caractères interdits par Windows viennent d'un titre saisi par
 ///   l'enseignant (« Bilan 6e A : trimestre 1 ») : on les **remplace**, un export
 ///   rejeté à cause d'un deux-points serait incompréhensible.
-fn sanitize_file_name(raw: &str) -> Result<String, String> {
+pub(super) fn sanitize_file_name(raw: &str) -> Result<String, String> {
     let name = raw.trim();
     if name.is_empty() {
         return Err("Le document n'a pas de nom. Donnez-lui un nom de fichier.".to_string());

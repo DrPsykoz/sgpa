@@ -1,6 +1,23 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { AlertTriangle, ArrowLeft, Pencil, Save, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookDashed,
+  Paperclip,
+  Pencil,
+  RotateCcw,
+  Save,
+  X,
+} from "lucide-react";
 
+import { Attachments } from "@/components/Attachments";
+import type { AttachmentsHandle } from "@/components/Attachments";
 import { DataState } from "@/components/DataState";
 import { RichEditor } from "@/components/RichEditor";
 import {
@@ -19,7 +36,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDraftGuard } from "@/hooks/useDrafts";
+import { useZoneDepot } from "@/hooks/useZoneDepot";
 import { api } from "@/lib/api";
+import { aDuContenu } from "@/lib/contenu";
 import { cn } from "@/lib/utils";
 import type { AgendaEntry } from "@/types";
 
@@ -55,6 +74,14 @@ function formatShortDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR");
 }
 
+/** Jumelle de celle de `SeanceDetail` : `datetime('now')` écrit en UTC, et le
+ *  « Z » manquant ferait passer la chaîne pour une heure locale — une décision
+ *  prise à 00h30 s'afficherait la veille. */
+function formatStamp(stamp: string): string {
+  const date = new Date(`${stamp.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("fr-FR");
+}
+
 /** Les deux heures vides = heure à caler : l'entrée existe sans horaire. */
 function formatSchedule(start: string, end: string): string {
   if (!start) return "heure à caler";
@@ -75,9 +102,14 @@ function studentName(entry: AgendaEntry): string | null {
  * temps) qui garde la liste, dérive l'entrée et monte cet éditeur avec
  * `key={entry.id}`.
  *
- * Deux écritures disjointes, comme la séance : `updateAgendaEntryMeta`
- * (intitulé, date, horaire) et `updateAgendaEntryContent` (le texte). La cible
- * — l'élève — n'est écrite par aucune des deux : elle est fixée à la création.
+ * Trois écritures disjointes, comme la séance : `updateAgendaEntryMeta`
+ * (intitulé, date, horaire), `updateAgendaEntryContent` (le texte) et
+ * `setAgendaEntryContentWaived` (le « rien à écrire »). La cible — la classe ET
+ * l'élève — n'est écrite par aucune des trois : elle est fixée à la création, et
+ * le backend refuse de la changer.
+ *
+ * Les pièces jointes, elles, n'attendent aucun bouton : elles sont écrites dès
+ * qu'un fichier est choisi ou lâché. D'où leur carte à part.
  */
 export function AgendaEntryEditor({
   entryId,
@@ -112,6 +144,22 @@ export function AgendaEntryEditor({
   const [justSaved, setJustSaved] = useState(false);
 
   const [leaveOpen, setLeaveOpen] = useState(false);
+
+  // ---- « Rien à écrire » ----
+  // Pas d'état local pour la valeur : elle est lue sur l'entrée relue, jamais
+  // recopiée. Une copie figée aurait affiché « déclaré » après un échec.
+  const [waiveBusy, setWaiveBusy] = useState(false);
+  const [waiveError, setWaiveError] = useState<string | null>(null);
+
+  // ---- Glisser-déposer de pièces jointes ----
+  // La zone couvre tout le compte rendu, éditeur compris, et ne fait que
+  // TRANSMETTRE : `Attachments` garde la réduction, le plafond et les refus.
+  // Même hook que le cahier de texte — le même geste doit donner le même
+  // résultat des deux côtés.
+  const piecesRef = useRef<AttachmentsHandle>(null);
+  const zoneDepot = useZoneDepot((depot) => {
+    void piecesRef.current?.deposer(depot);
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -223,6 +271,37 @@ export function AgendaEntryEditor({
     }
   };
 
+  /**
+   * Déclare — ou retire — le « rien à écrire ».
+   *
+   * Ne touche pas au brouillon et ne l'enregistre pas à sa place (règle 3) :
+   * cliquer ici avec trois lignes tapées et non enregistrées ne les perd pas,
+   * mais ne les enregistre pas davantage — le bouton du haut reste le seul
+   * chemin du texte, et il reste signalé comme non enregistré.
+   *
+   * L'en-tête est relu pour afficher l'horodatage réel, celui de SQLite, et la
+   * relecture préserve explicitement le corps en cours de frappe.
+   */
+  const handleWaive = async (next: boolean) => {
+    if (!entry) return;
+    setWaiveBusy(true);
+    setWaiveError(null);
+    try {
+      await api.setAgendaEntryContentWaived(entry.id, next);
+      const relu = await api.getAgendaEntry(entry.id);
+      setEntry((current) =>
+        current === null
+          ? relu
+          : { ...relu, content_html: current.content_html },
+      );
+      await onChanged?.();
+    } catch (err) {
+      setWaiveError(messageOf(err));
+    } finally {
+      setWaiveBusy(false);
+    }
+  };
+
   // Le brouillon peut représenter une demi-heure de frappe au retour d'une
   // visite. Inscrit au registre, il part avant tout verrouillage — automatique,
   // bouton ou raccourci. `onChanged()` n'est volontairement pas rappelé ici :
@@ -245,6 +324,9 @@ export function AgendaEntryEditor({
   };
 
   const target = entry ? studentName(entry) : null;
+  // La classe s'affiche en plus de l'élève, et non à sa place : ici il y a la
+  // place de dire les deux, à l'inverse des cartes de calendrier.
+  const classe = entry?.session_name ?? null;
 
   return (
     <div className="space-y-4">
@@ -277,6 +359,12 @@ export function AgendaEntryEditor({
                     </span>
                   </>
                 )}
+                {classe && (
+                  <>
+                    {" · "}
+                    {classe}
+                  </>
+                )}
               </p>
             )}
           </div>
@@ -307,7 +395,27 @@ export function AgendaEntryEditor({
 
       <DataState loading={loading} error={loadError} onRetry={() => void load()}>
         {entry && (
-          <div className="space-y-4">
+          /* Toute la zone est une cible de dépôt, éditeur compris : un
+             enseignant qui glisse le rapport signé vise le compte rendu, pas
+             une petite cible dans une carte en bas. Le calque dit alors
+             clairement que le fichier sera JOINT et non inséré dans le texte —
+             les octets vivent dans la base, pas dans le HTML. */
+          <div className="relative space-y-4" {...zoneDepot.props}>
+            {zoneDepot.survol && (
+              // `pointer-events-none` est vital : un calque qui capterait la
+              // souris déclencherait `dragleave` au moment où il apparaît, donc
+              // disparaîtrait aussitôt, en boucle.
+              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-primary bg-background/85 text-center">
+                <span className="flex items-center gap-2 font-medium">
+                  <Paperclip className="h-4 w-4" />
+                  Déposez pour joindre à ce rendez-vous
+                </span>
+                <span className="px-6 text-sm text-muted-foreground">
+                  Les fichiers rejoignent «&nbsp;Pièces jointes&nbsp;». Ils ne
+                  sont pas insérés dans le texte du compte rendu.
+                </span>
+              </div>
+            )}
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -453,6 +561,79 @@ export function AgendaEntryEditor({
                     setContentDraft(html);
                     setContentTouched(true);
                   }}
+                />
+
+                {waiveError && (
+                  <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    {waiveError}
+                  </p>
+                )}
+
+                {/* Proposé seulement quand l'éditeur est vide : « rien à
+                    écrire » au-dessus d'un paragraphe déjà tapé serait une
+                    question absurde. La proposition suit donc le brouillon et
+                    non ce qui est enregistré — on la voit disparaître en
+                    commençant à écrire, ce qui est la bonne réponse à la
+                    question posée. */}
+                {entry.content_waived_at !== null ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
+                    <span className="flex items-start gap-2">
+                      <BookDashed className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        Marqué «&nbsp;rien à écrire&nbsp;» le{" "}
+                        {formatStamp(entry.content_waived_at)}. Ce rendez-vous
+                        n'est plus réclamé dans «&nbsp;À reprendre&nbsp;» sur
+                        l'accueil, et reste à sa date dans l'emploi du temps.
+                      </span>
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={waiveBusy}
+                      onClick={() => void handleWaive(false)}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      {waiveBusy ? "Retrait…" : "Retirer"}
+                    </Button>
+                  </div>
+                ) : (
+                  !aDuContenu(contentDraft) && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                      <span>
+                        Rien à écrire pour ce rendez-vous&nbsp;? Réunion
+                        d'équipe sans décision, visite où tout va bien,
+                        rendez-vous où le rapport signé suffit… Dites-le, et
+                        l'accueil cessera d'en réclamer le compte rendu.
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={waiveBusy}
+                        onClick={() => void handleWaive(true)}
+                      >
+                        <BookDashed className="h-4 w-4" />
+                        {waiveBusy
+                          ? "Enregistrement…"
+                          : "Marquer « rien à écrire »"}
+                      </Button>
+                    </div>
+                  )
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Carte distincte, et non une section de la précédente : les deux
+                n'enregistrent pas au même moment. Le compte rendu attend son
+                bouton, une pièce jointe est écrite dès qu'elle est choisie —
+                sous un même en-tête « Enregistrer », l'enseignant croirait
+                perdre ses fichiers en quittant sans cliquer. */}
+            <Card>
+              <CardContent className="p-6">
+                <Attachments
+                  ref={piecesRef}
+                  porteur={{ kind: "entree", id: entry.id }}
+                  onChanged={onChanged}
                 />
               </CardContent>
             </Card>

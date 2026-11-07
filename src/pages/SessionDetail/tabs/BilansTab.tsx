@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, Pencil, Save, X } from "lucide-react";
 
 import { DataState } from "@/components/DataState";
+import { NeedsChips } from "@/components/NeedsChips";
+import { NeedsLoadError, useNeeds } from "@/hooks/useNeeds";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,14 +22,16 @@ import { api } from "@/lib/api";
 import { exportReportPDF } from "@/lib/pdf";
 import { cn } from "@/lib/utils";
 import {
+  AVERAGE_RULE_PHRASES,
   LEVEL_LABELS,
   MASTERY_COLORS,
   MASTERY_LABELS,
   schoolYearLabel,
   type MasteryLevel,
-  type OverallAverageRule,
+  type NeedTag,
   type Session,
   type SessionReport,
+  type StudentNeeds,
   type StudentReport,
   type TrimesterBounds,
 } from "@/types";
@@ -37,13 +41,6 @@ interface BilansTabProps {
 }
 
 const TRIMESTERS = [1, 2, 3] as const;
-
-/** Libellés des règles de moyenne, affichés tels quels tant que
- *  l'établissement n'a pas arrêté la sienne. */
-const RULE_LABELS: Record<OverallAverageRule, string> = {
-  unweighted_mean: "moyenne non pondérée des compétences",
-  weighted_by_count: "moyenne pondérée par le nombre de notes",
-};
 
 /** Barres pleines : MASTERY_COLORS est prévu pour des pastilles de texte et
  *  reste illisible en aplat de 8 px de haut. */
@@ -86,6 +83,9 @@ function currentTrimester(bounds: TrimesterBounds): number {
 }
 
 export function BilansTab({ session }: BilansTabProps) {
+  // Distribués en props aux cartes, comme `enrolledOn` juste à côté : la carte
+  // d'un élève reste un composant d'affichage qui ne lit aucun contexte.
+  const { tags: needTags, parEleve: besoins } = useNeeds();
   const [trimester, setTrimester] = useState<number | null>(null);
   const [boundsWarning, setBoundsWarning] = useState<string | null>(null);
   const [report, setReport] = useState<SessionReport | null>(null);
@@ -248,6 +248,7 @@ export function BilansTab({ session }: BilansTabProps) {
         {report && (
           <div className="space-y-4">
             <ReportHeader session={session} report={report} />
+            <NeedsLoadError />
             {report.students.map((studentReport) => (
               // La clé porte le trimestre : d'un trimestre à l'autre les élèves
               // sont les mêmes, et sans lui React réutiliserait l'instance — le
@@ -257,6 +258,8 @@ export function BilansTab({ session }: BilansTabProps) {
                 report={studentReport}
                 trimester={report.trimester}
                 enrolledOn={enrolledOn[studentReport.student_id] ?? null}
+                needTags={needTags}
+                needs={besoins.get(studentReport.student_id)}
                 onSaved={load}
               />
             ))}
@@ -309,7 +312,7 @@ function ReportHeader({
           </span>
         )}
         <span>{plural(report.students.length, "élève", "élèves")}</span>
-        <span>Moyenne générale : {RULE_LABELS[report.average_rule]}</span>
+        <span>Moyenne générale : {AVERAGE_RULE_PHRASES[report.average_rule]}</span>
       </CardContent>
     </Card>
   );
@@ -319,11 +322,15 @@ function StudentReportCard({
   report,
   trimester,
   enrolledOn,
+  needTags,
+  needs,
   onSaved,
 }: {
   report: StudentReport;
   trimester: number;
   enrolledOn: string | null;
+  needTags: NeedTag[];
+  needs: StudentNeeds | undefined;
   onSaved: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -380,8 +387,15 @@ function StudentReportCard({
     <Card>
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">
-            {report.student_last_name} {report.student_first_name}
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            <span>
+              {report.student_last_name} {report.student_first_name}
+            </span>
+            {/* À l'écran seulement. Le bouton « Exporter le bilan » un peu plus
+                haut passe par `exportReportPDF`, qui ne reçoit que
+                `TrimesterReport` — ces pastilles n'ont aucun chemin vers le
+                PDF, et c'est la décision de l'auteur, pas un oubli. */}
+            <NeedsChips tags={needTags} needs={needs} />
           </CardTitle>
           <div className="flex items-center gap-2">
             <Badge

@@ -478,6 +478,7 @@ mod tests {
             keys_path: dir.join("sgpa.keys"),
             backups_dir: dir.join("backups"),
             exports_dir: dir.join("exports"),
+            logs_dir: dir.join("logs"),
             webview_dir: dir.join("webview"),
         };
 

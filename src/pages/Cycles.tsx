@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { DataState } from "@/components/DataState";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------

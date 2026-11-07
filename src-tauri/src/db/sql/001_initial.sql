@@ -18,15 +18,20 @@ CREATE TABLE app_settings (
     lock_on_minimize          INTEGER NOT NULL DEFAULT 1  CHECK (lock_on_minimize IN (0, 1)),
     password_hint             TEXT    NOT NULL DEFAULT '',   -- jamais la réponse
 
-    -- EN ATTENTE — règle de la moyenne générale.
-    -- Changer de règle = UPDATE d'une ligne + une fonction dans reports/scoring.rs,
-    -- JAMAIS une migration. 'unweighted_mean' = la règle historique, provisoire.
+    -- Règle de la moyenne générale. Changer de règle = UPDATE d'une ligne + une
+    -- fonction dans reports/scoring.rs, JAMAIS une migration.
+    -- Livrée « en attente » : la valeur ci-dessous était un emplacement tenu.
+    -- ARRÊTÉE AU PALIER 015 — c'est lui qu'il faut lire, pas cette ligne.
     overall_average_rule      TEXT    NOT NULL DEFAULT 'unweighted_mean'
                               CHECK (overall_average_rule IN ('unweighted_mean', 'weighted_by_count')),
 
-    -- EN ATTENTE — que faire des notes d'une compétence retirée d'une évaluation.
+    -- Que faire des notes d'une compétence retirée d'une évaluation.
     -- 'keep'   : les notes survivent et restent comptées (comportement livré)
     -- 'ignore' : les notes survivent mais sortent des moyennes
+    -- Livrée « en attente » sur 'keep', emplacement tenu lui aussi.
+    -- ARRÊTÉE AU PALIER 015, qui bascule sur 'ignore'. La valeur par défaut
+    -- ci-dessous reste celle qui a été LIVRÉE : un palier ne se réécrit pas, et
+    -- 015 rattrape aussi bien une base neuve qu'une base déjà en service.
     removed_competency_policy TEXT    NOT NULL DEFAULT 'keep'
                               CHECK (removed_competency_policy IN ('keep', 'ignore')),
 

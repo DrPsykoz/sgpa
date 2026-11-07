@@ -4,6 +4,7 @@ use rusqlite::{params, params_from_iter, Connection, Transaction};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::commands::referential::socle_reference;
 use crate::db;
 use crate::state::AppState;
 
@@ -26,6 +27,16 @@ pub struct CompetencyInfo {
     pub field_name: String,
     pub domain_name: String,
     pub cycle_name: String,
+    /// Le domaine désigné sans ambiguïté — « D3 — La formation de la personne
+    /// et du citoyen (Cycle 3) ». À CÔTÉ de `domain_name` et `cycle_name`, pas
+    /// à leur place : l'arbre du référentiel montre le nom sous son cycle, où
+    /// répéter le cycle dans chaque feuille n'apprendrait rien, tandis que la
+    /// cellule d'une fiche contrat est lue seule et doit se suffire.
+    ///
+    /// Composé par `referential::socle_reference`, jamais par le front :
+    /// réimplémenter la règle là-bas la ferait diverger de ce qui est
+    /// enregistré, et la fiche imprimerait autre chose que la base.
+    pub socle_reference: String,
     pub archived: bool,
 }
 
@@ -444,7 +455,8 @@ pub fn get_evaluation_competencies(
     let conn = state.conn()?;
     let mut stmt = conn
         .prepare(
-            "SELECT c.id, c.name, f.name, d.name, cy.name, c.archived_at IS NOT NULL
+            "SELECT c.id, c.name, f.name, d.name, cy.name, d.code,
+                    c.archived_at IS NOT NULL
                FROM evaluation_competencies ec
                JOIN competencies c ON c.id = ec.competency_id
                JOIN fields f       ON f.id = c.field_id
@@ -457,13 +469,20 @@ pub fn get_evaluation_competencies(
 
     let competencies = stmt
         .query_map(params![evaluation_id], |row| {
+            let domain_name: String = row.get(3)?;
+            let cycle_name: String = row.get(4)?;
             Ok(CompetencyInfo {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 field_name: row.get(2)?,
-                domain_name: row.get(3)?,
-                cycle_name: row.get(4)?,
-                archived: row.get(5)?,
+                socle_reference: socle_reference(
+                    &row.get::<_, String>(5)?,
+                    &domain_name,
+                    &cycle_name,
+                ),
+                domain_name,
+                cycle_name,
+                archived: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?

@@ -8,6 +8,25 @@
  */
 export const MIN_PASSWORD_LENGTH = 8;
 
+/**
+ * Longueur imposée du code PIN, miroir de `keys::PIN_LEN`.
+ *
+ * Six chiffres ne font qu'un million de combinaisons — dérisoire pour un secret
+ * qui ouvrirait seul la base. Il n'ouvre jamais seul : l'autre moitié est un
+ * secret de 32 octets qui reste dans le profil Windows du poste et ne suit pas
+ * la clé USB. Le mot de passe, lui, reste la vraie clé.
+ */
+export const PIN_LENGTH = 6;
+
+/** Ne garde que les chiffres ASCII, ceux que le backend accepte.
+ *
+ *  Un pavé numérique de portable, un copier-coller, un clavier téléphonique :
+ *  les espaces et séparateurs arrivent tout seuls, et les laisser passer
+ *  donnerait « le code PIN doit être composé de 6 chiffres » sur une saisie qui
+ *  en comptait bien six. */
+export const digitsOnly = (value: string): string =>
+	value.replace(/[^0-9]/g, "").slice(0, PIN_LENGTH);
+
 /** Longueur en caractères et non en unités UTF-16 : le backend compte des
  *  `char`, et « 🔑🔑🔑🔑 » vaut 4 caractères pour lui et 8 pour `String.length`. */
 export const passwordLength = (password: string): number =>

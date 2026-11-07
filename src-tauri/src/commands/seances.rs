@@ -34,6 +34,27 @@ pub struct Seance {
     /// pas au modèle. `""` = séance hors créneau, ou antérieure au palier 004.
     pub start_time: String,
     pub end_time: String,
+    /// Quand l'enseignant a déclaré qu'il n'y avait **rien à écrire** au cahier
+    /// de texte, ou `None` s'il n'a rien déclaré.
+    ///
+    /// Ce n'est pas une annulation : la séance a eu lieu, l'appel y compte. Elle
+    /// sort seulement de la liste « À reprendre » de l'accueil, qui autrement
+    /// réclamerait éternellement le compte rendu d'une évaluation surveillée ou
+    /// d'une sortie. Un horodatage et non un booléen, comme
+    /// `attendance_taken_at` : l'écran peut dire *quand* la décision a été
+    /// prise, ce qu'un drapeau muet ne sait pas faire trois mois après.
+    pub content_waived_at: Option<String>,
+    /// Vrai si au moins une pièce jointe pend à cette séance.
+    ///
+    /// **Dérivé, jamais écrit** : aucune commande ne le reçoit, il est recalculé
+    /// à chaque lecture par un `EXISTS` de `SEANCE_COLUMNS`. Il n'est là que
+    /// pour la liste de la fiche de classe, qui doit dire « réglé » d'une séance
+    /// dont la photo du tableau EST le compte rendu — sans lui, elle réclamait
+    /// un cahier que l'accueil avait cessé de demander.
+    ///
+    /// Un compte et non un booléen aurait été une seconde vérité à côté de
+    /// `list_seance_attachments`, et celle-ci serait périmée la moitié du temps.
+    pub has_attachment: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,7 +81,9 @@ const ATTENDANCE_STATUSES: [&str; 5] = ["non_fait", "present", "absent", "retard
 /// mappeur ne se voit qu'à l'exécution.
 const SEANCE_COLUMNS: &str = "id, session_id, title, date, trimester, trimester_is_manual, \
                               cancelled, content_html, attendance_taken_at, created_at, \
-                              slot_id, start_time, end_time, cancel_reason";
+                              slot_id, start_time, end_time, cancel_reason, content_waived_at, \
+                              EXISTS (SELECT 1 FROM seance_attachments sat \
+                                      WHERE sat.seance_id = seances.id)";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,6 +130,8 @@ fn map_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<Seance> {
         // milieu décalerait en silence les six suivantes. Une colonne ajoutée se
         // lit à la fin.
         cancel_reason: row.get(13)?,
+        content_waived_at: row.get(14)?,
+        has_attachment: row.get(15)?,
     })
 }
 
@@ -587,6 +612,43 @@ pub fn update_seance_content(
                 SET content_html = ?1, updated_at = datetime('now')
               WHERE id = ?2",
             params![content_html, id],
+        )
+        .map_err(|e| e.to_string())?;
+    if touched == 0 {
+        return Err("Séance introuvable".to_string());
+    }
+    Ok(())
+}
+
+/// Déclarer — ou retirer — le « rien à écrire » d'une séance.
+///
+/// **Une troisième commande, et non un paramètre des deux autres** (règle 3).
+/// `update_seance_meta` écrit le titre, la date, le trimestre et l'annulation ;
+/// `update_seance_content` écrit le cahier de texte. Celle-ci n'écrit qu'une
+/// colonne, et c'est ce qui la rend sûre : l'écran du cahier de texte détient un
+/// brouillon du contenu, et laisser ce bouton passer par
+/// `update_seance_content` aurait réécrit le brouillon affiché par-dessus ce que
+/// l'enseignant venait de taper — ou l'inverse.
+///
+/// Rien n'empêche une séance d'être à la fois « rien à écrire » et remplie : on
+/// peut déclarer puis se raviser et écrire deux lignes. L'accueil ne la réclame
+/// alors plus, ce qui est correct — elle a un contenu.
+#[tauri::command]
+pub fn set_seance_content_waived(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    waived: bool,
+) -> Result<(), String> {
+    let conn = state.conn()?;
+    // L'horodatage est posé par SQLite et non par le front : c'est l'heure de
+    // la machine qui écrit, et une seule source évite deux formats de date.
+    let touched = conn
+        .execute(
+            "UPDATE seances
+                SET content_waived_at = CASE WHEN ?1 THEN datetime('now') ELSE NULL END,
+                    updated_at = datetime('now')
+              WHERE id = ?2",
+            params![waived, id],
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {

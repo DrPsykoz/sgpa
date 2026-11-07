@@ -209,9 +209,9 @@ export function NewPlanningDialog({
    *
    * Un seul type écrit `session_id` : « Cours ». Aucun autre chemin ne peut en
    * écrire un. Sinon une « réunion » rattachée à une classe reviendrait chaque
-   * semaine dans l'onglet Journée avec son bouton « Créer et ouvrir » — et
-   * chaque séance ainsi créée compterait au dénominateur d'assiduité du bilan
-   * remis aux familles.
+   * semaine à l'accueil, avec les deux gestes qui y font naître une occurrence
+   * — et chaque séance ainsi créée compterait au dénominateur d'assiduité du
+   * bilan remis aux familles.
    *
    * Le refus est **explicite, jamais silencieux** : `SlotDialog` affiche le
    * message levé ici à côté du bouton qui vient d'échouer. Remettre

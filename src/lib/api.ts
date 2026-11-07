@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
+import { journaliserEchecDeCommande } from "@/lib/journal";
 import type {
 	AbsencePeriod,
 	AbsencePeriodInput,
 	AgendaEntry,
 	AgendaEntrySummary,
 	AppSettings,
+	Attachment,
+	AttachmentContent,
 	AttendanceInput,
 	AttendanceWithStudent,
 	BackupInfo,
@@ -12,12 +15,16 @@ import type {
 	CompetencyInfo,
 	ContractSheet,
 	ContractSheetInput,
+	ContractSuggestion,
 	CycleNode,
+	JournalInfo,
 	DaySchedule,
 	Evaluation,
 	Grade,
+	HomeOverview,
 	LevelCode,
 	LockStatus,
+	NeedTag,
 	NodeKind,
 	ProfessionalField,
 	RecomputePreview,
@@ -28,6 +35,7 @@ import type {
 	SetupResult,
 	Student,
 	StudentDeletionImpact,
+	StudentNeeds,
 	TimetableSlot,
 	TimetableSlotInput,
 	TrimesterBounds,
@@ -58,6 +66,11 @@ async function call<T>(
 	try {
 		return await invoke<T>(command, args);
 	} catch (err) {
+		// Seul le NOM de la commande part au journal, jamais le message : des
+		// messages d'erreur du backend interpolent une valeur de la base, et
+		// l'un d'eux nomme un élève. `log_command_failure` n'a d'ailleurs aucun
+		// paramètre où un message pourrait se glisser. Voir `lib/journal.ts`.
+		journaliserEchecDeCommande(command);
 		throw new ApiError(command, typeof err === "string" ? err : String(err));
 	}
 }
@@ -81,6 +94,27 @@ export const api = {
 		}),
 
 	unlock: (password: string) => call<LockStatus>("unlock", { password }),
+
+	/** Déverrouille par le code PIN de ce poste.
+	 *
+	 *  Ce n'est pas un second mot de passe : six chiffres ne protégeraient rien
+	 *  seuls. L'autre moitié du secret est restée sur cet ordinateur, dans le
+	 *  profil Windows, et ne suit pas la clé USB — d'où le `pin_available` de
+	 *  `LockStatus`, qui vaut faux partout ailleurs. Dix essais manqués
+	 *  désactivent le PIN de ce poste et renvoient au mot de passe. */
+	unlockWithPin: (pin: string) => call<LockStatus>("unlock_with_pin", { pin }),
+
+	/** Active le code PIN sur ce poste.
+	 *
+	 *  Le mot de passe est redemandé parce qu'il est le seul moyen d'atteindre
+	 *  la clé maître : la session ouverte ne la garde pas en mémoire. */
+	enablePin: (password: string, pin: string) =>
+		call<LockStatus>("enable_pin", { password, pin }),
+
+	/** « Oublier ce poste » : efface le secret rangé sur cet ordinateur, puis
+	 *  l'enveloppe correspondante. Changer le mot de passe ne suffit PAS à
+	 *  retirer un PIN — la clé maître ne bouge pas — c'est ici que ça se fait. */
+	disablePin: () => call<LockStatus>("disable_pin"),
 
 	/** Déballe la clé maître par l'enveloppe de récupération, réécrit celle du
 	 *  mot de passe, puis ouvre la session. L'ancien mot de passe cesse alors de
@@ -283,7 +317,122 @@ export const api = {
 	updateSeanceContent: (id: string, contentHtml: string) =>
 		call<void>("update_seance_content", { id, contentHtml }),
 
+	/** Déclarer — ou retirer — le « rien à écrire » d'une séance.
+	 *
+	 *  Troisième commande et non paramètre des deux autres : elle n'écrit QUE
+	 *  `content_waived_at`. Passer par `updateSeanceContent` aurait fait réécrire
+	 *  le brouillon affiché par-dessus la saisie en cours. */
+	setSeanceContentWaived: (id: string, waived: boolean) =>
+		call<void>("set_seance_content_waived", { id, waived }),
+
 	deleteSeance: (id: string) => call<void>("delete_seance", { id }),
+
+	// ---- Besoins particuliers des élèves ----
+
+	/** Le vocabulaire de l'enseignant, avec le nombre d'élèves par étiquette. */
+	getNeedTags: () => call<NeedTag[]>("get_need_tags"),
+
+	/** Crée l'étiquette, ou rend celle qui porte déjà ce libellé (insensible à la
+	 *  casse) : retaper « AESH » doit retrouver AESH, pas échouer. */
+	createNeedTag: (label: string, shortLabel: string) =>
+		call<NeedTag>("create_need_tag", { label, shortLabel }),
+
+	updateNeedTag: (id: string, label: string, shortLabel: string) =>
+		call<void>("update_need_tag", { id, label, shortLabel }),
+
+	/** Retire l'étiquette du vocabulaire ET de tous les élèves qui la portent. */
+	deleteNeedTag: (id: string) => call<void>("delete_need_tag", { id }),
+
+	/** Les besoins de toute une classe, d'un seul appel. Les élèves sans
+	 *  étiquette ni note n'y figurent pas : indexer par `student_id` et traiter
+	 *  l'absence comme « rien à signaler ». */
+	getSessionNeeds: (sessionId: string) =>
+		call<StudentNeeds[]>("get_session_needs", { sessionId }),
+
+	/** Remplace l'ensemble des étiquettes d'un élève. **N'écrit pas la note.** */
+	setStudentNeeds: (studentId: string, tagIds: string[]) =>
+		call<void>("set_student_needs", { studentId, tagIds }),
+
+	/** Note libre seule — n'écrit JAMAIS les étiquettes. */
+	updateStudentNeedsNote: (studentId: string, note: string) =>
+		call<void>("update_student_needs_note", { studentId, note }),
+
+	// ---- Pièces jointes d'un compte rendu ----
+	//
+	// Deux familles, une seule logique côté Rust (`commands/attachments.rs`) :
+	// même plafond, même nom assaini, même export en clair. Dix enveloppes
+	// plutôt qu'un paramètre « type de porteur » — le nom de l'appel dit ce
+	// qu'il touche, et `Attachments` les choisit par son prop `porteur`.
+
+	/** Liste les pièces d'une séance, **sans leurs octets**. */
+	getSeanceAttachments: (seanceId: string) =>
+		call<Attachment[]>("get_seance_attachments", { seanceId }),
+
+	/** Joint un fichier et rend la pièce créée.
+	 *
+	 *  `contentBase64` sans en-tête `data:`. Le backend refuse au-delà de
+	 *  `MAX_ATTACHMENT_BYTES` octets **décodés** : tester la taille du fichier
+	 *  avant d'encoder évite d'en fabriquer 13 Mo de chaîne pour rien. */
+	addSeanceAttachment: (
+		seanceId: string,
+		fileName: string,
+		mimeType: string,
+		contentBase64: string,
+	) =>
+		call<Attachment>("add_seance_attachment", {
+			seanceId,
+			fileName,
+			mimeType,
+			contentBase64,
+		}),
+
+	/** Rend les octets d'UNE pièce, en base64. Le seul appel qui traverse un
+	 *  BLOB : à réserver à un geste de l'enseignant (aperçu, ouverture). */
+	readSeanceAttachment: (id: string) =>
+		call<AttachmentContent>("read_seance_attachment", { id }),
+
+	/** Recopie la pièce dans `<clé>/exports/` et rend son chemin complet.
+	 *
+	 *  **Cette copie est en clair** : aucune application du poste ne sait lire
+	 *  dans une base SQLCipher. Le chemin rendu est fait pour être affiché, pas
+	 *  seulement pour confirmer le succès — il y a désormais un fichier à
+	 *  effacer. Les octets ne traversent pas l'IPC : ils vont de la base au
+	 *  fichier côté Rust. */
+	exportSeanceAttachment: (id: string, openAfter: boolean) =>
+		call<string>("export_seance_attachment", { id, openAfter }),
+
+	deleteSeanceAttachment: (id: string) =>
+		call<void>("delete_seance_attachment", { id }),
+
+	/** Liste les pièces d'un rendez-vous, **sans leurs octets**. */
+	getEntryAttachments: (entryId: string) =>
+		call<Attachment[]>("get_entry_attachments", { entryId }),
+
+	/** Joint un fichier à un rendez-vous — le rapport de visite signé, d'abord.
+	 *
+	 *  Mêmes règles qu'une séance : plafond sur les octets décodés, nom assaini
+	 *  côté Rust, images déjà réduites à 1600 px par `Attachments`. */
+	addEntryAttachment: (
+		entryId: string,
+		fileName: string,
+		mimeType: string,
+		contentBase64: string,
+	) =>
+		call<Attachment>("add_entry_attachment", {
+			entryId,
+			fileName,
+			mimeType,
+			contentBase64,
+		}),
+
+	readEntryAttachment: (id: string) =>
+		call<AttachmentContent>("read_entry_attachment", { id }),
+
+	exportEntryAttachment: (id: string, openAfter: boolean) =>
+		call<string>("export_entry_attachment", { id, openAfter }),
+
+	deleteEntryAttachment: (id: string) =>
+		call<void>("delete_entry_attachment", { id }),
 
 	// ---- Emploi du temps ----
 
@@ -299,6 +448,23 @@ export const api = {
 	 *  proposerait des académies sans dates, c'est-à-dire un réglage qui a l'air
 	 *  de marcher et ne fait rien. */
 	getAvailableAcademies: () => call<string[]>("get_available_academies"),
+
+	// ---- Accueil ----
+
+	/** Les `count` prochains jours **ouvrés** à partir de `from` inclus, samedi et
+	 *  dimanche sautés. Un seul appel, et non `count` appels à `getDaySchedule`
+	 *  enchaînés : l'appelant n'a pas à savoir quels jours sont ouvrés, ni que le
+	 *  1er novembre est férié. Le backend borne `count` à dix. */
+	getUpcomingDays: (from: string, count: number) =>
+		call<DaySchedule[]>("get_upcoming_days", { from, count }),
+
+	/** Le relevé de l'accueil : trimestre en cours et six groupes de rappels.
+	 *
+	 *  `today` est passé par le front, comme pour `getDaySchedule` : `date('now')`
+	 *  est en UTC côté SQLite, et une consultation le 1er décembre à 00h30 aurait
+	 *  relevé le trimestre du 30 novembre. */
+	getHomeOverview: (today: string) =>
+		call<HomeOverview>("get_home_overview", { today }),
 
 	getDaySchedule: (date: string) =>
 		call<DaySchedule>("get_day_schedule", { date }),
@@ -326,12 +492,19 @@ export const api = {
 		call<void>("delete_timetable_slot", { id }),
 
 	/** `startTime` / `endTime` peuvent valoir `""` — « heure à caler » : l'entrée
-	 *  s'affiche alors hors de la grille horaire. `studentId` peut être `null`. */
+	 *  s'affiche alors hors de la grille horaire.
+	 *
+	 *  `sessionId` et `studentId` sont tous deux facultatifs : un conseil de classe
+	 *  nomme une classe sans élève, une réunion de secteur ne nomme ni l'un ni
+	 *  l'autre. Quand un élève est désigné, le backend enregistre SA classe et
+	 *  **refuse** un `sessionId` qui la contredirait — passer `null` est donc la
+	 *  bonne façon de dire « celle de l'élève », et non une information perdue. */
 	createAgendaEntry: (
 		date: string,
 		startTime: string,
 		endTime: string,
 		title: string,
+		sessionId: string | null,
 		studentId: string | null,
 	) =>
 		call<AgendaEntry>("create_agenda_entry", {
@@ -339,14 +512,17 @@ export const api = {
 			startTime,
 			endTime,
 			title,
+			sessionId,
 			studentId,
 		}),
 
 	getAgendaEntry: (id: string) => call<AgendaEntry>("get_agenda_entry", { id }),
 
-	/** Date, horaire, intitulé — ne touche JAMAIS l'élève désigné ni le corps
-	 *  rédigé. La cible est immuable après création : un rapport écrit sur Jean ne
-	 *  doit pas pouvoir devenir un rapport sur Marie. */
+	/** Date, horaire, intitulé — ne touche JAMAIS la cible ni le corps rédigé.
+	 *
+	 *  La cible, ce sont les deux : l'élève ET la classe. Immuables après
+	 *  création — un rapport écrit sur Jean ne doit pas pouvoir devenir un rapport
+	 *  sur Marie, ni le compte rendu du conseil de la 4ème A celui de la 3ème B. */
 	updateAgendaEntryMeta: (
 		id: string,
 		date: string,
@@ -365,6 +541,15 @@ export const api = {
 	/** Corps rédigé seul — n'écrit JAMAIS l'en-tête de l'entrée. */
 	updateAgendaEntryContent: (id: string, contentHtml: string) =>
 		call<void>("update_agenda_entry_content", { id, contentHtml }),
+
+	/** Déclarer — ou retirer — le « rien à écrire » d'un rendez-vous.
+	 *
+	 *  Troisième écriture, comme pour une séance : elle n'écrit QUE
+	 *  `content_waived_at`, parce que l'écran du compte rendu détient un
+	 *  brouillon et que passer par `updateAgendaEntryContent` l'aurait réécrit
+	 *  par-dessus la saisie en cours. */
+	setAgendaEntryContentWaived: (id: string, waived: boolean) =>
+		call<void>("set_agenda_entry_content_waived", { id, waived }),
 
 	deleteAgendaEntry: (id: string) =>
 		call<void>("delete_agenda_entry", { id }),
@@ -502,6 +687,11 @@ export const api = {
 	getContractSheet: (evaluationId: string) =>
 		call<ContractSheet | null>("get_contract_sheet", { evaluationId }),
 
+	/** Compose une fiche depuis l'évaluation sans rien écrire : titre, classe et
+	 *  une ligne par compétence notée. C'est à l'écran de l'adopter. */
+	suggestContractSheet: (evaluationId: string) =>
+		call<ContractSuggestion>("suggest_contract_sheet", { evaluationId }),
+
 	saveContractSheet: (evaluationId: string, sheet: ContractSheetInput) =>
 		call<ContractSheet>("save_contract_sheet", { evaluationId, sheet }),
 
@@ -536,4 +726,10 @@ export const api = {
 	/** Écrit le fichier dans `<clé>/exports/` et renvoie son chemin complet. */
 	saveExport: (fileName: string, bytes: number[], openAfter: boolean) =>
 		call<string>("save_export", { fileName, bytes, openAfter }),
+
+	// ---- Journal de diagnostic ----
+
+	getJournalInfo: () => call<JournalInfo>("get_journal_info"),
+
+	revealLogsDir: () => call<void>("reveal_logs_dir"),
 };

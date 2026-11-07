@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ClipboardPaste,
+  HeartHandshake,
   NotebookPen,
   Pencil,
   Plus,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { AgendaEntryEditor } from "@/components/AgendaEntryEditor";
 import { DataState } from "@/components/DataState";
+import { NeedsChips } from "@/components/NeedsChips";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,13 +40,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   StudentFormDialog,
   type StudentFormValues,
 } from "@/pages/SessionDetail/dialogs/StudentFormDialog";
+import { StudentNeedsDialog } from "@/pages/SessionDetail/dialogs/StudentNeedsDialog";
 import { AgendaEntryDialog } from "@/pages/Timetable/AgendaEntryDialog";
+import { useNeeds } from "@/hooks/useNeeds";
 import { api } from "@/lib/api";
+import { compteRenduRegle, motsDuCompteRendu } from "@/lib/contenu";
 import { cn } from "@/lib/utils";
 import type {
   AgendaEntrySummary,
@@ -52,6 +57,23 @@ import type {
   Student,
   StudentDeletionImpact,
 } from "@/types";
+
+/**
+ * Ce que la suppression d'un rendez-vous emporte, nommé.
+ *
+ * Le `ON DELETE CASCADE` du palier 017 emporte les pièces jointes avec
+ * l'entrée : la convention scannée part avec elle, et le dire est le minimum
+ * avant de demander confirmation. Taire les fichiers pour ne citer que le
+ * texte serait exactement le genre de demi-phrase qui fait cliquer « Oui ».
+ */
+function cequiPart(entry: AgendaEntrySummary | null): string {
+  if (entry === null) return ".";
+  const morceaux: string[] = [];
+  if (entry.has_content) morceaux.push("le texte qui y est rédigé");
+  if (entry.has_attachment) morceaux.push("ses pièces jointes");
+  if (morceaux.length === 0) return ".";
+  return `, avec ${morceaux.join(" et ")}.`;
+}
 
 interface StudentsTabProps {
   session: Session;
@@ -154,6 +176,12 @@ export function StudentsTab({
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // ---- Besoins particuliers ----
+  // L'identifiant, pas l'élève : le dialogue reçoit l'entité dérivée de la
+  // liste, pour qu'un rechargement la rafraîchisse au lieu de la figer.
+  const [needsStudentId, setNeedsStudentId] = useState<string | null>(null);
+  const { tags: needTags, parEleve: besoins, error: needsError } = useNeeds();
+
   // Ce que la suppression de l'élève en attente de confirmation emporterait.
   const [impact, setImpact] = useState<StudentDeletionImpact | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
@@ -229,6 +257,11 @@ export function StudentsTab({
   const agendaStudent = useMemo(
     () => students.find((student) => student.id === agendaStudentId) ?? null,
     [students, agendaStudentId],
+  );
+
+  const needsStudent = useMemo(
+    () => students.find((student) => student.id === needsStudentId) ?? null,
+    [students, needsStudentId],
   );
 
   const selectedEntry = useMemo(
@@ -432,15 +465,11 @@ export function StudentsTab({
                       <div
                         className={cn(
                           "rounded-lg p-2",
-                          entry.has_content
+                          compteRenduRegle(entry)
                             ? "bg-primary/10 text-primary"
                             : "bg-muted text-muted-foreground",
                         )}
-                        title={
-                          entry.has_content
-                            ? "Texte rédigé"
-                            : "Aucun texte pour l'instant"
-                        }
+                        title={motsDuCompteRendu(entry).carte}
                       >
                         <NotebookPen className="h-4 w-4" />
                       </div>
@@ -456,7 +485,7 @@ export function StudentsTab({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      {!entry.has_content && (
+                      {!compteRenduRegle(entry) && (
                         <Badge
                           variant="outline"
                           className="border-amber-200 bg-amber-50 font-normal text-amber-800"
@@ -508,10 +537,7 @@ export function StudentsTab({
               <p>
                 « {entryToDelete?.title} » du{" "}
                 {entryToDelete ? formatDate(entryToDelete.date) : ""} sera
-                supprimé
-                {entryToDelete?.has_content
-                  ? ", avec le texte qui y est rédigé."
-                  : "."}
+                supprimé{cequiPart(entryToDelete)}
               </p>
               <p>Cette suppression ne change aucun bilan.</p>
             </>
@@ -578,7 +604,8 @@ export function StudentsTab({
                 <TableHead>Prénom</TableHead>
                 <TableHead>Inscrit depuis le</TableHead>
                 <TableHead>Sorti le</TableHead>
-                <TableHead className="w-32 text-right">Actions</TableHead>
+                <TableHead>Besoins</TableHead>
+                <TableHead className="w-40 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -603,8 +630,27 @@ export function StudentsTab({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  <TableCell>
+                    <NeedsChips
+                      tags={needTags}
+                      needs={besoins.get(student.id)}
+                    />
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Besoins particuliers et aménagements"
+                        aria-label={`Besoins particuliers de ${student.last_name} ${student.first_name}`}
+                        onClick={() => {
+                          setNotice(null);
+                          setNeedsStudentId(student.id);
+                        }}
+                      >
+                        <HeartHandshake className="h-4 w-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -644,6 +690,30 @@ export function StudentsTab({
           </Table>
         )}
       </CardContent>
+
+      {needsError && (
+        <CardContent className="pt-0">
+          <p className="text-xs text-destructive">
+            Les besoins particuliers n'ont pas pu être chargés ({needsError}).
+            La colonne « Besoins » est donc vide, et ce n'est pas ce que dit la
+            base.
+          </p>
+        </CardContent>
+      )}
+
+      {/* `key` sur l'élève : le dialogue détient le brouillon de la note libre
+          (règle 2). Monté seulement quand un élève est choisi, pour que
+          l'initialiseur de `useState` lise bien SES besoins. */}
+      {needsStudent && (
+        <StudentNeedsDialog
+          key={needsStudent.id}
+          open={true}
+          onOpenChange={(ouvert) => {
+            if (!ouvert) setNeedsStudentId(null);
+          }}
+          student={needsStudent}
+        />
+      )}
 
       <StudentFormDialog
         open={formOpen}

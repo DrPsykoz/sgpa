@@ -1,0 +1,34 @@
+-- ==========================================================================
+-- SGPA — palier 014 : « rien à écrire » dans le cahier de texte
+--
+-- Toute séance passée au cahier de texte vide atterrit dans « À reprendre » sur
+-- l'accueil. C'est juste la plupart du temps, et faux régulièrement : une
+-- évaluation surveillée, une sortie, une heure de vie de classe, une séance
+-- rendue à l'AESH n'ont rien à consigner. Le rappel ne tombait jamais, et un
+-- rappel qui ne tombe jamais apprend à se faire ignorer — il emporte avec lui
+-- les cahiers réellement en retard, qui étaient le seul intérêt de la liste.
+--
+-- UNE COLONNE SUR LA SÉANCE, DATÉE, NULLABLE.
+--
+-- `content_waived_at` est NULL par défaut : rien n'est déclaré, donc un cahier
+-- vide reste un cahier vide, et aucune séance existante ne change de statut en
+-- traversant ce palier. Un horodatage plutôt qu'un booléen, pour la même raison
+-- qu'`attendance_taken_at` : « je l'ai décidé » est un fait qui a une date, et
+-- l'écran peut dire « marqué sans contenu le 14/09 » au lieu d'un drapeau muet
+-- qu'on ne sait plus interpréter trois mois après.
+--
+-- CE N'EST PAS UNE ANNULATION. Une séance annulée (`cancelled`) n'a pas eu
+-- lieu : elle sort du dénominateur d'assiduité, et son appel ne veut plus rien
+-- dire. Une séance sans contenu a eu lieu, l'appel y compte normalement, les
+-- élèves y étaient. Les deux colonnes coexistent donc, et une séance peut même
+-- porter les deux — annulée tardivement après qu'on a déclaré n'avoir rien à
+-- écrire. Les mélanger aurait faussé l'assiduité pour épargner une colonne.
+--
+-- PAS DE MOTIF. `cancel_reason` existe parce que « pourquoi ce cours n'a pas eu
+-- lieu » se demande, et parfois se justifie. « Pourquoi il n'y avait rien à
+-- écrire » ne se demande pas : le titre de la séance le dit déjà (« Évaluation
+-- séquence 2 », « Sortie au CDI »). Un champ de plus serait un champ vide de
+-- plus.
+-- ==========================================================================
+
+ALTER TABLE seances ADD COLUMN content_waived_at TEXT;

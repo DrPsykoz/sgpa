@@ -1,5 +1,7 @@
 mod commands;
 mod db;
+mod device;
+mod journal;
 mod keys;
 mod portable;
 #[cfg(test)]
@@ -7,10 +9,27 @@ mod sql_smoke;
 mod state;
 
 use commands::{
-    absences, contracts, evaluations, lock, maintenance, referential, reports, seances, sessions,
-    students, timetable, trimesters,
+    absences, attachments, contracts, diagnostics, evaluations, home, lock, maintenance, needs,
+    referential, reports, seances, sessions, students, timetable, trimesters,
 };
 use state::AppState;
+
+/// Le libellé d'un domaine du socle, pour les outils de `examples/`.
+///
+/// Réexporté nommément plutôt qu'en ouvrant `commands` : un semis qui
+/// recomposerait le libellé à sa façon produirait une fiche de démonstration
+/// différente de celle que l'application écrit, donc un PDF qui ne vérifie
+/// rien.
+pub use commands::referential::socle_reference;
+
+/// Année scolaire d'une date — la règle de l'emploi du temps, pas une copie.
+///
+/// Réexportée pour `examples/seed_demo`, qui doit poser son jeu de
+/// démonstration sur l'année que la grille regarde. Un semis qui recalculerait
+/// la bascule du 1er août de son côté produirait, au premier déplacement de
+/// cette bascule, une classe invisible depuis l'emploi du temps : exactement le
+/// défaut que ce semis vient de corriger.
+pub use commands::timetable::year_start_for;
 
 /// Ouvre la base chiffrée pour les outils de développement de `examples/`.
 ///
@@ -74,6 +93,22 @@ pub fn run() {
                     .inner_size(1280.0, 800.0)
                     .min_inner_size(1024.0, 700.0)
                     .data_directory(webview_dir.clone())
+                    // Sans cet appel, Tauri intercepte lui-même les fichiers lâchés sur
+                    // la fenêtre et n'émet qu'un événement portant des CHEMINS : le DOM
+                    // ne voit rien, et `DataTransfer.files` reste vide sous Windows.
+                    //
+                    // Des chemins auraient obligé à lire le fichier en Rust, donc à
+                    // sauter la réduction à 1600 px que fait le front — une photo de
+                    // téléphone déposée aurait été refusée à 8 Mo quand la même, choisie
+                    // au bouton, passe à 300 Ko. Le même geste doit donner le même
+                    // résultat, donc le dépôt passe par le DOM comme le bouton.
+                    //
+                    // Contrepartie, tenue côté front par `interdire_navigation_par_depot`
+                    // (`src/lib/depot.ts`) : privé du gestionnaire de Tauri, WebView2
+                    // applique son comportement par défaut et NAVIGUE vers le fichier
+                    // lâché. L'application disparaîtrait derrière un PDF, sans barre
+                    // d'adresse pour revenir.
+                    .disable_drag_drop_handler()
                     .build()?;
             couper_suggestions_de_saisie(&window);
             Ok(())
@@ -83,6 +118,9 @@ pub fn run() {
             lock::get_lock_status,
             lock::setup_lock,
             lock::unlock,
+            lock::unlock_with_pin,
+            lock::enable_pin,
+            lock::disable_pin,
             lock::recover,
             lock::lock,
             lock::change_password,
@@ -103,6 +141,14 @@ pub fn run() {
             students::update_student,
             students::get_student_deletion_impact,
             students::delete_student,
+            // Besoins particuliers des élèves — JAMAIS imprimés, voir needs.rs
+            needs::get_need_tags,
+            needs::create_need_tag,
+            needs::update_need_tag,
+            needs::delete_need_tag,
+            needs::get_session_needs,
+            needs::set_student_needs,
+            needs::update_student_needs_note,
             // Référentiel de compétences
             referential::get_referential_tree,
             referential::create_nodes_bulk,
@@ -115,12 +161,24 @@ pub fn run() {
             seances::create_seance,
             seances::update_seance_meta,
             seances::update_seance_content,
+            seances::set_seance_content_waived,
             seances::delete_seance,
             seances::get_attendance,
             seances::set_attendance,
             seances::set_bulk_attendance,
             seances::reset_attendance,
             seances::create_seance_from_slot,
+            // Pièces jointes du cahier de texte
+            attachments::get_seance_attachments,
+            attachments::add_seance_attachment,
+            attachments::read_seance_attachment,
+            attachments::export_seance_attachment,
+            attachments::delete_seance_attachment,
+            attachments::get_entry_attachments,
+            attachments::add_entry_attachment,
+            attachments::read_entry_attachment,
+            attachments::export_entry_attachment,
+            attachments::delete_entry_attachment,
             // Évaluations & notes
             evaluations::get_evaluations,
             evaluations::create_evaluation,
@@ -129,6 +187,9 @@ pub fn run() {
             evaluations::get_evaluation_competencies,
             evaluations::get_grades,
             evaluations::set_grade,
+            // Accueil
+            home::get_upcoming_days,
+            home::get_home_overview,
             // Emploi du temps & entrées datées
             timetable::get_available_academies,
             timetable::get_day_schedule,
@@ -141,6 +202,7 @@ pub fn run() {
             timetable::get_agenda_entry,
             timetable::update_agenda_entry_meta,
             timetable::update_agenda_entry_content,
+            timetable::set_agenda_entry_content_waived,
             timetable::delete_agenda_entry,
             timetable::get_student_agenda_entries,
             // Périodes d'absence justifiée
@@ -154,12 +216,18 @@ pub fn run() {
             trimesters::update_trimester_bounds,
             // Fiches contrat
             contracts::get_contract_sheet,
+            contracts::suggest_contract_sheet,
             contracts::save_contract_sheet,
             contracts::get_professional_fields,
             contracts::create_professional_field,
             // Bilans
             reports::get_report,
             reports::save_report_comment,
+            // Journal de diagnostic — voir `src/journal.rs`
+            diagnostics::get_journal_info,
+            diagnostics::reveal_logs_dir,
+            diagnostics::log_command_failure,
+            diagnostics::log_ui_error,
             // Maintenance
             maintenance::create_backup,
             maintenance::list_backups,
@@ -179,6 +247,14 @@ pub fn run() {
 /// `fatal()`.
 fn start() -> Result<AppState, String> {
     let layout = portable::resolve().map_err(|e| e.to_string())?;
+
+    // Au plus tôt : tout ce qui échoue après cette ligne laisse une trace
+    // dans `data/logs`, y compris une panique — que le sous-système fenêtré
+    // ferait autrement disparaître sans un mot en release. Un échec de
+    // `resolve` lui-même n'est pas journalisable : il n'y a alors aucun
+    // dossier où écrire, et c'est `fatal()` qui le dit.
+    journal::init(&layout.logs_dir);
+    journal::installer_capture_de_panique();
     // Avant que WebView2 ne rouvre son profil : une fois le processus Edge
     // démarré, ces bases sont verrouillées et la purge échouerait en silence.
     portable::purge_traces_webview(&layout.webview_dir);
@@ -190,7 +266,10 @@ fn start() -> Result<AppState, String> {
     // seconde instance, donc répondre « SGPA est déjà ouvert » à l'enseignant
     // seulement après qu'il ait tapé son mot de passe.
     let lock = portable::acquire_lock(&layout.root).map_err(|e| {
-        eprintln!("[sgpa] {e}");
+        // Le détail technique au journal, le message compréhensible à
+        // l'enseignant : « SGPA est déjà ouvert » ne dit pas quel fichier de
+        // verrou a résisté, et c'est pourtant cela qu'on cherche ensuite.
+        journal::erreur("démarrage/verrou", &e.to_string());
         db::DbError::AlreadyOpen.to_string()
     })?;
 
@@ -250,6 +329,11 @@ fn couper_suggestions_de_saisie(_window: &tauri::WebviewWindow) {
 /// pas utiliser une page d'erreur HTML ici — la panne à couvrir inclut précisément
 /// le cas où le WebView ne démarre pas.
 fn fatal(message: &str) {
+    // Journalisé d'abord : la boîte de dialogue se ferme et son texte est
+    // perdu, alors que c'est le seul message qu'ait vu l'enseignant. Si
+    // l'échec vient de `portable::resolve`, le journal n'a pas de dossier et
+    // cet appel ne fait rien — la boîte reste alors la seule trace.
+    journal::erreur("démarrage", message);
     eprintln!("SGPA — démarrage impossible\n\n{message}");
     show_dialog(message);
 }

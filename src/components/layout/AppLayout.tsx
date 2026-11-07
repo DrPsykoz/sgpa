@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import {
+  NavLink,
+  Outlet,
+  useMatch,
+  useResolvedPath,
+} from "react-router-dom";
 import {
   BookOpen,
   CalendarDays,
   GraduationCap,
+  Home,
   Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   TriangleAlert,
   Users,
   X,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { LucideIcon } from "lucide-react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useDrafts } from "@/hooks/useDrafts";
 import { useIdleTimer } from "@/hooks/useIdleTimer";
@@ -19,17 +28,118 @@ import { api } from "@/lib/api";
 import type { AppSettings } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// « Classes » reste en tête : c'est toujours l'écran d'accueil, `/` y redirige.
-// L'emploi du temps ne prend pas cette place au palier 004 — la question se
-// tranchera après une semaine d'usage réel, pas dans le palier qui le crée.
-const NAV_ITEMS = [
+// « Accueil » passe en tête, et « Classes » lui cède la place : la question
+// laissée ouverte au palier 004 est tranchée. Ce qu'on ouvre l'application pour
+// savoir, c'est la journée du jour et ce qui reste à reprendre — la liste des
+// classes, elle, ne change pas trois fois par an.
+//
+// L'accueil est à `/` et non à `/accueil` : c'est la racine qu'un lien
+// « Retour » ou un `*` non résolu rejoint.
+interface NavItemDef {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  /** Vrai si le lien ne s'allume que sur SON chemin, exactement.
+   *
+   *  Indispensable pour « Accueil » : son chemin est `/`, et la règle par
+   *  défaut (`end: false`, qui garde « Classes » allumé quand on ouvre une
+   *  classe) ferait de `/` un préfixe de toutes les routes — les cinq liens
+   *  s'allumeraient ensemble, partout. */
+  exact?: boolean;
+}
+
+const NAV_ITEMS: NavItemDef[] = [
+  { to: "/", label: "Accueil", icon: Home, exact: true },
   { to: "/classes", label: "Classes", icon: Users },
   { to: "/emploi-du-temps", label: "Emploi du temps", icon: CalendarDays },
   { to: "/referentiel", label: "Référentiel", icon: BookOpen },
   { to: "/parametres", label: "Réglages", icon: Settings },
 ];
+
+/** La largeur du menu est une préférence d'affichage purement locale : elle
+ *  n'a rien à faire dans la base chiffrée, et la perdre ne coûte rien. */
+const NAV_REDUCED_KEY = "sgpa:nav-reduite";
+
+/** Lecture volontairement défensive : `localStorage` peut contenir n'importe
+ *  quoi, et son accès lui-même peut lever. Tout ce qui n'est pas exactement
+ *  « 1 » vaut « menu déplié », l'affichage d'origine. */
+function readNavReduced(): boolean {
+  try {
+    return window.localStorage.getItem(NAV_REDUCED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Un lien du menu. Replié, il ne montre que son icône : le libellé passe en
+ *  infobulle et reste le nom accessible du lien, car une colonne d'icônes
+ *  muettes ne se devine pas.
+ *
+ *  **L'état actif est calculé ici**, et non confié à la forme « fonction » de
+ *  `className` que `NavLink` propose. Cette forme ne survit pas à
+ *  `TooltipTrigger asChild` : Radix fusionne les `className` du parent et de
+ *  l'enfant par `[parent, enfant].filter(Boolean).join(" ")`, et `join`
+ *  transforme une fonction en son propre code source. Le lien replié recevait
+ *  donc « ({ isActive }) => cn( … » comme liste de classes — aucune n'existe,
+ *  d'où des icônes collées les unes aux autres, décalées à gauche et sans
+ *  pastille d'écran courant. Déplié, le lien n'est pas enveloppé d'infobulle,
+ *  la fonction était appelée normalement, et le défaut ne se voyait pas.
+ *
+ *  Règle générale qui en découle : sous `asChild`, un `className` est une
+ *  chaîne, jamais une fonction.
+ */
+function NavItem({
+  item,
+  reduced,
+}: {
+  item: NavItemDef;
+  reduced: boolean;
+}) {
+  // Même règle que `NavLink` sans `end` : la section reste allumée sur ses
+  // écrans enfants, sinon « Classes » s'éteindrait dès qu'on ouvre une classe.
+  // Sauf pour l'accueil, dont le chemin est préfixe de tous les autres.
+  const { pathname } = useResolvedPath(item.to);
+  const isActive =
+    useMatch({ path: pathname, end: item.exact ?? false }) !== null;
+
+  const link = (
+    <NavLink
+      to={item.to}
+      aria-label={item.label}
+      // Jetons `sidebar-*` et non `primary` / `muted` : la barre latérale est le
+      // seul bloc sombre de l'application, elle a donc sa propre surface. Un lien
+      // peint en `text-muted-foreground` y deviendrait illisible, et c'est
+      // exactement ce que ces jetons évitent — sans un seul `dark:` ici.
+      className={cn(
+        "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+        reduced ? "justify-center px-0" : "gap-3 px-3",
+        isActive
+          ? "bg-sidebar-active text-sidebar-active-foreground"
+          : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+      )}
+    >
+      <item.icon className="h-5 w-5 shrink-0" />
+      {!reduced && <span className="truncate">{item.label}</span>}
+    </NavLink>
+  );
+
+  if (!reduced) return link;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{item.label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /** Préavis, en secondes, avant le verrouillage par inactivité. Le verrou ne
  *  doit jamais tomber sans prévenir : l'enseignant relève la tête et son écran
@@ -57,6 +167,7 @@ export function AppLayout() {
   const { flushAll } = useDrafts();
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [navReduced, setNavReduced] = useState(readNavReduced);
   const [lockInhibited, setLockInhibited] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
   const [warning, setWarning] = useState(false);
@@ -83,6 +194,17 @@ export function AppLayout() {
     window.addEventListener(SETTINGS_UPDATED_EVENT, onUpdated);
     return () => window.removeEventListener(SETTINGS_UPDATED_EVENT, onUpdated);
   }, [loadSettings]);
+
+  // La préférence survit au rechargement de l'application. Un stockage
+  // indisponible ne doit pas empêcher de replier le menu : le choix vaut alors
+  // pour la session en cours, sans message d'erreur pour si peu.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(NAV_REDUCED_KEY, navReduced ? "1" : "0");
+    } catch {
+      // Préférence non persistée : sans conséquence.
+    }
+  }, [navReduced]);
 
   // Seul le minuteur d'inactivité est suspendu. Le bouton, le raccourci et la
   // réduction de fenêtre restent actifs : ce sont des gestes volontaires, et
@@ -214,126 +336,195 @@ export function AppLayout() {
         </div>
       )}
 
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-card">
-        <div className="flex items-center gap-3 p-6">
-          <div className="rounded-lg bg-primary p-1.5">
-            <GraduationCap className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <span className="text-xl font-bold tracking-tight">SGPA</span>
-        </div>
-
-        <Separator />
-
-        <nav className="flex-1 space-y-1 p-4">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )
-              }
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <Separator />
-
-        <div className="space-y-3 p-4">
-          <div className="px-3">
-            {/* Le nom vient des réglages et non du statut du verrou : il vit
-                dans la base chiffrée, que `LockStatus` ne touche plus. */}
-            <p className="truncate text-sm font-medium">
-              {settings?.teacher_display_name || "Enseignant"}
-            </p>
-            <p className="text-xs text-muted-foreground">Session déverrouillée</p>
-            {settings !== null && (
-              <p className="text-xs text-muted-foreground">
-                Verrouillage automatique après{" "}
-                {settings.lock_timeout_minutes} min d'inactivité
-              </p>
+      {/* Un seul fournisseur, et il couvre la barre latérale ET le
+          contenu. Quand il ne tenait que l'<aside>, toute infobulle posée
+          dans un écran levait « Tooltip must be used within
+          TooltipProvider » — Radix ne donne aucune valeur par défaut à ce
+          contexte, l'écran blanchissait. */}
+      <TooltipProvider delayDuration={200}>
+        <aside
+          className={cn(
+            "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
+            // 4 rem replié : juste de quoi centrer une icône et sa zone
+            // cliquable de 36 px.
+            navReduced ? "w-16" : "w-64",
+          )}
+        >
+          <div
+            className={cn(
+              "flex items-center",
+              navReduced ? "flex-col gap-2 px-2 py-4" : "gap-3 p-6",
             )}
-          </div>
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
-            onClick={handleLock}
-            title="Verrouiller SGPA (Ctrl+Maj+L)"
           >
-            <Lock className="h-5 w-5" />
-            Verrouiller
-            <span className="ml-auto text-xs text-muted-foreground">
-              Ctrl+Maj+L
-            </span>
-          </Button>
-        </div>
-      </aside>
-
-      <main className="flex-1 overflow-auto bg-muted/30">
-        {(unsavedOnLock.length > 0 || lockError) && (
-          <div className="space-y-3 px-8 pt-6">
-            {unsavedOnLock.length > 0 && (
-              <div
-                role="alert"
-                className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
-              >
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <div className="flex-1">
-                  <p className="font-medium">
-                    Ces modifications n'ont pas pu être enregistrées avant le
-                    verrouillage :
-                  </p>
-                  <ul className="mt-1 list-inside list-disc">
-                    {unsavedOnLock.map((label) => (
-                      <li key={label}>{label}</li>
-                    ))}
-                  </ul>
-                  <p className="mt-1">
-                    Rouvrez l'écran concerné : la saisie a été perdue et doit
-                    être refaite.
-                  </p>
-                </div>
+            <div className="rounded-lg bg-sidebar-active p-1.5 shadow-carte">
+              <GraduationCap className="h-6 w-6 text-sidebar-active-foreground" />
+            </div>
+            {!navReduced && (
+              <span className="font-titre text-xl font-bold tracking-tight">
+                SGPA
+              </span>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={clearUnsavedOnLock}
-                  aria-label="Masquer cet avertissement"
+                  className={cn(
+                    "shrink-0 text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    !navReduced && "ml-auto",
+                  )}
+                  onClick={() => setNavReduced((value) => !value)}
+                  aria-label={
+                    navReduced
+                      ? "Déplier le menu et afficher les libellés"
+                      : "Réduire le menu aux icônes seules"
+                  }
+                  aria-expanded={!navReduced}
+                  aria-controls="menu-principal"
                 >
-                  <X className="h-4 w-4" />
+                  {navReduced ? (
+                    <PanelLeftOpen className="h-5 w-5" />
+                  ) : (
+                    <PanelLeftClose className="h-5 w-5" />
+                  )}
                 </Button>
-              </div>
-            )}
-
-            {lockError && (
-              <div
-                role="alert"
-                className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
-              >
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="flex-1">{lockError}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => setLockError(null)}
-                  aria-label="Masquer ce message"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {navReduced ? "Déplier le menu" : "Réduire le menu"}
+              </TooltipContent>
+            </Tooltip>
           </div>
-        )}
-        <Outlet />
-      </main>
+
+          <Separator className="bg-sidebar-border" />
+
+          <nav
+            id="menu-principal"
+            className={cn("flex-1 space-y-1", navReduced ? "p-2" : "p-4")}
+          >
+            {NAV_ITEMS.map((item) => (
+              <NavItem key={item.to} item={item} reduced={navReduced} />
+            ))}
+          </nav>
+
+          <Separator className="bg-sidebar-border" />
+
+          {navReduced ? (
+            // Le bloc d'identité disparaît avec les libellés : il n'y a pas la
+            // place, et c'est ce que l'on demande en repliant le menu. Le
+            // bouton, lui, reste — avec son infobulle, sinon il ne veut rien
+            // dire.
+            <div className="flex justify-center p-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    onClick={handleLock}
+                    aria-label="Verrouiller SGPA (Ctrl+Maj+L)"
+                  >
+                    <Lock className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  Verrouiller SGPA (Ctrl+Maj+L)
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : (
+            <div className="space-y-3 p-4">
+              <div className="px-3">
+                {/* Le nom vient des réglages et non du statut du verrou : il vit
+                    dans la base chiffrée, que `LockStatus` ne touche plus. */}
+                <p className="truncate text-sm font-medium">
+                  {settings?.teacher_display_name || "Enseignant"}
+                </p>
+                <p className="text-xs text-sidebar-muted">
+                  Session déverrouillée
+                </p>
+                {settings !== null && (
+                  <p className="text-xs text-sidebar-muted">
+                    Verrouillage automatique après{" "}
+                    {settings.lock_timeout_minutes} min d'inactivité
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-3 text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                onClick={handleLock}
+                title="Verrouiller SGPA (Ctrl+Maj+L)"
+                aria-label="Verrouiller SGPA (Ctrl+Maj+L)"
+              >
+                <Lock className="h-5 w-5" />
+                Verrouiller
+                <span className="ml-auto text-xs text-sidebar-muted">
+                  Ctrl+Maj+L
+                </span>
+              </Button>
+            </div>
+          )}
+        </aside>
+
+        <main className="flex-1 overflow-auto bg-background">
+          {(unsavedOnLock.length > 0 || lockError) && (
+            <div className="space-y-3 px-8 pt-6">
+              {unsavedOnLock.length > 0 && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                >
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      Ces modifications n'ont pas pu être enregistrées avant le
+                      verrouillage :
+                    </p>
+                    <ul className="mt-1 list-inside list-disc">
+                      {unsavedOnLock.map((label) => (
+                        <li key={label}>{label}</li>
+                      ))}
+                    </ul>
+                    <p className="mt-1">
+                      Rouvrez l'écran concerné : la saisie a été perdue et doit
+                      être refaite.
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={clearUnsavedOnLock}
+                    aria-label="Masquer cet avertissement"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+
+              {lockError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+                >
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="flex-1">{lockError}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => setLockError(null)}
+                    aria-label="Masquer ce message"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <Outlet />
+        </main>
+      </TooltipProvider>
     </div>
   );
 }

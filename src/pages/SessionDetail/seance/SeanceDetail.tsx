@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Ban,
+  BookDashed,
   BookOpen,
   Check,
   CheckCheck,
   Circle,
   Clock,
+  Paperclip,
   Pencil,
   RotateCcw,
   Save,
@@ -40,9 +42,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Attachments } from "@/components/Attachments";
+import type { AttachmentsHandle } from "@/components/Attachments";
 import { useDraftGuard } from "@/hooks/useDrafts";
+import { NeedsChips } from "@/components/NeedsChips";
+import { NeedsLoadError, useNeeds } from "@/hooks/useNeeds";
 import { api } from "@/lib/api";
+import { useZoneDepot } from "@/hooks/useZoneDepot";
+import { aDuContenu } from "@/lib/contenu";
 import { cn } from "@/lib/utils";
 import { CANCEL_REASON_SUGGESTIONS } from "@/types";
 import type {
@@ -141,6 +149,16 @@ function formatShortDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR");
 }
 
+/** Un horodatage `datetime('now')` — « 2026-11-06 14:32:01 », en UTC. */
+function formatStamp(stamp: string): string {
+  // Le « Z » est ajouté explicitement : sans lui, la chaîne passe pour une heure
+  // locale, et une décision prise à 00h30 s'afficherait la veille.
+  const date = new Date(`${stamp.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleDateString("fr-FR");
+}
+
 function messageOf(err: unknown): string {
   return err instanceof Error
     ? err.message
@@ -160,6 +178,11 @@ export function SeanceDetail({
   onChanged,
 }: SeanceDetailProps) {
   const [tab, setTab] = useState<"appel" | "cahier">("appel");
+
+  // Les besoins particuliers, chargés une fois pour la classe par le
+  // fournisseur de l'écran parent. Lecture seule ici : on les modifie dans
+  // l'onglet « Élèves », pas pendant qu'on fait l'appel.
+  const { tags: needTags, parEleve: besoins } = useNeeds();
 
   // ---- Bloc « informations » : titre, date, trimestre, annulation ----
   // Ces quatre champs ne partent QUE par api.updateSeanceMeta.
@@ -197,6 +220,28 @@ export function SeanceDetail({
   const [contentError, setContentError] = useState<string | null>(null);
 
   const contentDirty = contentTouched && contentDraft !== savedContent;
+
+  // ---- « Rien à écrire » ----
+  // Aucun état local pour la valeur : elle est lue sur la prop, donc dérivée de
+  // la liste du parent (règle 1). Une copie figée ici aurait affiché « déclaré »
+  // après un échec d'écriture.
+  const waived = seance.content_waived_at !== null;
+  const [waiveBusy, setWaiveBusy] = useState(false);
+  const [waiveError, setWaiveError] = useState<string | null>(null);
+
+  // ---- Glisser-déposer de pièces jointes ----
+  // La zone couvre tout l'onglet, éditeur compris : c'est là que la main va.
+  // Mais elle ne fait que TRANSMETTRE — `Attachments` garde la réduction, le
+  // plafond et les refus, pour qu'un fichier déposé et le même fichier choisi
+  // au bouton suivent exactement le même chemin.
+  //
+  // Les six pièges du glisser-déposer (capture, compteur de profondeur, filet
+  // sur `document`, `dropEffect`, calque sans pointeur, test de contenu) vivent
+  // dans `useZoneDepot`, partagé avec le compte rendu d'un rendez-vous.
+  const piecesRef = useRef<AttachmentsHandle>(null);
+  const zoneDepot = useZoneDepot((depot) => {
+    void piecesRef.current?.deposer(depot);
+  });
 
   // ---- Appel ----
   const [attendance, setAttendance] = useState<AttendanceWithStudent[]>([]);
@@ -408,6 +453,31 @@ export function SeanceDetail({
       await onChanged();
     } catch (err) {
       setContentError(messageOf(err));
+    }
+  };
+
+  /**
+   * Déclare — ou retire — le « rien à écrire ».
+   *
+   * Ne touche pas au brouillon du cahier de texte, et n'enregistre pas à sa
+   * place : les deux écritures sont deux commandes (règle 3). Cliquer ici avec
+   * trois lignes tapées et non enregistrées ne les perd donc pas, mais ne les
+   * enregistre pas non plus — le bouton « Enregistrer le cahier de texte »
+   * reste le seul chemin du contenu, et il reste signalé comme non enregistré.
+   */
+  const handleWaive = async (next: boolean) => {
+    setWaiveBusy(true);
+    setWaiveError(null);
+    try {
+      await api.setSeanceContentWaived(seance.id, next);
+      // `onChanged()` est indispensable ici, contrairement au cahier de texte :
+      // l'affichage lit `seance.content_waived_at`, qui vient de la liste du
+      // parent. Sans rechargement, le clic n'aurait aucun effet visible.
+      await onChanged();
+    } catch (err) {
+      setWaiveError(messageOf(err));
+    } finally {
+      setWaiveBusy(false);
     }
   };
 
@@ -680,6 +750,7 @@ export function SeanceDetail({
         </TabsList>
 
         <TabsContent value="appel" className="mt-4 space-y-3">
+          <NeedsLoadError />
           {seance.cancelled ? (
             <p className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
               <Ban className="mt-0.5 h-4 w-4 shrink-0" />
@@ -780,7 +851,20 @@ export function SeanceDetail({
                       {attendance.map((record) => (
                         <TableRow key={record.student_id}>
                           <TableCell className="font-medium">
-                            {record.student_last_name} {record.student_first_name}
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span>
+                                {record.student_last_name}{" "}
+                                {record.student_first_name}
+                              </span>
+                              {/* Abrégées : la colonne fait 220 px et c'est le
+                                  statut qu'on vient cliquer ici. Le libellé
+                                  complet reste accessible au survol. */}
+                              <NeedsChips
+                                compact
+                                tags={needTags}
+                                needs={besoins.get(record.student_id)}
+                              />
+                            </span>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
@@ -835,7 +919,32 @@ export function SeanceDetail({
           </Card>
         </TabsContent>
 
-        <TabsContent value="cahier" className="mt-4">
+        {/* Tout l'onglet est la zone de dépôt, éditeur compris : un enseignant
+            qui glisse la photo du tableau vise le cahier de texte, pas une
+            petite cible dans une carte en bas. Le calque dit alors clairement
+            que le fichier sera JOINT et non inséré dans le texte — c'est la
+            seule chose qu'on puisse honnêtement lui promettre, les octets
+            vivant dans la base et non dans le HTML du compte rendu. */}
+        <TabsContent
+          value="cahier"
+          className="relative mt-4 space-y-4"
+          {...zoneDepot.props}
+        >
+          {zoneDepot.survol && (
+            // `pointer-events-none` est vital : un calque qui capterait la
+            // souris déclencherait `dragleave` sur la zone au moment où il
+            // apparaît, donc disparaîtrait aussitôt, en boucle.
+            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-primary bg-background/85 text-center">
+              <span className="flex items-center gap-2 font-medium">
+                <Paperclip className="h-4 w-4" />
+                Déposez pour joindre à cette séance
+              </span>
+              <span className="px-6 text-sm text-muted-foreground">
+                Les fichiers rejoignent «&nbsp;Pièces jointes&nbsp;». Ils ne
+                sont pas insérés dans le texte du compte rendu.
+              </span>
+            </div>
+          )}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -877,6 +986,82 @@ export function SeanceDetail({
                   setContentDraft(html);
                   setContentTouched(true);
                 }}
+              />
+
+              {waiveError && (
+                <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {waiveError}
+                </p>
+              )}
+
+              {/* Sous l'éditeur, et proposé seulement quand il n'y a rien
+                  dedans : « rien à écrire » au-dessus d'un paragraphe déjà
+                  tapé serait une question absurde. La proposition suit donc le
+                  brouillon et non ce qui est enregistré — on la voit
+                  disparaître en commençant à écrire, ce qui est la bonne
+                  réponse à la question posée. */}
+              {waived ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
+                  <span className="flex items-start gap-2">
+                    <BookDashed className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Marqué «&nbsp;rien à écrire&nbsp;»
+                      {seance.content_waived_at
+                        ? ` le ${formatStamp(seance.content_waived_at)}`
+                        : ""}
+                      . Cette séance n'est plus réclamée dans «&nbsp;À
+                      reprendre&nbsp;» sur l'accueil. L'appel, lui, compte
+                      normalement.
+                    </span>
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={waiveBusy}
+                    onClick={() => handleWaive(false)}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {waiveBusy ? "Retrait…" : "Retirer"}
+                  </Button>
+                </div>
+              ) : (
+                !aDuContenu(contentDraft) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    <span>
+                      Rien à écrire pour cette séance&nbsp;? Évaluation
+                      surveillée, sortie, heure de vie de classe, séance confiée
+                      à l'AESH… Dites-le, et l'accueil cessera d'en réclamer le
+                      compte rendu.
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={waiveBusy}
+                      onClick={() => handleWaive(true)}
+                    >
+                      <BookDashed className="h-4 w-4" />
+                      {waiveBusy
+                        ? "Enregistrement…"
+                        : "Marquer « rien à écrire »"}
+                    </Button>
+                  </div>
+                )
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Carte distincte, et non une section de la précédente : les deux
+              n'enregistrent pas au même moment. Le cahier de texte attend son
+              bouton, une pièce jointe est écrite dès qu'elle est choisie —
+              sous un même en-tête « Enregistrer », l'enseignant croirait
+              perdre ses fichiers en quittant sans cliquer. */}
+          <Card>
+            <CardContent className="p-6">
+              <Attachments
+                ref={piecesRef}
+                porteur={{ kind: "seance", id: seance.id }}
+                onChanged={onChanged}
               />
             </CardContent>
           </Card>

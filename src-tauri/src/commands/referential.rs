@@ -118,6 +118,51 @@ impl NodeKind {
 // Helpers internes
 // ---------------------------------------------------------------------------
 
+/// Le libellé qui désigne un domaine du socle sans ambiguïté : son code, son
+/// nom, son cycle — « D3 — La formation de la personne et du citoyen (cycle 3) ».
+///
+/// L'enseignant écrit sur sa fiche « D3 la formation de la personne et du
+/// citoyen cycle 3 », et il a raison : les cinq domaines portent les mêmes noms
+/// d'un cycle à l'autre, donc le nom seul ne permet pas de retrouver l'entrée
+/// dans le référentiel — ce qui est pourtant tout ce que la colonne
+/// « domaines » a à faire.
+///
+/// **Composé ici et nulle part ailleurs.** Même raison que `trimester_bounds` :
+/// deux implémentations de la même règle divergeraient au premier changement de
+/// forme, et le front imprimerait un libellé que la base ne connaît pas.
+///
+/// Le nom du cycle est repris tel quel, sans passage en minuscules : un cycle
+/// renommé par l'enseignant n'est pas forcément « Cycle 3 », et abîmer sa
+/// casse pour gagner une virgule de ressemblance avec sa fiche serait un mauvais
+/// marché.
+///
+/// Chaque morceau peut manquer sans trouer le résultat : un domaine créé par
+/// l'enseignant n'a pas de code au décret, et un cycle peut avoir été renommé
+/// en chaîne vide. Sans nom, il n'y a rien à désigner et le libellé est vide —
+/// un code tout seul ne dit rien à qui lit la fiche.
+pub fn socle_reference(code: &str, domain: &str, cycle: &str) -> String {
+    let code = code.trim();
+    let domain = domain.trim();
+    let cycle = cycle.trim();
+
+    if domain.is_empty() {
+        return String::new();
+    }
+
+    let mut libelle = String::new();
+    if !code.is_empty() {
+        libelle.push_str(code);
+        libelle.push_str(" — ");
+    }
+    libelle.push_str(domain);
+    if !cycle.is_empty() {
+        libelle.push_str(" (");
+        libelle.push_str(cycle);
+        libelle.push(')');
+    }
+    libelle
+}
+
 /// Clé de comparaison des noms : casse ignorée, espaces normalisés.
 ///
 /// « Lire une consigne » et « lire  une   Consigne » désignent la même
@@ -633,4 +678,52 @@ pub fn archive_competency(
         return Err("Cette compétence n'existe plus : rechargez le référentiel.".to_string());
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::socle_reference;
+
+    #[test]
+    fn libelle_complet() {
+        assert_eq!(
+            socle_reference("D3", "La formation de la personne et du citoyen", "Cycle 3"),
+            "D3 — La formation de la personne et du citoyen (Cycle 3)"
+        );
+    }
+
+    /// Un domaine créé par l'enseignant n'a pas de code au décret : la chaîne
+    /// vide ne doit pas produire « — » en tête de cellule.
+    #[test]
+    fn sans_code_pas_de_tiret() {
+        assert_eq!(
+            socle_reference("", "Vie de classe", "Cycle 4"),
+            "Vie de classe (Cycle 4)"
+        );
+    }
+
+    #[test]
+    fn sans_cycle_pas_de_parentheses() {
+        assert_eq!(socle_reference("D1", "Les langages", ""), "D1 — Les langages");
+    }
+
+    /// Sans nom, il n'y a rien à désigner : un « D3 — » tout seul sur la fiche
+    /// ne dit rien à qui la lit, et vaut moins qu'une cellule vide.
+    #[test]
+    fn sans_nom_rien() {
+        assert_eq!(socle_reference("D3", "   ", "Cycle 3"), "");
+    }
+
+    /// Les espaces viennent d'une liste collée depuis un document.
+    #[test]
+    fn espaces_rognes() {
+        assert_eq!(
+            socle_reference(" D2 ", " Les méthodes et outils pour apprendre ", " Cycle 3 "),
+            "D2 — Les méthodes et outils pour apprendre (Cycle 3)"
+        );
+    }
 }

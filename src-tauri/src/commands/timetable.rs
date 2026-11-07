@@ -65,6 +65,10 @@ pub struct DaySeance {
     pub trimester: i32,
     pub cancelled: bool,
     pub has_content: bool,
+    /// L'enseignant a déclaré qu'il n'y avait rien à écrire.
+    pub content_waived: bool,
+    /// Au moins une pièce jointe — la photo du tableau EST le compte rendu.
+    pub has_attachment: bool,
     pub attendance_taken_at: Option<String>,
     /// Élèves inscrits ce jour-là dans la classe.
     pub attendance_total: i32,
@@ -92,10 +96,20 @@ pub struct AgendaEntrySummary {
     pub start_time: String,
     pub end_time: String,
     pub title: String,
+    /// Classe concernée, quand le rendez-vous en nomme une. Déduite de l'élève
+    /// dès qu'il y en a un : les deux ne peuvent pas se contredire.
+    pub session_id: Option<String>,
+    pub session_name: Option<String>,
     pub student_id: Option<String>,
     pub student_first_name: Option<String>,
     pub student_last_name: Option<String>,
     pub has_content: bool,
+    /// Les deux mêmes sorties que pour une séance (palier 017). Les calendriers
+    /// les lisent pour ne pas réclamer un compte rendu déjà réglé — c'est la
+    /// contrepartie du bouton « rien à écrire » : l'accueil se taisait, mais son
+    /// propre calendrier continuait d'afficher « compte rendu à écrire ».
+    pub content_waived: bool,
+    pub has_attachment: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -108,10 +122,19 @@ pub struct AgendaEntry {
     pub start_time: String,
     pub end_time: String,
     pub title: String,
+    pub session_id: Option<String>,
+    pub session_name: Option<String>,
     pub student_id: Option<String>,
     pub student_first_name: Option<String>,
     pub student_last_name: Option<String>,
     pub content_html: String,
+    /// Horodatage du « rien à écrire », nul tant qu'il n'a pas été déclaré.
+    ///
+    /// Même colonne, même sens et même refus de confusion que sur une séance
+    /// (palier 017) : ce n'est **pas** une annulation — le rendez-vous a eu
+    /// lieu, il n'y a simplement rien à en consigner. Il sort donc de
+    /// « À reprendre » sans sortir de l'emploi du temps.
+    pub content_waived_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -418,22 +441,85 @@ fn check_session_year(
     }
 }
 
-fn check_student(conn: &Connection, student_id: Option<&str>) -> Result<(), String> {
-    let Some(student_id) = student_id else {
+/// La classe existe, point.
+///
+/// `check_session_year` en fait davantage — il refuse une classe d'une autre
+/// année que le créneau —, mais un rendez-vous n'a pas d'année à lui : il a une
+/// date. Une réunion de rentrée posée le 28 août concerne une classe dont
+/// l'année scolaire n'a pas commencé, et c'est une saisie juste.
+fn check_session(conn: &Connection, session_id: Option<&str>) -> Result<(), String> {
+    let Some(session_id) = session_id else {
         return Ok(());
     };
     let existe: Option<i32> = conn
         .query_row(
-            "SELECT 1 FROM students WHERE id = ?1",
-            params![student_id],
+            "SELECT 1 FROM sessions WHERE id = ?1",
+            params![session_id],
             |row| row.get(0),
         )
         .optional()
         .map_err(|e| e.to_string())?;
     if existe.is_none() {
-        return Err("Élève introuvable".to_string());
+        return Err("Classe introuvable".to_string());
     }
     Ok(())
+}
+
+/// La classe d'un rendez-vous, arbitrée avec l'élève qu'il désigne.
+///
+/// Un élève appartient à exactement une session : quand une entrée le nomme, sa
+/// classe n'est pas une seconde information mais la même. On la RELIT donc sur
+/// l'élève plutôt que de faire confiance à l'écran — c'est ce qui rend les deux
+/// colonnes incapables de se contredire, et non une vigilance d'appelant.
+///
+/// Un couple contradictoire est **refusé**, pas rectifié en silence : une
+/// rectification muette masquerait le défaut d'écran qui l'a produite, et
+/// l'enseignant verrait son rendez-vous rangé dans une classe qu'il n'a pas
+/// choisie sans qu'un mot le lui dise.
+///
+/// Remplace l'ancien `check_student` : la requête qui déduit la classe
+/// constate du même coup que l'élève existe, et deux lectures auraient fini par
+/// dire deux choses différentes.
+fn resolve_entry_session(
+    conn: &Connection,
+    session_id: Option<&str>,
+    student_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    // La classe reçue doit exister même quand un élève va la remplacer : sans
+    // ce contrôle, un identifiant périmé se ferait oublier par la déduction, et
+    // l'écran qui l'a envoyé continuerait de l'envoyer.
+    check_session(conn, session_id)?;
+
+    let Some(student_id) = student_id else {
+        return Ok(session_id.map(str::to_string));
+    };
+
+    let eleve: Option<(String, String, String, String)> = conn
+        .query_row(
+            "SELECT s.id, s.name, st.first_name, st.last_name
+               FROM students st
+               JOIN sessions s ON s.id = st.session_id
+              WHERE st.id = ?1",
+            params![student_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    let Some((classe_id, classe, prenom, nom)) = eleve else {
+        return Err("Élève introuvable".to_string());
+    };
+
+    if let Some(demandee) = session_id {
+        if demandee != classe_id {
+            return Err(format!(
+                "{prenom} {nom} n'appartient pas à la classe choisie : cet élève \
+                 est en « {classe} ». Choisissez sa classe, ou un autre élève."
+            ));
+        }
+    }
+
+    Ok(Some(classe_id))
 }
 
 /// Normalise un identifiant facultatif : `Some("")` vaut `None`.
@@ -488,7 +574,10 @@ const SLOT_PAR_ID: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name, t
 /// d'octobre, et un élève parti ne doit pas le bloquer à 19/20 pour toujours.
 const SEANCES_DE_LA_PERIODE: &str = "SELECT se.id, se.session_id, s.name, se.slot_id, se.title,
        se.date, se.start_time, se.end_time, se.trimester, se.cancelled,
-       se.content_html <> '', se.attendance_taken_at,
+       se.content_html <> '',
+       se.content_waived_at IS NOT NULL,
+       EXISTS (SELECT 1 FROM seance_attachments sat WHERE sat.seance_id = se.id),
+       se.attendance_taken_at,
        (SELECT COUNT(*) FROM students st
          WHERE st.session_id = se.session_id
            AND st.enrolled_on <= se.date
@@ -505,25 +594,34 @@ const SEANCES_DE_LA_PERIODE: &str = "SELECT se.id, se.session_id, s.name, se.slo
  ORDER BY se.date, se.start_time, se.title";
 
 const ENTREES_DE_LA_PERIODE: &str = "SELECT ae.id, ae.date, ae.start_time, ae.end_time, ae.title,
-       ae.student_id, st.first_name, st.last_name, ae.content_html <> '',
+       ae.session_id, s.name, ae.student_id, st.first_name, st.last_name,
+       ae.content_html <> '',
+       ae.content_waived_at IS NOT NULL,
+       EXISTS (SELECT 1 FROM agenda_entry_attachments aat WHERE aat.entry_id = ae.id),
        ae.created_at, ae.updated_at
   FROM agenda_entries ae
+  LEFT JOIN sessions s  ON s.id  = ae.session_id
   LEFT JOIN students st ON st.id = ae.student_id
  WHERE ae.date BETWEEN ?1 AND ?2
  ORDER BY ae.date, ae.start_time, ae.title";
 
 const ENTREES_DE_L_ELEVE: &str = "SELECT ae.id, ae.date, ae.start_time, ae.end_time, ae.title,
-       ae.student_id, st.first_name, st.last_name, ae.content_html <> '',
+       ae.session_id, s.name, ae.student_id, st.first_name, st.last_name,
+       ae.content_html <> '',
+       ae.content_waived_at IS NOT NULL,
+       EXISTS (SELECT 1 FROM agenda_entry_attachments aat WHERE aat.entry_id = ae.id),
        ae.created_at, ae.updated_at
   FROM agenda_entries ae
+  LEFT JOIN sessions s  ON s.id  = ae.session_id
   LEFT JOIN students st ON st.id = ae.student_id
  WHERE ae.student_id = ?1
  ORDER BY ae.date DESC, ae.start_time, ae.title";
 
 const ENTREE_PAR_ID: &str = "SELECT ae.id, ae.date, ae.start_time, ae.end_time, ae.title,
-       ae.student_id, st.first_name, st.last_name, ae.content_html,
-       ae.created_at, ae.updated_at
+       ae.session_id, s.name, ae.student_id, st.first_name, st.last_name,
+       ae.content_html, ae.content_waived_at, ae.created_at, ae.updated_at
   FROM agenda_entries ae
+  LEFT JOIN sessions s  ON s.id  = ae.session_id
   LEFT JOIN students st ON st.id = ae.student_id
  WHERE ae.id = ?1";
 
@@ -566,9 +664,11 @@ fn map_day_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<DaySeance> {
         trimester: row.get(8)?,
         cancelled: row.get(9)?,
         has_content: row.get(10)?,
-        attendance_taken_at: row.get(11)?,
-        attendance_total: row.get(12)?,
-        attendance_done: row.get(13)?,
+        content_waived: row.get(11)?,
+        has_attachment: row.get(12)?,
+        attendance_taken_at: row.get(13)?,
+        attendance_total: row.get(14)?,
+        attendance_done: row.get(15)?,
     })
 }
 
@@ -579,12 +679,16 @@ fn map_entry_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgendaEntrySum
         start_time: row.get(2)?,
         end_time: row.get(3)?,
         title: row.get(4)?,
-        student_id: row.get(5)?,
-        student_first_name: row.get(6)?,
-        student_last_name: row.get(7)?,
-        has_content: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        session_id: row.get(5)?,
+        session_name: row.get(6)?,
+        student_id: row.get(7)?,
+        student_first_name: row.get(8)?,
+        student_last_name: row.get(9)?,
+        has_content: row.get(10)?,
+        content_waived: row.get(11)?,
+        has_attachment: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
@@ -595,12 +699,15 @@ fn map_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgendaEntry> {
         start_time: row.get(2)?,
         end_time: row.get(3)?,
         title: row.get(4)?,
-        student_id: row.get(5)?,
-        student_first_name: row.get(6)?,
-        student_last_name: row.get(7)?,
-        content_html: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        session_id: row.get(5)?,
+        session_name: row.get(6)?,
+        student_id: row.get(7)?,
+        student_first_name: row.get(8)?,
+        student_last_name: row.get(9)?,
+        content_html: row.get(10)?,
+        content_waived_at: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
@@ -797,7 +904,7 @@ fn sessions_away_du_jour(jour: &str, periodes: &[ClasseHorsCours]) -> Vec<Sessio
 }
 
 /// Journée complète en **sept requêtes**, quel que soit le nombre de cours.
-fn day_schedule(conn: &Connection, date: NaiveDate) -> Result<DaySchedule, String> {
+pub(crate) fn day_schedule(conn: &Connection, date: NaiveDate) -> Result<DaySchedule, String> {
     let year_start = year_start_for(date);
     let jour = iso(date);
     let parity = week_parity(date);
@@ -1121,6 +1228,14 @@ pub fn delete_timetable_slot(state: tauri::State<'_, AppState>, id: String) -> R
 // Commandes — entrées datées
 // ---------------------------------------------------------------------------
 
+/// Crée un rendez-vous : une visite de stage, un conseil de classe, une
+/// réunion.
+///
+/// **Classe puis élève, et les deux sont facultatifs.** Un conseil de classe
+/// nomme une classe sans élève ; une ESS nomme un élève sans que la classe soit
+/// ce qui compte ; une réunion de secteur ne nomme ni l'un ni l'autre. Dès qu'un
+/// élève est désigné, c'est SA classe qui est enregistrée — voir
+/// `resolve_entry_session` —, jamais celle reçue de l'écran.
 #[tauri::command]
 pub fn create_agenda_entry(
     state: tauri::State<'_, AppState>,
@@ -1128,6 +1243,7 @@ pub fn create_agenda_entry(
     start_time: String,
     end_time: String,
     title: String,
+    session_id: Option<String>,
     student_id: Option<String>,
 ) -> Result<AgendaEntry, String> {
     let date = parse_date(&date, "La date")?;
@@ -1135,17 +1251,27 @@ pub fn create_agenda_entry(
     let end_time = parse_optional_time(&end_time, "L'heure de fin")?;
     check_time_order(&start_time, &end_time)?;
     let title = clean_entry_title(&title)?;
+    let session_id = optional_id(session_id);
     let student_id = optional_id(student_id);
 
     let mut conn = state.conn()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    check_student(&tx, student_id.as_deref())?;
+    let session_id = resolve_entry_session(&tx, session_id.as_deref(), student_id.as_deref())?;
 
     let id = Uuid::new_v4().to_string();
     tx.execute(
-        "INSERT INTO agenda_entries (id, date, start_time, end_time, title, student_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, iso(date), start_time, end_time, title, student_id],
+        "INSERT INTO agenda_entries
+             (id, date, start_time, end_time, title, session_id, student_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            iso(date),
+            start_time,
+            end_time,
+            title,
+            session_id,
+            student_id
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -1165,9 +1291,11 @@ pub fn get_agenda_entry(
 
 /// Date, horaire, intitulé — **jamais** la cible ni le corps rédigé.
 ///
-/// L'élève désigné est immuable après création, comme la classe d'une séance : un
-/// rapport écrit sur Jean ne doit pas pouvoir devenir un rapport sur Marie. Mauvais
-/// élève choisi, on supprime et on recrée — la friction est le bon comportement.
+/// La cible, ce sont les deux : l'élève ET la classe. Toutes deux sont immuables
+/// après création, comme la classe d'une séance — un rapport écrit sur Jean ne
+/// doit pas pouvoir devenir un rapport sur Marie, et le compte rendu du conseil
+/// de la 4ème A ne doit pas pouvoir devenir celui de la 3ème B. Mauvaise cible
+/// choisie, on supprime et on recrée : la friction est le bon comportement.
 #[tauri::command]
 pub fn update_agenda_entry_meta(
     state: tauri::State<'_, AppState>,
@@ -1216,6 +1344,41 @@ pub fn update_agenda_entry_content(
                 SET content_html = ?1, updated_at = datetime('now')
               WHERE id = ?2",
             params![content_html, id],
+        )
+        .map_err(|e| e.to_string())?;
+    if touched == 0 {
+        return Err("Entrée d'agenda introuvable".to_string());
+    }
+    Ok(())
+}
+
+/// Déclarer — ou retirer — le « rien à écrire » d'un rendez-vous.
+///
+/// Jumelle de `seances::set_seance_content_waived`, et pour la même raison :
+/// l'écran du compte rendu détient un brouillon du contenu, donc faire passer
+/// ce bouton par `update_agenda_entry_content` aurait réécrit le brouillon
+/// affiché par-dessus ce que l'enseignant venait de taper. Une colonne, une
+/// commande (règle 3).
+///
+/// Une réunion d'équipe dont il n'y a rien à retenir existe vraiment : sans
+/// cette sortie, l'accueil la réclamerait indéfiniment, et un rappel qui ne
+/// s'éteint jamais apprend à se faire ignorer.
+#[tauri::command]
+pub fn set_agenda_entry_content_waived(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    waived: bool,
+) -> Result<(), String> {
+    let conn = state.conn()?;
+    // L'horodatage vient de SQLite, comme pour une séance : une seule source,
+    // un seul format de date.
+    let touched = conn
+        .execute(
+            "UPDATE agenda_entries
+                SET content_waived_at = CASE WHEN ?1 THEN datetime('now') ELSE NULL END,
+                    updated_at = datetime('now')
+              WHERE id = ?2",
+            params![waived, id],
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {
@@ -1381,10 +1544,12 @@ mod tests {
                          ('c2', 's1', NULL, 'Rattrapage', '2026-11-17', 1, '16:00', '17:00', '')",
             "INSERT INTO attendance_records (seance_id, student_id, status)
                   VALUES ('c1', 'e1', 'present')",
-            "INSERT INTO agenda_entries (id, date, start_time, end_time, title, student_id,
-                                         content_html)
-                  VALUES ('a1', '2026-11-17', '14:00', '15:30', 'Visite de stage', 'e1',
-                          '<p>Entretien avec le tuteur</p>')",
+            // `session_id` renseigné comme le fait `create_agenda_entry` : la
+            // classe d'une entrée nominative est celle de son élève.
+            "INSERT INTO agenda_entries (id, date, start_time, end_time, title, session_id,
+                                         student_id, content_html)
+                  VALUES ('a1', '2026-11-17', '14:00', '15:30', 'Visite de stage', 's1',
+                          'e1', '<p>Entretien avec le tuteur</p>')",
         ] {
             conn.execute_batch(instruction).unwrap();
         }
@@ -1427,6 +1592,7 @@ mod tests {
         assert_eq!(jour.entries.len(), 1);
         assert_eq!(jour.entries[0].title, "Visite de stage");
         assert_eq!(jour.entries[0].student_last_name.as_deref(), Some("MARTIN"));
+        assert_eq!(jour.entries[0].session_name.as_deref(), Some("4ème A"));
         assert!(jour.entries[0].has_content);
     }
 

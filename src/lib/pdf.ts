@@ -1,13 +1,23 @@
 import jsPDF from "jspdf";
-import { autoTable, type Table } from "jspdf-autotable";
+import {
+	autoTable,
+	type CellInput,
+	type RowInput,
+	type Table,
+} from "jspdf-autotable";
 import { api } from "@/lib/api";
 import {
+	formatMark20,
+	AVERAGE_RULE_PHRASES,
 	LEVEL_LABELS,
 	MASTERY_LABELS,
+	MASTERY_LEVELS,
 	schoolYearLabel,
 	type AttendanceStats,
+	type ContractRow,
+	type ContractSheetInput,
+	type LevelCode,
 	type MasteryLevel,
-	type OverallAverageRule,
 	type SessionReport,
 	type StudentReport,
 } from "@/types";
@@ -20,11 +30,9 @@ const MARGIN_BOTTOM = 18;
 const GREY: [number, number, number] = [110, 110, 110];
 const INK: [number, number, number] = [25, 25, 25];
 const RULE: [number, number, number] = [205, 205, 205];
-
-const RULE_LABELS: Record<OverallAverageRule, string> = {
-	unweighted_mean: "moyenne non pondérée des compétences",
-	weighted_by_count: "moyenne pondérée par le nombre de notes",
-};
+/** Filet des grilles de la fiche contrat : plus sombre que `RULE`, parce
+ *  qu'une trame se remplit au stylo et doit tenir à la photocopie. */
+const GRID: [number, number, number] = [120, 120, 120];
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -324,7 +332,7 @@ export async function exportReportPDF(
 			doc.setTextColor(...GREY);
 			doc.text(
 				`Moyenne indicative — règle de calcul à confirmer (${
-					RULE_LABELS[report.average_rule] ?? report.average_rule
+					AVERAGE_RULE_PHRASES[report.average_rule] ?? report.average_rule
 				})`,
 				MARGIN_X,
 				y,
@@ -420,6 +428,964 @@ export async function exportReportPDF(
 	const fileName = `Bilan-${slug(report.session_name)}-T${
 		report.trimester
 	}-${yearLabel}.pdf`;
+	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
+	return await api.saveExport(fileName, bytes, openAfter);
+}
+
+// ===========================================================================
+//  Fiche contrat
+// ===========================================================================
+
+/** Ce que la fiche doit dire d'elle-même et que `contract_sheets` ne porte pas :
+ *  la classe vient de la session, le titre de l'évaluation en est le support. */
+export interface ContractSheetContext {
+	session_name: string;
+	level_code: LevelCode;
+	year_start: number;
+	evaluation_title: string;
+}
+
+/** Clé de fusion verticale d'une ligne du socle.
+ *
+ *  `null` = « ne fusionne avec personne ». Deux cases vides côte à côte ne se
+ *  fondent donc pas en une seule haute : sur une fiche encore à remplir, la
+ *  trame perdrait les lignes horizontales qui servent à écrire à la main.
+ *
+ *  L'identifiant passe devant le texte : c'est lui qui dit qu'il s'agit de la
+ *  même compétence, même si l'enseignant a reformulé son libellé.
+ *
+ *  **Exportée pour l'éditeur**, qui groupe ses lignes avec cette fonction-ci :
+ *  ce qu'il montre comme un bloc est donc, par construction, ce que le PDF
+ *  imprimera comme une cellule. Une seconde règle de regroupement écrite à
+ *  côté finirait par promettre à l'écran une fusion que l'impression ne fait
+ *  pas. */
+export function socleMergeKey(row: ContractRow): string | null {
+	if (row.competency_id) return `id:${row.competency_id}`;
+	const text = `${row.socle_domain_label}\u0000${row.socle_competency_label}`;
+	return text.trim() ? `txt:${text}` : null;
+}
+
+/**
+ * Hauteur de fusion de chaque ligne : `n >= 1` ouvre une cellule de `n` lignes,
+ * `0` est une ligne couverte par la cellule du dessus, qui ne doit donc rien
+ * émettre dans cette colonne — `autoTable` attend alors un tableau plus court.
+ */
+function mergeSpans(
+	count: number,
+	key: (index: number) => string | null,
+): number[] {
+	const spans = new Array<number>(count).fill(1);
+	let start = 0;
+	while (start < count) {
+		const current = key(start);
+		let end = start + 1;
+		if (current !== null) {
+			while (end < count && key(end) === current) end += 1;
+		}
+		spans[start] = end - start;
+		for (let covered = start + 1; covered < end; covered += 1) {
+			spans[covered] = 0;
+		}
+		start = end;
+	}
+	return spans;
+}
+
+/** Une ligne entièrement vide n'apprend rien et mange une page : elle ne
+ *  s'imprime pas. L'éditeur, lui, la garde — c'est là qu'on remplit. */
+function rowIsBlank(row: ContractRow): boolean {
+	return (
+		row.student_activity.trim() === "" &&
+		row.training_activity.trim() === "" &&
+		row.socle_domain_label.trim() === "" &&
+		row.socle_competency_label.trim() === ""
+	);
+}
+
+/** Réglages d'une tentative de mise en page.
+ *
+ *  La fiche doit tenir sur une seule feuille, et rien ne doit en être retiré
+ *  pour y arriver : la seule variable est donc la taille. On dessine, on
+ *  compte les pages, et on recommence un cran plus bas tant qu'il y en a
+ *  deux. */
+interface ContractScale {
+	/** Corps des cellules, en points. */
+	font: number;
+	/** Marge intérieure d'une cellule, en millimètres. */
+	pad: number;
+	/** Le surtitre « FICHE CONTRAT » et le nom de l'établissement. */
+	kicker: number;
+	/** L'intitulé du projet, seul à cette taille sur toute la feuille. */
+	title: number;
+	/** Les étiquettes « CLASSE », « CHAMP PROFESSIONNEL »… */
+	label: number;
+	/** Les valeurs qu'elles désignent. */
+	value: number;
+	/** Blanc entre deux tableaux. */
+	gap: number;
+}
+
+/** Du confortable au serré. Le dernier cran sert de filet : s'il déborde
+ *  encore, la fiche s'imprime sur deux pages plutôt que de devenir illisible —
+ *  une grille qu'on ne peut pas lire ne vaut pas mieux qu'une feuille de
+ *  plus.
+ *
+ *  L'écart entre `title` et `value` ne se referme jamais complètement : c'est
+ *  lui qui dit au premier coup d'œil quelle est l'information principale, et
+ *  une fiche serrée n'a pas moins besoin d'être lisible qu'une fiche aérée. */
+const CONTRACT_SCALES: ContractScale[] = [
+	{ font: 8, pad: 1.8, kicker: 7.5, title: 17, label: 6.5, value: 10, gap: 6 },
+	{
+		font: 7.5,
+		pad: 1.5,
+		kicker: 7,
+		title: 15.5,
+		label: 6.5,
+		value: 9.5,
+		gap: 5.5,
+	},
+	{ font: 7, pad: 1.3, kicker: 7, title: 14, label: 6, value: 9, gap: 5 },
+	{ font: 6.5, pad: 1.1, kicker: 6.5, title: 13, label: 6, value: 8.5, gap: 4.5 },
+	{ font: 6, pad: 0.9, kicker: 6, title: 12, label: 5.5, value: 8, gap: 4 },
+	{ font: 5.5, pad: 0.8, kicker: 6, title: 11, label: 5.5, value: 7.5, gap: 3.5 },
+];
+
+/** Hauteur d'une ligne de texte, en millimètres, pour un corps donné en
+ *  points. Un point vaut 0,3528 mm et l'interligne usuel 1,2 corps. */
+function lineHeight(fontSize: number): number {
+	return fontSize * 0.3528 * 1.2;
+}
+
+/**
+ * Dessine la fiche entière à une taille donnée et rend le document. Le pied de
+ * page n'y est pas : il demande le nombre total de pages, qui n'est connu
+ * qu'une fois la taille retenue.
+ */
+function renderContractSheet(
+	sheet: ContractSheetInput,
+	context: ContractSheetContext,
+	schoolName: string,
+	scale: ContractScale,
+): jsPDF {
+	// Portrait : la fiche est faite pour être distribuée et rangée avec le
+	// reste du classeur de l'élève, pas pour être affichée.
+	const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+	const pageWidth = doc.internal.pageSize.getWidth();
+	const contentWidth = pageWidth - MARGIN_X * 2;
+
+	const levelLabel = LEVEL_LABELS[context.level_code] ?? context.level_code;
+	const yearLabel = schoolYearLabel(context.year_start);
+	const title = sheet.project_title.trim() || context.evaluation_title.trim();
+
+	doc.setProperties({
+		title: `Fiche contrat — ${title}`,
+		subject: "Fiche contrat de séquence",
+		creator: "SGPA",
+		author: schoolName || "SGPA",
+	});
+
+	const tableMargin = {
+		top: MARGIN_TOP,
+		bottom: MARGIN_BOTTOM,
+		left: MARGIN_X,
+		right: MARGIN_X,
+	};
+
+	// Son classeur centre chaque cellule, horizontalement et verticalement, et
+	// laisse le texte revenir à la ligne. Un alignement en haut à gauche ferait
+	// flotter les cellules fusionnées hautes tout en haut de leur bloc, là où
+	// les siennes se tiennent au milieu, en face de ce qu'elles couvrent.
+	const baseStyles = {
+		fontSize: scale.font,
+		cellPadding: scale.pad,
+		overflow: "linebreak" as const,
+		textColor: INK,
+		lineColor: GRID,
+		lineWidth: 0.1,
+		halign: "center" as const,
+		valign: "middle" as const,
+	};
+	// Pas de bandeau noir : ses en-têtes sont du gras centré sur fond clair,
+	// dans la même grille que le reste. Une fiche imprimée se remplit au stylo.
+	const headStyles = {
+		fillColor: [238, 238, 238] as [number, number, number],
+		textColor: INK,
+		fontStyle: "bold" as const,
+		fontSize: scale.font,
+		halign: "center" as const,
+		valign: "middle" as const,
+	};
+
+	// Largeurs reprises du classeur. Les deux tableaux larges valent 3-3-4
+	// colonnes du tableur, celui des activités 2-2-2-4 : « compétences » est
+	// deux fois plus large que ses voisines, et c'est elle qui porte les
+	// phrases les plus longues.
+	const unit = contentWidth / 10;
+	const wide3 = [unit * 3, unit * 3, contentWidth - unit * 6];
+	const act4 = [unit * 2, unit * 2, unit * 2, contentWidth - unit * 6];
+
+	let y = MARGIN_TOP;
+
+	// ---- En-tête ----
+	// Trois niveaux, et non trois lignes de même poids : on doit savoir sans
+	// lire de quoi parle la feuille.
+	//
+	//   FICHE CONTRAT                              Collège Jean Moulin
+	//   ───────────────────────────────────────────────────────────────
+	//   Fabrication d'un composteur de jardin
+	//
+	//   CLASSE            CHAMP PROFESSIONNEL      ANNÉE SCOLAIRE
+	//   4A — 4ème         Habitat                  2021-2022
+	//
+	// Le nom du document passe en surtitre : il dit ce qu'on tient, pas de
+	// quoi il s'agit. Ce que la feuille raconte, c'est le PROJET — seul à sa
+	// taille sur toute la page. Le reste est du contexte, et du contexte
+	// s'étiquette : une valeur sans son étiquette oblige à deviner si
+	// « Habitat » est une classe, un champ ou une salle.
+
+	doc.setFont("helvetica", "bold");
+	doc.setFontSize(scale.kicker);
+	doc.setTextColor(...GREY);
+	doc.text("FICHE CONTRAT", MARGIN_X, y, { charSpace: 0.5 });
+	if (schoolName) {
+		doc.setFont("helvetica", "normal");
+		doc.text(schoolName, pageWidth - MARGIN_X, y, { align: "right" });
+	}
+
+	y += 2.2;
+	doc.setDrawColor(...INK);
+	doc.setLineWidth(0.5);
+	doc.line(MARGIN_X, y, pageWidth - MARGIN_X, y);
+
+	// L'intitulé du projet. Sans titre saisi, celui de l'évaluation sert de
+	// repli — une fiche sans titre n'est pas identifiable une fois imprimée.
+	doc.setFont("helvetica", "bold");
+	doc.setFontSize(scale.title);
+	doc.setTextColor(...INK);
+	const titleLead = lineHeight(scale.title);
+	y += scale.gap;
+	for (const line of doc.splitTextToSize(title, contentWidth) as string[]) {
+		y += titleLead;
+		doc.text(line, MARGIN_X, y);
+	}
+
+	// ---- Les repères de contexte ----
+	// Une colonne par information, étiquette grise au-dessus de sa valeur. Une
+	// information absente ne laisse pas de colonne vide : elle disparaît et
+	// les autres se répartissent la largeur. Le champ professionnel manque
+	// tant que l'enseignant ne l'a pas choisi, et un trou étiqueté se lit
+	// comme un oubli de l'application.
+	const champ = sheet.professional_field_label.trim();
+	const classe = [
+		context.session_name,
+		levelLabel === context.session_name ? "" : levelLabel,
+	]
+		.filter((part) => part !== "")
+		.join(" — ");
+
+	const facts = [
+		{ label: "CLASSE", value: classe },
+		{ label: "CHAMP PROFESSIONNEL", value: champ },
+		{ label: "ANNÉE SCOLAIRE", value: yearLabel },
+	].filter((fact) => fact.value !== "");
+
+	if (facts.length > 0) {
+		y += scale.gap + 1;
+		const column = contentWidth / facts.length;
+		const labelLead = lineHeight(scale.label);
+		const valueLead = lineHeight(scale.value);
+		let tallest = 0;
+
+		for (const [index, fact] of facts.entries()) {
+			const x = MARGIN_X + column * index;
+
+			doc.setFont("helvetica", "normal");
+			doc.setFontSize(scale.label);
+			doc.setTextColor(...GREY);
+			doc.text(fact.label, x, y + labelLead, { charSpace: 0.35 });
+
+			doc.setFont("helvetica", "bold");
+			doc.setFontSize(scale.value);
+			doc.setTextColor(...INK);
+			// `column - 4` : une gouttière, sinon une valeur longue vient
+			// toucher l'étiquette de la colonne suivante et les deux se lisent
+			// comme une seule phrase.
+			const lines = doc.splitTextToSize(fact.value, column - 4) as string[];
+			lines.forEach((line, row) => {
+				doc.text(line, x, y + labelLead + 1.2 + valueLead * (row + 1));
+			});
+			tallest = Math.max(tallest, labelLead + 1.2 + valueLead * lines.length);
+		}
+
+		y += tallest;
+	}
+
+	y += scale.gap + 2;
+
+	// ---- Identité du projet ----
+	// Trois colonnes côte à côte, en-tête puis valeur, exactement comme la
+	// première grille de son classeur. Le tableau s'imprime même vide : c'est
+	// une trame, et ses trois cases se remplissent aussi à la main.
+	//
+	// « Domaine du socle » est son libellé, conservé tel quel pour qu'il
+	// reconnaisse sa fiche. La colonne qu'il désigne s'appelle
+	// `professional_subset` dans la base, parce que ce qu'on y écrit est un
+	// sous-ensemble du champ professionnel — « aménagement agencement
+	// finition » sous « habitat » — et non un domaine du socle commun, lequel
+	// a sa propre colonne dans la grille du dessous.
+	autoTable(doc, {
+		startY: y,
+		margin: tableMargin,
+		head: [
+			[
+				"Domaine du socle",
+				"Activités de référence",
+				"Parcours / métiers ciblés",
+			],
+		],
+		body: [
+			[
+				sheet.professional_subset,
+				sheet.reference_activities,
+				sheet.target_careers,
+			],
+		],
+		theme: "grid",
+		styles: baseStyles,
+		headStyles,
+		columnStyles: {
+			0: { cellWidth: wide3[0] },
+			1: { cellWidth: wide3[1] },
+			2: { cellWidth: wide3[2] },
+		},
+	});
+	y = tableEndY(doc, y) + scale.gap;
+
+	// ---- Activités et socle commun ----
+	const rows = [...sheet.rows]
+		.sort((a, b) => a.position - b.position)
+		.filter((row) => !rowIsBlank(row));
+	const socleSpan = mergeSpans(rows.length, (index) =>
+		socleMergeKey(rows[index]),
+	);
+
+	// La fusion de « activités de formation » reste à l'intérieur d'un bloc du
+	// socle : ainsi une cellule est toujours contenue dans celle de sa droite,
+	// jamais à cheval sur deux. Une grille emboîtée se dessine sans surprise,
+	// une grille décalée non — et sa fiche est emboîtée : chez lui, une
+	// compétence du socle couvre trois cellules d'activités de formation.
+	const trainingSpan = new Array<number>(rows.length).fill(1);
+	for (let start = 0; start < rows.length; start += socleSpan[start]) {
+		const size = socleSpan[start];
+		const inner = mergeSpans(size, (offset) => {
+			const text = rows[start + offset].training_activity.trim();
+			return text ? `txt:${text}` : null;
+		});
+		for (let offset = 0; offset < size; offset += 1) {
+			trainingSpan[start + offset] = inner[offset];
+		}
+	}
+
+	const body: RowInput[] = rows.map((row, index) => {
+		const cells: CellInput[] = [{ content: row.student_activity }];
+		if (trainingSpan[index] > 0) {
+			cells.push({
+				content: row.training_activity,
+				rowSpan: trainingSpan[index],
+			});
+		}
+		if (socleSpan[index] > 0) {
+			cells.push(
+				{ content: row.socle_domain_label, rowSpan: socleSpan[index] },
+				{ content: row.socle_competency_label, rowSpan: socleSpan[index] },
+			);
+		}
+		return cells;
+	});
+
+	// La grille s'imprime même sans ligne : son en-tête à deux niveaux est la
+	// trame, et une fiche vierge sert à la remplir au stylo.
+	autoTable(doc, {
+		startY: y,
+		margin: tableMargin,
+		head: [
+			[
+				{ content: "Activités des élèves", rowSpan: 2 },
+				{ content: "Activités de formation", rowSpan: 2 },
+				{ content: "Mise en relation avec le socle commun", colSpan: 2 },
+			],
+			["Domaines", "Compétences"],
+		],
+		body,
+		theme: "grid",
+		styles: baseStyles,
+		headStyles,
+		columnStyles: {
+			0: { cellWidth: act4[0] },
+			1: { cellWidth: act4[1] },
+			2: { cellWidth: act4[2] },
+			3: { cellWidth: act4[3] },
+		},
+	});
+	y = tableEndY(doc, y) + scale.gap;
+
+	// ---- On donne / on demande / on exige ----
+	// Troisième bloc de son classeur, aux mêmes largeurs que le premier. Les
+	// lignes entièrement vides sautent — elles n'apprennent rien — mais
+	// l'en-tête reste, pour la même raison que les deux grilles du dessus.
+	const requirements = [...sheet.requirements]
+		.sort((a, b) => a.position - b.position)
+		.filter(
+			(line) =>
+				line.given_text.trim() !== "" ||
+				line.asked_text.trim() !== "" ||
+				line.required_text.trim() !== "",
+		);
+
+	autoTable(doc, {
+		startY: y,
+		margin: tableMargin,
+		head: [["ON DONNE", "ON DEMANDE", "ON EXIGE"]],
+		body: requirements.map((line) => [
+			line.given_text,
+			line.asked_text,
+			line.required_text,
+		]),
+		theme: "grid",
+		styles: baseStyles,
+		headStyles,
+		columnStyles: {
+			0: { cellWidth: wide3[0] },
+			1: { cellWidth: wide3[1] },
+			2: { cellWidth: wide3[2] },
+		},
+	});
+
+	return doc;
+}
+
+/**
+ * Produit la fiche contrat du projet, l'enregistre dans `<clé>/exports/` et
+ * renvoie son chemin complet. Mêmes règles que `exportReportPDF` : pas de
+ * `doc.save()`, et `openAfter` faux par défaut.
+ *
+ * **Portrait, une seule feuille.** La fiche est distribuée et rangée dans le
+ * classeur de l'élève ; une fiche à cheval sur deux pages coupe une grille en
+ * deux et perd la cellule fusionnée qui tenait la coupure. Comme rien ne doit
+ * en être retiré pour y arriver, la fiche est dessinée en entier, les pages
+ * sont comptées, et on recommence un cran plus petit tant qu'il y en a deux.
+ * Dessiner coûte quelques millisecondes : c'est moins cher que deviner.
+ *
+ * La mise en page suit celle de son classeur, bloc par bloc : le titre et les
+ * deux lignes d'en-tête alignés à gauche, le tableau d'identité du projet à
+ * **trois colonnes côte à côte**, la grille des activités à quatre colonnes
+ * sous un en-tête à deux niveaux, puis « on donne / on demande / on exige ».
+ * Même les largeurs sont les siennes : ses colonnes fusionnées valent 3-3-4
+ * unités pour les deux tableaux larges, 2-2-2-4 pour celui des activités.
+ *
+ * La fusion verticale n'est pas une coquetterie de mise en page. Sur sa fiche,
+ * une compétence du socle couvre trois activités d'un seul tenant ; la recopier
+ * trois fois la ferait compter trois fois au moment de noter. Le PDF imprime
+ * donc ce que la base dit : des lignes voisines qui partagent une compétence
+ * partagent une cellule.
+ */
+export async function exportContractSheetPDF(
+	sheet: ContractSheetInput,
+	context: ContractSheetContext,
+	schoolName: string,
+	openAfter: boolean = false,
+): Promise<string> {
+	let doc = renderContractSheet(sheet, context, schoolName, CONTRACT_SCALES[0]);
+	for (
+		let attempt = 1;
+		attempt < CONTRACT_SCALES.length && doc.getNumberOfPages() > 1;
+		attempt += 1
+	) {
+		doc = renderContractSheet(
+			sheet,
+			context,
+			schoolName,
+			CONTRACT_SCALES[attempt],
+		);
+	}
+
+	// ---- Pied de page ----
+	// En dernier : le nombre total de pages n'est connu qu'ici. Il reste utile
+	// même sur une page — c'est la date d'édition qui dit si la fiche affichée
+	// au mur est celle d'avant ou d'après la dernière correction.
+	const pageWidth = doc.internal.pageSize.getWidth();
+	const pageHeight = doc.internal.pageSize.getHeight();
+	const pageCount = doc.getNumberOfPages();
+	const editedOn = new Date().toLocaleDateString("fr-FR");
+	for (let page = 1; page <= pageCount; page += 1) {
+		doc.setPage(page);
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(8);
+		doc.setTextColor(...GREY);
+		doc.text(
+			pageCount > 1
+				? `Édité le ${editedOn} — page ${page}/${pageCount}`
+				: `Édité le ${editedOn}`,
+			pageWidth / 2,
+			pageHeight - 10,
+			{ align: "center" },
+		);
+	}
+
+	const title = sheet.project_title.trim() || context.evaluation_title.trim();
+	const fileName = `Fiche-contrat-${slug(title)}-${slug(
+		context.session_name,
+	)}.pdf`;
+	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
+	return await api.saveExport(fileName, bytes, openAfter);
+}
+
+// ===========================================================================
+//  Fiche d'évaluation
+// ===========================================================================
+
+/** Un élève, et ce qu'il a obtenu sur cette évaluation.
+ *
+ *  `mark20` est **calculée par l'appelant**, pas ici. L'écran de notation
+ *  affiche déjà une note /20 par élève, lue sur les compétences de
+ *  l'ÉVALUATION via `masteryMark20` : la recalculer ici sur les lignes de la
+ *  fiche donnerait un second chiffre pour le même élève — la fiche peut citer
+ *  une compétence que l'évaluation ne note pas, ou n'en citer aucune. Un seul
+ *  calcul, un seul nombre. C'est la consigne que porte déjà `MASTERY_POINTS`. */
+export interface EvaluationSheetStudent {
+	id: string;
+	/** « Léa BERNARD ». Composé par l'appelant : la fiche est nominative, et
+	 *  c'est la seule chose qui distingue deux pages par ailleurs identiques. */
+	full_name: string;
+	/** Niveau obtenu, par identifiant de compétence. Une compétence absente, ou
+	 *  à `0`, ne reçoit **aucune croix** : non évalué n'est pas « insuffisant ».
+	 *  C'est la même règle que l'appel non fait, qui ne vaut pas « présent ». */
+	levels: Record<string, MasteryLevel>;
+	/** `null` = aucune compétence notée. La case reste alors **vide**, pas à
+	 *  « — » : la fiche est un formulaire, et une case vide se remplit au stylo
+	 *  pendant la séquence. L'écran, lui, dit qui n'a pas encore de note. */
+	mark20: number | null;
+}
+
+/** Ce que la fiche d'évaluation imprime de la fiche contrat.
+ *
+ *  Volontairement plus étroit que `ContractSheetInput` : ni « activités de
+ *  formation », ni « activités de référence », ni « on donne / on demande / on
+ *  exige » en tableau séparé. Son classeur d'évaluation n'a que quatre colonnes
+ *  de texte, et une fiche qui imprimerait des colonnes que son modèle n'a pas
+ *  ne serait plus la sienne. Un `ContractSheetInput` satisfait ce type tel
+ *  quel : l'appelant n'a rien à convertir. */
+export interface EvaluationSheetInput {
+	project_title: string;
+	professional_field_label: string;
+	professional_subset: string;
+	rows: ContractRow[];
+}
+
+/** Les cinq niveaux, dans l'ordre de l'échelle — `0` (non évalué) n'a pas de
+ *  colonne : il n'y a rien à cocher.
+ *
+ *  **L'ordre est celui de `MASTERY_LABELS`**, donc celui de `MASTERY_POINTS` :
+ *  insuffisante, fragile, presque, satisfaisante, très bonne — 4, 8, 12, 16, 20
+ *  points. **Confirmé par l'auteur le 2026-11-06.**
+ *
+ *  Son classeur source range « presque maîtrisé » avant « maîtrise fragile », ce
+ *  qui inverserait les niveaux 2 et 3 ; la question lui a été posée et il a
+ *  retenu l'ordre ci-dessus. Ne pas le réaligner sur le classeur : une échelle
+ *  imprimée se lit de gauche à droite dans l'ordre où elle compte, et inverser
+ *  deux colonnes ferait valoir 8 points la croix qui en vaut 12 — sur un
+ *  document déjà remis à une famille. */
+const MASTERY_SCALE: MasteryLevel[] = MASTERY_LEVELS.filter(
+	(level) => level !== 0,
+);
+
+/** Une ligne s'imprime si elle dit quelque chose dans l'une des colonnes de CE
+ *  document.
+ *
+ *  Ce n'est pas `rowIsBlank` : celui-là ignore `required_text`, et il a raison
+ *  — « on exige » n'a pas de colonne sur la fiche contrat. Ici il en a une, et
+ *  une ligne qui ne porte que ce texte doit donc rester. Les deux documents
+ *  peuvent ainsi avoir un nombre de lignes différent, chacun montrant les
+ *  lignes qui remplissent ses propres cases.
+ *
+ *  **Exportée pour le panneau d'export**, qui compte les lignes de la feuille
+ *  et complète la grille avant de l'imprimer : le compte qu'il annonce et ce
+ *  qui sort de l'imprimante viennent ainsi de la même règle. */
+export function evaluationRowIsPrintable(row: ContractRow): boolean {
+	return !rowIsBlank(row) || row.required_text.trim() !== "";
+}
+
+/** Dessine les fiches de tous les élèves à une taille donnée, une page par
+ *  élève, et rend le document. Pied de page exclu : il demande le nombre total
+ *  de pages, qui n'est connu qu'une fois la taille retenue. */
+function renderEvaluationSheets(
+	sheet: EvaluationSheetInput,
+	context: ContractSheetContext,
+	students: EvaluationSheetStudent[],
+	schoolName: string,
+	scale: ContractScale,
+): jsPDF {
+	// Paysage, contrairement à la fiche contrat. Le tableau a neuf colonnes au
+	// lieu de quatre, dont cinq qui doivent rester assez larges pour qu'on y
+	// pose une croix au stylo. En portrait, « compétences » tomberait sous les
+	// 30 mm alors qu'elle porte les phrases les plus longues de la feuille.
+	const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+	const pageWidth = doc.internal.pageSize.getWidth();
+	const contentWidth = pageWidth - MARGIN_X * 2;
+
+	const levelLabel = LEVEL_LABELS[context.level_code] ?? context.level_code;
+	const yearLabel = schoolYearLabel(context.year_start);
+	const title = sheet.project_title.trim() || context.evaluation_title.trim();
+	const subset = sheet.professional_subset.trim();
+	const champ = sheet.professional_field_label.trim();
+	const classe = [
+		context.session_name,
+		levelLabel === context.session_name ? "" : levelLabel,
+	]
+		.filter((part) => part !== "")
+		.join(" — ");
+
+	doc.setProperties({
+		title: `Fiche d'évaluation — ${title}`,
+		subject: "Fiche d'évaluation de séquence",
+		creator: "SGPA",
+		author: schoolName || "SGPA",
+	});
+
+	const tableMargin = {
+		top: MARGIN_TOP,
+		bottom: MARGIN_BOTTOM,
+		left: MARGIN_X,
+		right: MARGIN_X,
+	};
+
+	// Mêmes réglages de grille que la fiche contrat : les deux documents sont
+	// distribués ensemble et doivent se reconnaître comme deux feuilles d'un
+	// même dossier.
+	const baseStyles = {
+		fontSize: scale.font,
+		cellPadding: scale.pad,
+		overflow: "linebreak" as const,
+		textColor: INK,
+		lineColor: GRID,
+		lineWidth: 0.1,
+		halign: "center" as const,
+		valign: "middle" as const,
+	};
+	const headStyles = {
+		fillColor: [238, 238, 238] as [number, number, number],
+		textColor: INK,
+		fontStyle: "bold" as const,
+		fontSize: scale.font,
+		halign: "center" as const,
+		valign: "middle" as const,
+	};
+
+	// Largeurs : les quatre colonnes de texte valent 2-2-2-3 unités, comme
+	// chez lui, et les cinq colonnes de maîtrise sont fixes. Une colonne à
+	// cocher n'a pas besoin de s'élargir avec la page — elle a besoin de tenir
+	// son libellé sur trois lignes et d'accueillir une croix.
+	const tick = 15;
+	const unit = (contentWidth - tick * MASTERY_SCALE.length) / 9;
+
+	// ---- Les lignes, et leurs fusions ----
+	// Mêmes fusions que la fiche contrat, par `socleMergeKey` : ce que l'écran
+	// montre comme un bloc est ce que les deux PDF impriment comme une cellule.
+	//
+	// Les cinq colonnes de maîtrise suivent EXACTEMENT ces fusions : une
+	// compétence, un niveau, une croix. Son classeur coupe parfois les croix
+	// plus fin que la compétence qui les couvre (le domaine 3 de sa feuille a
+	// une compétence sur deux lignes d'activité, mais deux lignes de croix) ;
+	// le suivre produirait deux niveaux pour une seule compétence, donc deux
+	// poids dans la note /20 — le défaut même que la fusion existe pour éviter.
+	const rows = [...sheet.rows]
+		.sort((a, b) => a.position - b.position)
+		.filter(evaluationRowIsPrintable);
+	const socleSpan = mergeSpans(rows.length, (index) =>
+		socleMergeKey(rows[index]),
+	);
+
+	const head: RowInput[] = [
+		[
+			{ content: "ON DEMANDE", rowSpan: 2 },
+			{ content: "ON EXIGE", rowSpan: 2 },
+			{ content: "Mise en relation avec le socle commun", colSpan: 2 },
+			...MASTERY_SCALE.map((level) => ({
+				content: MASTERY_LABELS[level],
+				rowSpan: 2,
+			})),
+		],
+		["Domaines", "Compétences"],
+	];
+
+	const columnStyles: Record<number, { cellWidth: number }> = {
+		0: { cellWidth: unit * 2 },
+		1: { cellWidth: unit * 2 },
+		2: { cellWidth: unit * 2 },
+		3: { cellWidth: unit * 3 },
+	};
+	for (let column = 0; column < MASTERY_SCALE.length; column += 1) {
+		columnStyles[4 + column] = { cellWidth: tick };
+	}
+
+	students.forEach((student, page) => {
+		if (page > 0) doc.addPage();
+		let y = MARGIN_TOP;
+
+		// ---- En-tête ----
+		// Même composition que la fiche contrat — surtitre, filet, projet, puis
+		// des repères étiquetés — avec deux ajouts que ce document-ci exige :
+		// le NOM DE L'ÉLÈVE, parce qu'une fiche nominative sans nom dessus n'est
+		// identifiable que par celui qui l'a imprimée, et la case NOTE / 20,
+		// qui est en haut à droite sur son classeur.
+		doc.setFont("helvetica", "bold");
+		doc.setFontSize(scale.kicker);
+		doc.setTextColor(...GREY);
+		doc.text("FICHE D'ÉVALUATION", MARGIN_X, y, { charSpace: 0.5 });
+		if (schoolName) {
+			doc.setFont("helvetica", "normal");
+			doc.text(schoolName, pageWidth - MARGIN_X, y, { align: "right" });
+		}
+
+		y += 2.2;
+		doc.setDrawColor(...INK);
+		doc.setLineWidth(0.5);
+		doc.line(MARGIN_X, y, pageWidth - MARGIN_X, y);
+
+		// La case de la note est posée avant le titre : c'est elle qui dit
+		// jusqu'où le titre peut s'étendre. Sans cette réserve, un intitulé long
+		// passerait dessous et les deux se liraient l'un sur l'autre.
+		const boxWidth = 32;
+		const boxHeight = lineHeight(scale.title) + 8;
+		const boxX = pageWidth - MARGIN_X - boxWidth;
+		const boxY = y + scale.gap * 0.5;
+		doc.setDrawColor(...INK);
+		doc.setLineWidth(0.4);
+		doc.rect(boxX, boxY, boxWidth, boxHeight);
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(scale.label);
+		doc.setTextColor(...GREY);
+		doc.text("NOTE / 20", boxX + boxWidth / 2, boxY + 4.2, {
+			align: "center",
+			charSpace: 0.35,
+		});
+		// Rien quand aucune compétence n'est notée : la case reste à remplir.
+		if (student.mark20 !== null) {
+			doc.setFont("helvetica", "bold");
+			doc.setFontSize(scale.title * 0.75);
+			doc.setTextColor(...INK);
+			doc.text(
+				formatMark20(student.mark20),
+				boxX + boxWidth / 2,
+				boxY + boxHeight - 3.2,
+				{ align: "center" },
+			);
+		}
+
+		// L'intitulé du projet, et sous lui le sous-ensemble du champ
+		// professionnel quand il est saisi — « agencement » sous « habitat ».
+		// C'est le « intitulé du projet » de son classeur.
+		const titleWidth = contentWidth - boxWidth - 6;
+		doc.setFont("helvetica", "bold");
+		doc.setFontSize(scale.title);
+		doc.setTextColor(...INK);
+		const titleLead = lineHeight(scale.title);
+		y += scale.gap;
+		for (const line of doc.splitTextToSize(title, titleWidth) as string[]) {
+			y += titleLead;
+			doc.text(line, MARGIN_X, y);
+		}
+		if (subset) {
+			doc.setFont("helvetica", "normal");
+			doc.setFontSize(scale.value);
+			doc.setTextColor(...GREY);
+			y += lineHeight(scale.value) + 0.8;
+			doc.text(subset, MARGIN_X, y);
+		}
+
+		// ---- Les repères de contexte ----
+		// L'élève d'abord : c'est ce qu'on cherche en prenant la feuille dans
+		// une pile. Une information absente ne laisse pas de colonne vide.
+		const facts = [
+			{ label: "ÉLÈVE", value: student.full_name },
+			{ label: "CLASSE", value: classe },
+			{ label: "CHAMP PROFESSIONNEL", value: champ },
+			{ label: "ANNÉE SCOLAIRE", value: yearLabel },
+		].filter((fact) => fact.value !== "");
+
+		if (facts.length > 0) {
+			y = Math.max(y, boxY + boxHeight) + scale.gap;
+			const column = contentWidth / facts.length;
+			const labelLead = lineHeight(scale.label);
+			const valueLead = lineHeight(scale.value);
+			let tallest = 0;
+
+			for (const [index, fact] of facts.entries()) {
+				const x = MARGIN_X + column * index;
+
+				doc.setFont("helvetica", "normal");
+				doc.setFontSize(scale.label);
+				doc.setTextColor(...GREY);
+				doc.text(fact.label, x, y + labelLead, { charSpace: 0.35 });
+
+				doc.setFont("helvetica", "bold");
+				doc.setFontSize(scale.value);
+				doc.setTextColor(...INK);
+				const lines = doc.splitTextToSize(fact.value, column - 4) as string[];
+				lines.forEach((line, row) => {
+					doc.text(line, x, y + labelLead + 1.2 + valueLead * (row + 1));
+				});
+				tallest = Math.max(tallest, labelLead + 1.2 + valueLead * lines.length);
+			}
+
+			y += tallest;
+		}
+
+		y += scale.gap + 2;
+
+		// ---- La grille ----
+		// Elle s'imprime même sans ligne : son en-tête à deux niveaux EST la
+		// trame, et une feuille vierge sert à la remplir au stylo pendant la
+		// séquence. C'est d'ailleurs ainsi que son classeur est rangé : huit
+		// onglets identiques, aucun rempli.
+		const body: RowInput[] = rows.map((row, index) => {
+			const cells: CellInput[] = [
+				{ content: row.student_activity },
+				{ content: row.required_text },
+			];
+			if (socleSpan[index] > 0) {
+				const span = socleSpan[index];
+				cells.push(
+					{ content: row.socle_domain_label, rowSpan: span },
+					{ content: row.socle_competency_label, rowSpan: span },
+				);
+				// La croix vient du niveau de CETTE compétence. Sans identifiant
+				// de référentiel, la ligne ne porte qu'un libellé : aucune note
+				// ne lui est rattachable, et les cinq cases restent à cocher.
+				const level = row.competency_id
+					? student.levels[row.competency_id]
+					: undefined;
+				for (const step of MASTERY_SCALE) {
+					cells.push({
+						content: level === step ? "X" : "",
+						rowSpan: span,
+						styles: { fontStyle: "bold" },
+					});
+				}
+			}
+			return cells;
+		});
+
+		autoTable(doc, {
+			startY: y,
+			margin: tableMargin,
+			head,
+			body,
+			theme: "grid",
+			styles: baseStyles,
+			headStyles,
+			columnStyles,
+		});
+	});
+
+	return doc;
+}
+
+/**
+ * Produit les fiches d'évaluation des élèves retenus — **une page par élève** —
+ * les enregistre dans `<clé>/exports/` et renvoie le chemin du fichier.
+ *
+ * C'est le second rendu du tableau saisi dans la fiche contrat, celui que son
+ * classeur appelle « evaluation sequence 1.xls » : huit onglets pour huit
+ * élèves, la même grille sur chacun. Les colonnes sont les siennes —
+ * ON DEMANDE | ON EXIGE | DOMAINES | COMPÉTENCES, puis les cinq niveaux de
+ * maîtrise — et « on demande » est mot pour mot l'« activité de l'élève » de la
+ * fiche contrat. D'où la règle que le palier 010 a posée dans le schéma :
+ * l'enseignant saisit une fois, et imprime les deux documents.
+ *
+ * **Ce que SGPA ajoute à son modèle**, et pourquoi :
+ *
+ * - le **nom de l'élève sur la feuille**. Son classeur ne le porte que sur
+ *   l'onglet, qui ne s'imprime pas : huit feuilles sorties de l'imprimante sont
+ *   indistinguables, et c'est le genre d'erreur qui se découvre après
+ *   distribution ;
+ * - la **croix déjà posée** quand la compétence est notée dans l'application,
+ *   et la **note /20** quand elle existe. Les cases restent vides sinon : la
+ *   fiche se remplit aussi entièrement à la main, avant la séquence.
+ *
+ * Mêmes règles d'export que les deux autres PDF : pas de `doc.save()`, le
+ * fichier passe par `save_export` côté Rust, et `openAfter` est faux par
+ * défaut. Même filet de taille aussi — on dessine, on compte les pages, et on
+ * recommence un cran plus bas tant qu'il y en a plus d'une par élève.
+ *
+ * Ceci ne tranche **pas** la maquette de la fiche contrat nominative, qui reste
+ * une décision de l'enseignant : la fiche contrat continue de s'imprimer en un
+ * exemplaire, sans nom.
+ */
+export async function exportEvaluationSheetsPDF(
+	sheet: EvaluationSheetInput,
+	context: ContractSheetContext,
+	students: EvaluationSheetStudent[],
+	schoolName: string,
+	openAfter: boolean = false,
+): Promise<string> {
+	if (students.length === 0) {
+		throw new Error(
+			"Aucun élève sélectionné : il n'y a aucune fiche à imprimer.",
+		);
+	}
+
+	let doc = renderEvaluationSheets(
+		sheet,
+		context,
+		students,
+		schoolName,
+		CONTRACT_SCALES[0],
+	);
+	for (
+		let attempt = 1;
+		attempt < CONTRACT_SCALES.length &&
+		doc.getNumberOfPages() > students.length;
+		attempt += 1
+	) {
+		doc = renderEvaluationSheets(
+			sheet,
+			context,
+			students,
+			schoolName,
+			CONTRACT_SCALES[attempt],
+		);
+	}
+
+	// ---- Pied de page ----
+	const pageWidth = doc.internal.pageSize.getWidth();
+	const pageHeight = doc.internal.pageSize.getHeight();
+	const pageCount = doc.getNumberOfPages();
+	const editedOn = new Date().toLocaleDateString("fr-FR");
+	for (let page = 1; page <= pageCount; page += 1) {
+		doc.setPage(page);
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(8);
+		doc.setTextColor(...GREY);
+		doc.text(
+			pageCount > 1
+				? `Édité le ${editedOn} — page ${page}/${pageCount}`
+				: `Édité le ${editedOn}`,
+			pageWidth / 2,
+			pageHeight - 10,
+			{ align: "center" },
+		);
+	}
+
+	// Un seul élève retenu : son nom dans le nom du fichier, c'est ce qu'on
+	// cherche dans `exports/` quand on réimprime une feuille perdue. Plusieurs :
+	// la classe, comme pour le bilan.
+	const title = sheet.project_title.trim() || context.evaluation_title.trim();
+	const who =
+		students.length === 1
+			? slug(students[0].full_name)
+			: slug(context.session_name);
+	const fileName = `Fiche-evaluation-${slug(title)}-${who}.pdf`;
 	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
 	return await api.saveExport(fileName, bytes, openAfter);
 }

@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LEVEL_CODES, LEVEL_LABELS, schoolYearLabel } from "@/types";
 import type { LevelCode, Session } from "@/types";
 

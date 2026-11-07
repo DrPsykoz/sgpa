@@ -16,7 +16,22 @@ export interface LockContextValue {
    *  donnerait un écran blanc muet au lieu d'un message. */
   error: string | null;
   refresh: () => Promise<void>;
+  /** Remplace l'état du verrou par celui qu'une commande vient de renvoyer,
+   *  **sans toucher `loading`**.
+   *
+   *  C'est toute la différence avec `refresh()`, qui le passe à vrai : l'écran
+   *  appelant est alors démonté le temps de l'aller-retour, et il repart avec
+   *  son message de confirmation et sa saisie en cours. Les réglages activent
+   *  et retirent le code PIN sans quitter la page. */
+  applyStatus: (next: LockStatus) => void;
   unlock: (password: string) => Promise<void>;
+  /** Déverrouille par le code PIN de ce poste.
+   *
+   *  En cas d'échec, l'état du verrou est relu AVANT que l'erreur ne remonte :
+   *  le dixième essai manqué désactive le PIN, et le champ doit disparaître de
+   *  lui-même. Cette relecture ne touche pas `loading` — le passer à vrai
+   *  démonterait l'écran de déverrouillage, donc le message d'erreur avec lui. */
+  unlockWithPin: (pin: string) => Promise<void>;
   /** Crée le verrou et renvoie la phrase de récupération.
    *
    *  Elle NE met volontairement PAS le statut à jour : passer à « déverrouillé »
@@ -63,11 +78,32 @@ export function LockProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  const applyStatus = useCallback((next: LockStatus) => setStatus(next), []);
+
   // Ces écritures laissent volontairement remonter l'ApiError : c'est l'écran
   // appelant qui sait où afficher « Mot de passe incorrect », pas le contexte,
   // qui n'a aucun endroit sensé où le rendre.
   const unlock = useCallback(async (password: string) => {
     setStatus(await api.unlock(password));
+  }, []);
+
+  const unlockWithPin = useCallback(async (pin: string) => {
+    try {
+      setStatus(await api.unlockWithPin(pin));
+    } catch (err) {
+      // L'échec peut avoir désactivé le PIN de ce poste : on relit l'état pour
+      // que le champ disparaisse, puis on laisse l'erreur remonter à l'écran
+      // qui saura où l'afficher. Un `catch` vide ici serait exactement le
+      // « catch qui ne fait que console.error » que le projet s'interdit — sauf
+      // que celui-ci ne mange rien : l'erreur d'origine repart.
+      try {
+        setStatus(await api.getLockStatus());
+      } catch {
+        // Si même l'état du verrou est illisible, c'est le message du PIN qui
+        // compte : il dit déjà d'utiliser le mot de passe.
+      }
+      throw err;
+    }
   }, []);
 
   const setup = useCallback(
@@ -102,7 +138,9 @@ export function LockProvider({ children }: { children: ReactNode }) {
         loading,
         error,
         refresh,
+        applyStatus,
         unlock,
+        unlockWithPin,
         setup,
         recover,
         lock,

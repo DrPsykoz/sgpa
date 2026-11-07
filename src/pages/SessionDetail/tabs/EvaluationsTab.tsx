@@ -24,12 +24,16 @@ import {
 } from "@/components/ui/select";
 import { CompetencyPicker } from "@/components/CompetencyPicker";
 import { DataState } from "@/components/DataState";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvaluationDetail } from "@/pages/SessionDetail/evaluation/EvaluationDetail";
 
 interface EvaluationsTabProps {
   session: Session;
   students: Student[];
+  /** Évaluation à ouvrir d'emblée, quand on arrive depuis un rappel de
+   *  l'accueil. Même contrat que `SeancesTab.openId` : lu une seule fois, le
+   *  parent remonte l'instance quand la cible change. */
+  openId?: string | null;
 }
 
 const TRIMESTERS = [1, 2, 3];
@@ -61,11 +65,15 @@ function deduceTrimester(
   return 3;
 }
 
-export function EvaluationsTab({ session, students }: EvaluationsTabProps) {
+export function EvaluationsTab({
+  session,
+  students,
+  openId,
+}: EvaluationsTabProps) {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
-  const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(
-    null,
-  );
+  const [selectedEvaluationId, setSelectedEvaluationId] = useState<
+    string | null
+  >(openId ?? null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);

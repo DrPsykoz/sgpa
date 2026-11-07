@@ -89,7 +89,7 @@ export interface OneOffSeanceDialogProps {
  *
  * Sur une **date passée**, rien n'est refusé — un remplacement se saisit
  * souvent le lendemain — mais le formulaire dit ce que ça coûte, dans les mots
- * mêmes de la confirmation de « Créer et ouvrir » : même écriture, même
+ * mêmes qu'`OccurrenceDialog` emploie à l'accueil : même écriture, même
  * conséquence. L'avertissement est en ligne et non dans un second dialogue : le
  * formulaire est déjà un geste explicite.
  *
@@ -155,7 +155,7 @@ export function OneOffSeanceDialog({
 
   // Un remplacement se saisit souvent le lendemain : la date passée est
   // fréquente, et légitime. On ne la refuse donc pas — on dit ce qu'elle
-  // coûte, comme le fait la confirmation de « Créer et ouvrir ».
+  // coûte, comme le fait `OccurrenceDialog` à l'accueil.
   const datePassee = date !== "" && date < today();
 
   const handleCreate = async () => {
@@ -298,8 +298,8 @@ export function OneOffSeanceDialog({
             {/* L'avertissement est EN LIGNE, et non dans un second dialogue :
                 le formulaire est déjà un geste explicite, et empiler deux
                 modals Radix ferait plus de mal que de bien. Les trois phrases
-                sont celles de la confirmation de « Créer et ouvrir » — même
-                écriture, même conséquence, donc mêmes mots. */}
+                sont celles d'`OccurrenceDialog`, à l'accueil — même écriture,
+                même conséquence, donc mêmes mots. */}
             {datePassee && (
               <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { DataState } from "@/components/DataState";
+import { NeedsProvider } from "@/hooks/useNeeds";
 import { StudentsTab } from "@/pages/SessionDetail/tabs/StudentsTab";
 import { EvaluationsTab } from "@/pages/SessionDetail/tabs/EvaluationsTab";
 import { SeancesTab } from "@/pages/SessionDetail/tabs/SeancesTab";
@@ -19,9 +20,49 @@ import { api } from "@/lib/api";
 import type { Session, Student } from "@/types";
 import { LEVEL_LABELS, schoolYearLabel } from "@/types";
 
+/** Les onglets de l'écran, dans l'ordre d'affichage. */
+type Onglet = "eleves" | "evaluations" | "seances" | "absences" | "bilans";
+
+const ONGLETS: readonly Onglet[] = [
+  "eleves",
+  "evaluations",
+  "seances",
+  "absences",
+  "bilans",
+];
+
+function ongletValide(valeur: string | null): Onglet | null {
+  return ONGLETS.includes(valeur as Onglet) ? (valeur as Onglet) : null;
+}
+
 export default function SessionDetail(): ReactElement {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  /**
+   * La cible demandée par l'adresse : `?onglet=seances&ouvrir=<id>`.
+   *
+   * C'est par là que l'accueil ouvre un cas précis — un appel à terminer, une
+   * grille à finir de noter — sans que le tableau de bord ait à héberger
+   * l'écran qui sait écrire. Une seule fois : l'initialiseur de `useState` ne
+   * rejoue pas, et l'adresse est nettoyée juste après.
+   *
+   * Pourquoi la nettoyer : les onglets de Radix démontent le contenu inactif.
+   * Si `?ouvrir=` restait dans l'adresse, changer d'onglet puis revenir
+   * **réouvrirait** la séance qu'on venait de fermer, indéfiniment. Le
+   * paramètre est un passage de relais, pas un état.
+   */
+  const [cible] = useState(() => ({
+    onglet: ongletValide(searchParams.get("onglet")),
+    ouvrir: searchParams.get("ouvrir"),
+  }));
+  const [onglet, setOnglet] = useState<Onglet>(cible.onglet ?? "eleves");
+
+  useEffect(() => {
+    if (cible.onglet === null && cible.ouvrir === null) return;
+    setSearchParams({}, { replace: true });
+  }, [cible, setSearchParams]);
 
   const [session, setSession] = useState<Session | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -103,42 +144,68 @@ export default function SessionDetail(): ReactElement {
         }}
       >
         {session && (
-          <Tabs defaultValue="eleves">
-            <TabsList>
-              <TabsTrigger value="eleves">Élèves</TabsTrigger>
-              <TabsTrigger value="evaluations">Évaluations</TabsTrigger>
-              <TabsTrigger value="seances">Séances</TabsTrigger>
-              {/* Un onglet nommé, entre les séances qu'il écarte et les bilans
-                  qu'il corrige : c'est le seul endroit qui se retrouve sans
-                  chercher quand les dates de stage arrivent, des mois plus tard. */}
-              <TabsTrigger value="absences">Stages et absences</TabsTrigger>
-              <TabsTrigger value="bilans">Bilans</TabsTrigger>
-            </TabsList>
+          /* Les besoins particuliers sont chargés ici, une fois pour les
+             quatre onglets qui les affichent. Radix démonte le contenu
+             inactif : un chargement par onglet relirait le vocabulaire à
+             chaque aller-retour, et une étiquette renommée dans la liste des
+             élèves ne serait pas à jour dans la grille de notation. */
+          <NeedsProvider sessionId={session.id}>
+            <Tabs
+              value={onglet}
+              onValueChange={(valeur) => {
+                const suivant = ongletValide(valeur);
+                if (suivant) setOnglet(suivant);
+              }}
+            >
+              <TabsList>
+                <TabsTrigger value="eleves">Élèves</TabsTrigger>
+                <TabsTrigger value="evaluations">Évaluations</TabsTrigger>
+                <TabsTrigger value="seances">Séances</TabsTrigger>
+                {/* Un onglet nommé, entre les séances qu'il écarte et les bilans
+                    qu'il corrige : c'est le seul endroit qui se retrouve sans
+                    chercher quand les dates de stage arrivent, des mois plus tard. */}
+                <TabsTrigger value="absences">Stages et absences</TabsTrigger>
+                <TabsTrigger value="bilans">Bilans</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="eleves" className="mt-6">
-              <StudentsTab
-                session={session}
-                students={students}
-                reload={reload}
-              />
-            </TabsContent>
+              <TabsContent value="eleves" className="mt-6">
+                <StudentsTab
+                  session={session}
+                  students={students}
+                  reload={reload}
+                />
+              </TabsContent>
 
-            <TabsContent value="evaluations" className="mt-6">
-              <EvaluationsTab session={session} students={students} />
-            </TabsContent>
+              {/* `key` sur la cible, et pas seulement `openId` en prop : sans
+                  elle, l'onglet déjà monté garderait sa propre sélection et le
+                  cas demandé ne s'ouvrirait pas. */}
+              <TabsContent value="evaluations" className="mt-6">
+                <EvaluationsTab
+                  key={`eval:${cible.ouvrir ?? ""}`}
+                  session={session}
+                  students={students}
+                  openId={cible.onglet === "evaluations" ? cible.ouvrir : null}
+                />
+              </TabsContent>
 
-            <TabsContent value="seances" className="mt-6">
-              <SeancesTab session={session} students={students} />
-            </TabsContent>
+              <TabsContent value="seances" className="mt-6">
+                <SeancesTab
+                  key={`seance:${cible.ouvrir ?? ""}`}
+                  session={session}
+                  students={students}
+                  openId={cible.onglet === "seances" ? cible.ouvrir : null}
+                />
+              </TabsContent>
 
-            <TabsContent value="absences" className="mt-6">
-              <AbsencesTab session={session} students={students} />
-            </TabsContent>
+              <TabsContent value="absences" className="mt-6">
+                <AbsencesTab session={session} students={students} />
+              </TabsContent>
 
-            <TabsContent value="bilans" className="mt-6">
-              <BilansTab session={session} />
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="bilans" className="mt-6">
+                <BilansTab session={session} />
+              </TabsContent>
+            </Tabs>
+          </NeedsProvider>
         )}
       </DataState>
     </div>

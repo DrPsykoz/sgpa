@@ -9,9 +9,18 @@
 //! de l'application : c'est lui qui déballe la clé maître de `data/sgpa.keys`.
 //! Ce fichier n'est pas compilé dans l'application : `examples/` n'est bâti que
 //! sur demande.
+//!
+//! **Toutes les dates sont relatives à l'année scolaire en cours**, et aucune
+//! n'est écrite en dur. La version précédente figeait la démonstration sur
+//! 2021-2022 : la classe, les bornes de trimestres, les inscriptions, les
+//! séances et l'évaluation. L'emploi du temps, lui, s'ouvre sur la semaine
+//! d'aujourd'hui et ne propose que les classes de l'année qu'il affiche — le
+//! sélecteur « Classe » était donc vide, sans qu'aucun écran puisse l'expliquer,
+//! et la grille de démonstration était inatteignable cinq ans durant.
 
 use std::path::Path;
 
+use chrono::Local;
 use rusqlite::params;
 use uuid::Uuid;
 
@@ -51,6 +60,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
+    // L'année scolaire de la démonstration est celle d'aujourd'hui, et elle est
+    // calculée par `year_start_for` — la fonction même dont se sert l'emploi du
+    // temps. La recopier ici (« l'année civile, ou la précédente avant août »)
+    // donnerait deux implémentations d'une seule règle, qui divergeraient au
+    // premier déplacement de la bascule du 1er août : la démonstration
+    // atterrirait alors sur une année que la grille ne regarde pas, et le défaut
+    // serait exactement celui que ce semis corrige.
+    let annee = sgpa_lib::year_start_for(Local::now().date_naive());
+    let suivante = annee + 1;
+
+    // Les quelques dates du jeu, posées une fois. Les journées et les mois sont
+    // gardés tels quels : ils situent la rentrée, le musée, le conseil de
+    // classe — c'est leur place dans l'année qui compte, pas leur millésime.
+    let rentree = format!("{annee}-09-01");
+    let arrivee_tardive = format!("{suivante}-01-10");
+    let date_evaluation = format!("{annee}-11-09");
+
     let tx = conn.transaction()?;
 
     // Le mot de passe ne vit plus dans la base : il n'y a rien à y poser.
@@ -62,28 +88,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
 
-    // Une classe de 4ème pour l'année 2021-2022.
+    // Une classe de 4ème pour l'année scolaire en cours.
     let classe = id();
     tx.execute(
-        "INSERT INTO sessions (id, name, level_code, year_start) VALUES (?1, '4A', '4eme', 2021)",
-        params![classe],
+        "INSERT INTO sessions (id, name, level_code, year_start) VALUES (?1, '4A', '4eme', ?2)",
+        params![classe, annee],
     )?;
     tx.execute(
         "INSERT INTO trimester_bounds (year_start, t1_start, t2_start, t3_start, year_end)
-         VALUES (2021, '2021-09-01', '2021-12-01', '2022-03-01', '2022-07-07')
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(year_start) DO NOTHING",
-        [],
+        params![
+            annee,
+            rentree,
+            format!("{annee}-12-01"),
+            format!("{suivante}-03-01"),
+            format!("{suivante}-07-07"),
+        ],
     )?;
 
     // Six élèves, dont un arrivé en janvier : c'est lui qui met à l'épreuve le
     // dénominateur d'assiduité.
-    let eleves: Vec<(String, &str, &str, &str)> = vec![
-        (id(), "Léa", "BERNARD", "2021-09-01"),
-        (id(), "Hugo", "DUBOIS", "2021-09-01"),
-        (id(), "Inès", "LEROY", "2021-09-01"),
-        (id(), "Noah", "MOREAU", "2021-09-01"),
-        (id(), "Jade", "PETIT", "2021-09-01"),
-        (id(), "Sacha", "ROUX", "2022-01-10"),
+    let eleves: Vec<(String, &str, &str, String)> = vec![
+        (id(), "Léa", "BERNARD", rentree.clone()),
+        (id(), "Hugo", "DUBOIS", rentree.clone()),
+        (id(), "Inès", "LEROY", rentree.clone()),
+        (id(), "Noah", "MOREAU", rentree.clone()),
+        (id(), "Jade", "PETIT", rentree.clone()),
+        (id(), "Sacha", "ROUX", arrivee_tardive),
     ];
     for (eid, prenom, nom, depuis) in &eleves {
         tx.execute(
@@ -108,11 +140,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Quatre séances : trois au T1, une au T2. La deuxième est annulée (sortie).
-    let seances: Vec<(String, &str, &str, i32, i32)> = vec![
-        (id(), "Séance du 14/09", "2021-09-14", 1, 0),
-        (id(), "Sortie au musée", "2021-10-05", 1, 1),
-        (id(), "Séance du 09/11", "2021-11-09", 1, 0),
-        (id(), "Séance du 18/01", "2022-01-18", 2, 0),
+    let seances: Vec<(String, String, String, i32, i32)> = vec![
+        (
+            id(),
+            "Séance du 14/09".into(),
+            format!("{annee}-09-14"),
+            1,
+            0,
+        ),
+        (
+            id(),
+            "Sortie au musée".into(),
+            format!("{annee}-10-05"),
+            1,
+            1,
+        ),
+        (
+            id(),
+            "Séance du 09/11".into(),
+            date_evaluation.clone(),
+            1,
+            0,
+        ),
+        (
+            id(),
+            "Séance du 18/01".into(),
+            format!("{suivante}-01-18"),
+            2,
+            0,
+        ),
     ];
     for (sid, titre, date, trim, annulee) in &seances {
         tx.execute(
@@ -149,8 +205,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eval = id();
     tx.execute(
         "INSERT INTO evaluations (id, session_id, title, date, trimester)
-         VALUES (?1, ?2, 'Lecture expressive — évaluation 1', '2021-11-09', 1)",
-        params![eval, classe],
+         VALUES (?1, ?2, 'Lecture expressive — évaluation 1', ?3, 1)",
+        params![eval, classe, date_evaluation],
     )?;
     for (i, (cid, _)) in comps.iter().enumerate() {
         tx.execute(
@@ -160,7 +216,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
     for (e, (eid, _, _, depuis)) in eleves.iter().enumerate() {
-        if *depuis > "2021-11-09" {
+        if depuis > &date_evaluation {
             continue;
         }
         for (c, (cid, _)) in comps.iter().enumerate() {
@@ -183,6 +239,6 @@ prend part aux échanges. À poursuivre.')",
 
     tx.commit()?;
 
-    println!("Jeu de démonstration écrit dans {data_dir}/sgpa.db");
+    println!("Jeu de démonstration écrit dans {data_dir}/sgpa.db — année scolaire {annee}-{suivante}.");
     Ok(())
 }

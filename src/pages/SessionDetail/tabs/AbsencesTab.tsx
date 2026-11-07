@@ -18,7 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AbsencePeriodDialog } from "@/pages/SessionDetail/dialogs/AbsencePeriodDialog";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {

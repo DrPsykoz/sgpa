@@ -3,10 +3,12 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { DraftsProvider } from "@/hooks/useDrafts";
 import { LockProvider, useLock } from "@/hooks/useLock";
+import { interdireNavigationParDepot } from "@/lib/depot";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import Cycles from "@/pages/Cycles";
 import FirstRun from "@/pages/FirstRun";
+import Home from "@/pages/Home";
 import Recover from "@/pages/Recover";
 import Sessions from "@/pages/Sessions";
 import SessionDetail from "@/pages/SessionDetail";
@@ -82,14 +84,17 @@ function LockGate() {
     <DraftsProvider>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<Navigate to="/classes" replace />} />
+          {/* L'accueil n'est plus la liste des classes.
+              Ce qu'on ouvre l'application pour savoir, c'est ce qu'on fait
+              aujourd'hui et ce qu'on a laissé derrière soi — pas la liste de
+              ses deux classes, qui ne change pas trois fois par an. */}
+          <Route path="/" element={<Home />} />
           <Route path="/classes" element={<Sessions />} />
           <Route path="/classes/:sessionId" element={<SessionDetail />} />
-          {/* L'accueil ne bouge pas : `/` continue de mener aux classes. */}
           <Route path="/emploi-du-temps" element={<Timetable />} />
           <Route path="/referentiel" element={<Cycles />} />
           <Route path="/parametres" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/classes" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </DraftsProvider>
@@ -97,6 +102,13 @@ function LockGate() {
 }
 
 export default function App() {
+  // Posé ici, donc au-dessus du garde de verrouillage : la fenêtre accepte le
+  // glisser-déposer partout, y compris sur l'écran de mot de passe, et c'est
+  // justement là qu'un fichier lâché ferait le plus de dégâts — WebView2
+  // naviguerait vers lui et l'application disparaîtrait derrière. Voir
+  // `src/lib/depot.ts` pour la raison pour laquelle Tauri ne s'en charge plus.
+  useEffect(() => interdireNavigationParDepot(), []);
+
   // HashRouter et non BrowserRouter : en build packagé, Tauri sert la page par
   // un protocole personnalisé, et un rechargement sur une URL profonde
   // dépendrait alors de la résolution d'asset.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   ListChecks,
@@ -51,7 +52,13 @@ import {
 import { CompetencyPicker } from "@/components/CompetencyPicker";
 import { ContractSheetEditor } from "@/components/ContractSheetEditor";
 import { DataState } from "@/components/DataState";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { NeedsChips } from "@/components/NeedsChips";
+import { NeedsLoadError, useNeeds } from "@/hooks/useNeeds";
+import {
+  EvaluationSheetPanel,
+  type EvaluationSheetCandidate,
+} from "@/components/EvaluationSheetPanel";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { GradeScale } from "@/pages/SessionDetail/evaluation/GradeScale";
 
 interface EvaluationDetailProps {
@@ -62,7 +69,7 @@ interface EvaluationDetailProps {
   onChanged: () => Promise<void>;
 }
 
-type View = "grades" | "competencies" | "contract";
+type View = "grades" | "competencies" | "contract" | "evaluation-sheet";
 
 const TRIMESTERS = [1, 2, 3];
 
@@ -106,6 +113,11 @@ export function EvaluationDetail({
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [view, setView] = useState<View>("grades");
+
+  // C'est l'écran où l'enseignant l'a demandé en premier : on ne note pas de la
+  // même façon un élève dysorthographique. Lecture seule — les étiquettes se
+  // posent dans l'onglet « Élèves ».
+  const { tags: needTags, parEleve: besoins } = useNeeds();
 
   const [draftIds, setDraftIds] = useState<string[]>(evaluation.competency_ids);
   const [savingComps, setSavingComps] = useState(false);
@@ -332,6 +344,40 @@ export function EvaluationDetail({
     return null;
   };
 
+  /** Ce que la fiche d'évaluation imprimera, un élève par entrée.
+   *
+   *  Composé ICI, et non dans le panneau, pour une raison précise : la note /20
+   *  de la colonne de droite de la grille ci-dessous et celle de la case
+   *  « NOTE / 20 » du papier doivent être le même calcul, pas deux. Même chose
+   *  pour l'ordre du nom et pour le rappel d'inscription, qui sont déjà
+   *  affichés deux colonnes plus loin.
+   *
+   *  `useMemo` n'est pas une optimisation : le panneau coche ses cases quand
+   *  cette liste change, et un nouveau tableau à chaque rendu du parent
+   *  remettrait la sélection à zéro sous les doigts de l'enseignant. */
+  const sheetCandidates = useMemo<EvaluationSheetCandidate[]>(
+    () =>
+      students.map((student) => {
+        const levels: Record<string, MasteryLevel> = {};
+        for (const comp of competencies) {
+          const level = levelFor(student.id, comp.id);
+          if (level > 0) levels[comp.id] = level;
+        }
+        return {
+          id: student.id,
+          full_name: `${student.last_name} ${student.first_name}`.trim(),
+          note: enrollmentNote(student),
+          levels,
+          mark20: masteryMark20(
+            competencies.map((comp) => levelFor(student.id, comp.id)),
+          ),
+        };
+      }),
+    // `gradeIndex` porte déjà `grades`, et `enrollmentNote` ne lit que la date
+    // de l'évaluation : ces quatre entrées sont toutes celles du calcul.
+    [students, competencies, gradeIndex, evaluation.date],
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -374,6 +420,14 @@ export function EvaluationDetail({
             <FileText className="h-4 w-4" />
             Fiche contrat
           </Button>
+          <Button
+            variant={view === "evaluation-sheet" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setView("evaluation-sheet")}
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            Fiche d'évaluation
+          </Button>
         </div>
       </div>
 
@@ -383,8 +437,25 @@ export function EvaluationDetail({
         </p>
       )}
 
+      {/* `key` obligatoire : l'éditeur détient un brouillon. Sans elle, passer
+          d'une évaluation à l'autre réutilise la même instance React, son état
+          initial n'est pas rejoué, et la fiche de la précédente serait
+          enregistrée sous l'identifiant de la suivante. */}
       {view === "contract" && (
-        <ContractSheetEditor evaluationId={evaluation.id} />
+        <ContractSheetEditor
+          key={evaluation.id}
+          evaluationId={evaluation.id}
+          evaluationTitle={evaluation.title}
+        />
+      )}
+
+      {view === "evaluation-sheet" && (
+        <EvaluationSheetPanel
+          evaluationId={evaluation.id}
+          candidates={sheetCandidates}
+          competencies={competencies}
+          onOpenContractSheet={() => setView("contract")}
+        />
       )}
 
       {view === "competencies" && (
@@ -498,6 +569,8 @@ export function EvaluationDetail({
             </CardContent>
           </Card>
 
+          <NeedsLoadError />
+
           <DataState loading={loading} error={error} onRetry={load}>
             {competencies.length === 0 ? (
               <Card>
@@ -581,6 +654,17 @@ export function EvaluationDetail({
                                       {note}
                                     </span>
                                   )}
+                                  {/* `empty:hidden` : `NeedsChips` ne rend rien
+                                      pour un élève sans besoin signalé, et une
+                                      enveloppe vide garderait sa marge sur
+                                      toutes les autres lignes. */}
+                                  <span className="mt-1 block empty:hidden">
+                                    <NeedsChips
+                                      compact
+                                      tags={needTags}
+                                      needs={besoins.get(student.id)}
+                                    />
+                                  </span>
                                 </TableCell>
                                 {competencies.map((comp) => {
                                   const level = levelFor(student.id, comp.id);

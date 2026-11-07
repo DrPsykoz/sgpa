@@ -2,41 +2,172 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ==========================================================================
+   Jetons visuels
+   ==========================================================================
+
+   Un seul jeu de jetons, et il vit dans `:root`. **Un composant n'écrit jamais
+   une couleur** : il n'écrit que des jetons — `bg-card`,
+   `text-muted-foreground`, `shadow-carte`, `font-titre` —, et c'est ici,
+   uniquement ici, que ces jetons sont réglés.
+
+   L'application a porté trois jeux au choix, puis quatre. Il n'en reste qu'un,
+   et ce qui a disparu est le mécanisme de sélection : l'attribut `data-theme`,
+   le choix retenu dans `localStorage`, le sélecteur de l'écran Réglages. Ce
+   qui reste est la discipline, et elle n'est pas devenue gratuite pour autant :
+   c'est elle qui permet d'ajouter un mode sombre en un bloc, et c'est elle qui
+   fait qu'une couleur écrite en dur dans un composant est un bug — elle ne
+   suivra pas.
+
+   `:root` sans sélecteur conditionnel, et c'est voulu : aucun réglage, aucun
+   stockage, aucun script ne peut produire un écran sans couleurs.
+
+   Aucune police n'est téléchargée : l'application est portable et hors ligne
+   par principe. Les piles ci-dessous ne nomment que des faces livrées avec
+   Windows. « Inter » a longtemps figuré ici sans jamais être installée — elle
+   retombait silencieusement sur Segoe UI, qui est donc ce qu'on voyait. Autant
+   le dire.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Barre latérale sombre, contenu clair, teintes franches, affichage un peu
+   plus dense.
+
+   La densité est réelle, pas annoncée : `font-size` à 15 px sur la racine
+   réduit de ~6 % tout ce qui est écrit en `rem`, donc l'application entière,
+   sans qu'un seul composant change. Les calendriers, eux, sont en pixels —
+   leurs cartes gagnent donc de la place au lieu d'en perdre.
+   -------------------------------------------------------------------------- */
 :root {
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.145 0 0);
+	font-size: 15px;
+
+	/* Le fond n'est pas blanc, et c'est ce qui porte tout le reste : une carte
+	   blanche sur un fond blanc ne se détache que par son bord, d'où
+	   l'impression de page plate. */
+	--background: oklch(0.964 0.007 250);
+	--foreground: oklch(0.2 0.025 265);
 	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.145 0 0);
+	--card-foreground: oklch(0.2 0.025 265);
 	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.145 0 0);
-	--primary: oklch(0.45 0.15 250);
-	--primary-foreground: oklch(0.985 0 0);
-	--secondary: oklch(0.96 0.005 250);
-	--secondary-foreground: oklch(0.205 0.015 250);
-	--muted: oklch(0.96 0.005 250);
-	--muted-foreground: oklch(0.556 0.02 250);
-	--accent: oklch(0.96 0.005 250);
-	--accent-foreground: oklch(0.205 0.015 250);
-	--destructive: oklch(0.577 0.245 27.33);
-	--destructive-foreground: oklch(0.985 0 0);
-	--border: oklch(0.922 0.005 250);
-	--input: oklch(0.922 0.005 250);
-	--ring: oklch(0.45 0.15 250);
+	--popover-foreground: oklch(0.2 0.025 265);
+	--primary: oklch(0.52 0.19 258);
+	--primary-foreground: oklch(0.99 0.004 258);
+	--secondary: oklch(0.944 0.012 250);
+	--secondary-foreground: oklch(0.28 0.035 262);
+	--muted: oklch(0.944 0.012 250);
+	--muted-foreground: oklch(0.487 0.03 258);
+	--accent: oklch(0.918 0.028 255);
+	--accent-foreground: oklch(0.28 0.04 262);
+	--destructive: oklch(0.56 0.22 26);
+	--destructive-foreground: oklch(0.99 0.004 26);
+	--border: oklch(0.9 0.012 250);
+	--input: oklch(0.868 0.016 250);
+	--ring: oklch(0.52 0.19 258);
 	--radius: 0.5rem;
 
-	/* Mastery levels */
-	--mastery-0: oklch(0.7 0.02 250); /* Non évalué - gray */
-	--mastery-1: oklch(0.63 0.22 29); /* Insuffisant - red */
-	--mastery-2: oklch(0.7 0.18 55); /* Fragile - orange */
-	--mastery-3: oklch(0.77 0.15 85); /* Presque - yellow */
-	--mastery-4: oklch(0.72 0.17 145); /* Satisfaisant - green */
-	--mastery-5: oklch(0.6 0.2 150); /* Très bonne - dark green */
+	/* La barre latérale a ses propres jetons, et les garde : c'est le seul
+	   bloc sombre de l'application, donc le seul endroit où le texte, les
+	   filets et l'élément actif ne peuvent pas être ceux du contenu clair. Un
+	   composant de la barre n'écrit donc jamais `text-foreground`. */
+	--sidebar: oklch(0.258 0.035 263);
+	--sidebar-foreground: oklch(0.96 0.008 258);
+	--sidebar-muted: oklch(0.725 0.022 258);
+	--sidebar-border: oklch(0.345 0.035 263);
+	--sidebar-accent: oklch(0.33 0.04 263);
+	--sidebar-active: oklch(0.575 0.19 258);
+	--sidebar-active-foreground: oklch(0.99 0.004 258);
 
-	/* Attendance */
-	--status-present: oklch(0.72 0.17 145);
-	--status-absent: oklch(0.63 0.22 29);
-	--status-late: oklch(0.7 0.18 55);
-	--status-excused: oklch(0.45 0.15 250);
+	/* Deux reliefs, deux rôles — pas une ombre unique tamponnée partout, qui
+	   aplatit la hiérarchie au lieu de la dire. `carte` est le repos ; `relief`
+	   est réservé au bloc qu'on veut voir en premier, et au survol de ce qui
+	   s'ouvre. */
+	--ombre-carte:
+		0 1px 2px -1px oklch(0.2 0.03 263 / 0.12),
+		0 2px 6px -2px oklch(0.2 0.03 263 / 0.1);
+	--ombre-relief:
+		0 2px 4px -2px oklch(0.2 0.03 263 / 0.14),
+		0 12px 28px -8px oklch(0.2 0.03 263 / 0.2);
+
+	--police-corps: "Segoe UI", system-ui, -apple-system, sans-serif;
+	--police-titre: "Segoe UI", system-ui, -apple-system, sans-serif;
+	/* Resserrement des titres. Sur une face de système, c'est ce qui distingue
+	   un titre d'un gros texte. */
+	--titre-interlettrage: -0.015em;
+
+	/* Déclinaison d'une teinte de classe : la roue des dix teintes est plus
+	   bas, ces huit valeurs disent à quelle clarté et à quelle saturation on
+	   la rend. */
+	--teinte-l: 0.545;
+	--teinte-c: 0.185;
+	--teinte-fond-l: 0.953;
+	--teinte-fond-c: 0.042;
+	--teinte-bord-l: 0.8;
+	--teinte-bord-c: 0.105;
+	--teinte-texte-l: 0.355;
+	--teinte-texte-c: 0.135;
+	/* Le cran « cet objet existe » — voir `.teinte-appui`. Des valeurs pleines,
+	   et non la teinte vive passée en transparence : une carte translucide
+	   laisse monter le quadrillage du calendrier à travers son fond, et deux
+	   cartes côte à côte sur des bandes différentes ne se répondent plus. */
+	--teinte-appui-fond-l: 0.918;
+	--teinte-appui-fond-c: 0.062;
+	--teinte-appui-bord-l: 0.705;
+	--teinte-appui-bord-c: 0.145;
+
+	/* Niveaux de maîtrise */
+	--mastery-0: oklch(0.695 0.022 250); /* Non évalué */
+	--mastery-1: oklch(0.61 0.235 28); /* Insuffisant */
+	--mastery-2: oklch(0.695 0.19 52); /* Fragile */
+	--mastery-3: oklch(0.775 0.16 85); /* Presque */
+	--mastery-4: oklch(0.715 0.18 145); /* Satisfaisant */
+	--mastery-5: oklch(0.585 0.21 152); /* Très bonne */
+
+	/* Assiduité */
+	--status-present: oklch(0.715 0.18 145);
+	--status-absent: oklch(0.61 0.235 28);
+	--status-late: oklch(0.695 0.19 52);
+	--status-excused: oklch(0.52 0.19 258);
+
+	/* Rendez-vous d'agenda — visite de stage, réunion. Ils ont leurs propres
+	   jetons plutôt que les teintes de classe : un rendez-vous n'appartient à
+	   aucune classe, et lui en emprunter une le ferait passer pour un cours. */
+	--agenda: oklch(0.59 0.16 205);
+	--agenda-fond: oklch(0.955 0.04 205);
+	--agenda-bord: oklch(0.8 0.095 205);
+	--agenda-encre: oklch(0.365 0.11 207);
+}
+
+/* ==========================================================================
+   Teintes de classe
+   ==========================================================================
+
+   Dix teintes, et seulement leur TEINTE au sens strict — une roue de nuances,
+   sans clarté ni saturation. Celles-là sont réglées plus haut par
+   `--teinte-*`, et ce découpage n'est pas une coquetterie : il laisse rendre
+   la même classe en pastille vive, en fond très pâle ou en encre sombre sans
+   jamais réécrire sa couleur.
+
+   L'ordre n'est pas celui d'un dégradé : il saute d'un bout à l'autre du cercle
+   pour que deux numéros voisins ne se ressemblent pas. L'enseignant a quatre
+   classes, qui reçoivent donc 1 à 4 — bleu, ambre, violet, vert. C'est le cas
+   réel qui est optimisé, pas la roue.
+
+   L'attribution est faite par `src/lib/teintes.ts`, à partir de la liste des
+   classes, et non d'une empreinte de l'identifiant : sur dix teintes et quatre
+   classes, une empreinte donne deux classes de la même couleur une fois sur
+   deux — ce qui ôte au dispositif sa seule raison d'être.
+   ========================================================================== */
+:root {
+	--classe-h-1: 258; /* bleu */
+	--classe-h-2: 70; /* ambre */
+	--classe-h-3: 300; /* violet */
+	--classe-h-4: 155; /* vert */
+	--classe-h-5: 25; /* corail */
+	--classe-h-6: 205; /* cyan */
+	--classe-h-7: 340; /* rose */
+	--classe-h-8: 120; /* olive */
+	--classe-h-9: 278; /* indigo */
+	--classe-h-10: 180; /* turquoise */
 }
 
 @theme inline {
@@ -59,23 +190,142 @@
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-muted: var(--sidebar-muted);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-active: var(--sidebar-active);
+	--color-sidebar-active-foreground: var(--sidebar-active-foreground);
+
+	--color-agenda: var(--agenda);
+	--color-agenda-fond: var(--agenda-fond);
+	--color-agenda-bord: var(--agenda-bord);
+	--color-agenda-encre: var(--agenda-encre);
+
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
 	--radius-xl: calc(var(--radius) + 4px);
+
+	/* Utilisables en `shadow-carte` / `shadow-relief`. */
+	--shadow-carte: var(--ombre-carte);
+	--shadow-relief: var(--ombre-relief);
+
+	--font-corps: var(--police-corps);
+	--font-titre: var(--police-titre);
 }
 
 @layer base {
 	* {
 		@apply border-border;
 	}
+
+	/* Un ascenseur par défaut, large et gris clair, est l'un des détails qui
+	   font « page web » plutôt que « application ». */
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--input) transparent;
+	}
+
 	body {
 		@apply bg-background text-foreground;
-		font-family:
-			"Inter",
-			"Segoe UI",
-			system-ui,
-			-apple-system,
-			sans-serif;
+		font-family: var(--police-corps);
+	}
+
+	/* Les titres passent par la police de titre du thème — c'est tout ce qui
+	   sépare « Papier » des deux autres en typographie. `text-wrap: balance`
+	   évite le mot seul en dernière ligne, fréquent sur les titres français,
+	   plus longs que leurs équivalents anglais. */
+	h1,
+	h2,
+	h3 {
+		font-family: var(--police-titre);
+		letter-spacing: var(--titre-interlettrage);
+		text-wrap: balance;
+	}
+
+	::selection {
+		background-color: var(--accent);
+		color: var(--accent-foreground);
+	}
+}
+
+@layer components {
+	/* ----------------------------------------------------------------------
+	   Surfaces teintées par la classe
+	   ----------------------------------------------------------------------
+
+	   L'élément porte sa teinte en propriété personnalisée `--classe-h`, posée
+	   en style en ligne par `styleTeinte()`. Le repli vaut `--classe-h-1`, le
+	   bleu : une carte sans table de teintes garde donc exactement l'aspect
+	   d'avant, et rien ne casse si une classe manque à l'appel.
+
+	   Ces règles vivent dans la couche `components`, et non en utilitaires
+	   Tailwind, pour une raison de cascade : la couche `utilities` passe après,
+	   donc un `border-primary/30` écrit dans un `className` les emporterait en
+	   silence. Les classes concernées ont été retirées là où ces règles
+	   s'appliquent — ne pas les remettre.
+	   ---------------------------------------------------------------------- */
+	.teinte-carte {
+		background-color: oklch(
+			var(--teinte-fond-l) var(--teinte-fond-c)
+				var(--classe-h, var(--classe-h-1))
+		);
+		border-color: oklch(
+			var(--teinte-bord-l) var(--teinte-bord-c)
+				var(--classe-h, var(--classe-h-1))
+		);
+		color: oklch(
+			var(--teinte-texte-l) var(--teinte-texte-c)
+				var(--classe-h, var(--classe-h-1))
+		);
+	}
+
+	/* « Cet objet existe vraiment », par opposition à ce qui est seulement
+	   prévu.
+
+	   C'était un trait épais le long du bord gauche. Il disait juste, mais il
+	   le disait comme un ornement : une barre d'accent sur une carte arrondie
+	   est le tic graphique du moment, et surtout elle dessinait un signe DE
+	   PLUS à côté de la carte au lieu de faire parler la carte elle-même.
+
+	   La règle qui le remplace tient en une phrase et vaut partout : **filet
+	   franc = l'objet existe, filet pâle = il est seulement prévu.** Un créneau
+	   sans séance garde donc exactement l'aspect d'avant — c'est le repos —, et
+	   la séance qui existe appuie son fond et son filet d'un cran. Rien ne
+	   devient plus pâle qu'avant, rien ne s'ajoute autour de la carte.
+
+	   Les deux valeurs sont PLEINES, et c'était d'abord la teinte vive passée
+	   en transparence — ce qui était plus court d'autant de jetons, et faux :
+	   le fond du calendrier n'est pas uni, c'est un quadrillage de filets
+	   toutes les demi-heures, et il montait à travers la carte. Une carte de
+	   cours doit être une surface, pas un calque.
+
+	   Déclaré APRÈS `.teinte-carte`, dont il surcharge le fond et le bord à
+	   spécificité égale. */
+	.teinte-appui {
+		background-color: oklch(
+			var(--teinte-appui-fond-l) var(--teinte-appui-fond-c)
+				var(--classe-h, var(--classe-h-1))
+		);
+		border-color: oklch(
+			var(--teinte-appui-bord-l) var(--teinte-appui-bord-c)
+				var(--classe-h, var(--classe-h-1))
+		);
+	}
+
+	/* Puce, filet, pastille : la teinte pleine. */
+	.teinte-plein {
+		background-color: oklch(
+			var(--teinte-l) var(--teinte-c) var(--classe-h, var(--classe-h-1))
+		);
+	}
+
+	.teinte-encre {
+		color: oklch(
+			var(--teinte-l) var(--teinte-c) var(--classe-h, var(--classe-h-1))
+		);
 	}
 }

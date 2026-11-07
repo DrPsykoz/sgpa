@@ -362,6 +362,18 @@ export function SlotDialog({
                 ))}
               </SelectContent>
             </Select>
+            {/* Une liste réduite au seul « Aucune » est une impasse muette :
+                l'enseignant conclut que le sélecteur est cassé. Elle a deux
+                causes bien distinctes, et le message les sépare — il n'y a
+                aucune classe, ou il n'y en a aucune DANS CETTE ANNÉE-LÀ, ce
+                que la grille ne dit pas d'elle-même. */}
+            {classesProposees.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {sessions.length === 0
+                  ? "Aucune classe n'existe encore. Créez-la depuis l'écran « Classes » : un créneau sans classe reste un modèle, il n'ouvre rien."
+                  : `Aucune de vos classes n'est rattachée à l'année ${schoolYearLabel(yearStart)}, la seule que cette grille accepte. Créez la classe pour cette année depuis l'écran « Classes », ou ramenez la grille sur une semaine de l'année où elle existe.`}
+              </p>
+            )}
             {sessionId === AUCUNE_CLASSE && (
               <p className="text-xs text-muted-foreground">
                 Le créneau marque l'occupation dans la grille, mais il n'y a
@@ -539,5 +551,5 @@ export function SlotDialog({
   );
 }
 
-/** Alias par défaut, comme `DayList` : les deux formes d'import fonctionnent. */
+/** Alias par défaut : les deux formes d'import fonctionnent. */
 export default SlotDialog;

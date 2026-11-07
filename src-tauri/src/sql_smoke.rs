@@ -21,10 +21,13 @@ use rusqlite::Connection;
 /// Sources analysées. Ajouter un module de commandes ici quand il en apparaît un.
 const SOURCES: &[(&str, &str)] = &[
     ("absences", include_str!("commands/absences.rs")),
+    ("attachments", include_str!("commands/attachments.rs")),
     ("contracts", include_str!("commands/contracts.rs")),
     ("evaluations", include_str!("commands/evaluations.rs")),
+    ("home", include_str!("commands/home.rs")),
     ("lock", include_str!("commands/lock.rs")),
     ("maintenance", include_str!("commands/maintenance.rs")),
+    ("needs", include_str!("commands/needs.rs")),
     ("referential", include_str!("commands/referential.rs")),
     ("reports", include_str!("commands/reports.rs")),
     ("seances", include_str!("commands/seances.rs")),

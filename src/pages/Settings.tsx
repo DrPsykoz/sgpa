@@ -5,19 +5,26 @@ import {
   FolderOpen,
   Info,
   KeyRound,
+  Laptop,
   LifeBuoy,
   LoaderCircle,
   Lock,
   Save,
   School,
+  ScrollText,
   TriangleAlert,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { MIN_PASSWORD_LENGTH, passwordLength } from "@/lib/password";
-import { schoolYearLabel } from "@/types";
+import { MIN_PASSWORD_LENGTH, passwordLength, PIN_LENGTH } from "@/lib/password";
+import {
+  AVERAGE_RULE_LABELS,
+  REMOVED_POLICY_LABELS,
+  schoolYearLabel,
+} from "@/types";
 import type {
   AppSettings,
   BackupInfo,
+  JournalInfo,
   OverallAverageRule,
   RemovedCompetencyPolicy,
   TrimesterBounds,
@@ -28,6 +35,8 @@ import {
   SETTINGS_UPDATED_EVENT,
 } from "@/components/layout/AppLayout";
 import { DataState } from "@/components/DataState";
+import { NeedTagsCard } from "@/components/NeedTagsCard";
+import { PinInput } from "@/components/PinInput";
 import { RecoveryPhrase } from "@/components/RecoveryPhrase";
 import { TrimesterBoundsDialog } from "@/components/TrimesterBoundsDialog";
 import { Button } from "@/components/ui/button";
@@ -56,16 +65,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const AVERAGE_RULE_LABELS: Record<OverallAverageRule, string> = {
-  unweighted_mean: "Moyenne non pondérée des moyennes par compétence",
-  weighted_by_count: "Moyenne pondérée par le nombre de notes",
-};
-
-const REMOVED_POLICY_LABELS: Record<RemovedCompetencyPolicy, string> = {
-  keep: "Conserver les notes des compétences retirées d'une évaluation",
-  ignore: "Ignorer les notes des compétences retirées d'une évaluation",
-};
 
 /** L'année scolaire bascule en août : en septembre, le réglage doit proposer
  *  l'année qui commence et non celle qui vient de se terminer. */
@@ -107,7 +106,7 @@ function formatSize(bytes: number): string {
 }
 
 export default function Settings() {
-  const { status, refresh } = useLock();
+  const { status, applyStatus } = useLock();
 
   // L'indice ne fait plus partie des réglages : il vit dans `data/sgpa.keys`,
   // hors de la base, pour rester lisible session verrouillée. Il est donc suivi
@@ -132,6 +131,18 @@ export default function Settings() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
 
+  // Le code PIN de ce poste. `pin_available` dit s'il est actif ICI : l'état
+  // vient du statut du verrou et non d'un drapeau local, parce qu'il dépend de
+  // deux choses à la fois — l'enveloppe sur la clé USB et le secret rangé dans
+  // le profil Windows — et que le backend est seul à voir les deux.
+  const pinEnabled = status?.pin_available ?? false;
+  const [pinPassword, setPinPassword] = useState("");
+  const [pinCode, setPinCode] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinMessage, setPinMessage] = useState<string | null>(null);
+
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -147,6 +158,13 @@ export default function Settings() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
+
+  const [journal, setJournal] = useState<JournalInfo | null>(null);
+  const [journalError, setJournalError] = useState<string | null>(null);
+  /** Les dernières lignes sont repliées par défaut : la carte doit dire d'abord
+   *  qu'il n'y a rien à signaler, pas étaler un fichier technique au milieu
+   *  d'un écran de réglages. */
+  const [journalOuvert, setJournalOuvert] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -168,6 +186,15 @@ export default function Settings() {
       setBackups(await api.listBackups());
     } catch (err) {
       setBackupError(errorMessage(err));
+    }
+  }, []);
+
+  const loadJournal = useCallback(async () => {
+    setJournalError(null);
+    try {
+      setJournal(await api.getJournalInfo());
+    } catch (err) {
+      setJournalError(errorMessage(err));
     }
   }, []);
 
@@ -204,7 +231,8 @@ export default function Settings() {
     void load();
     void loadBackups();
     void loadAcademies();
-  }, [load, loadBackups, loadAcademies]);
+    void loadJournal();
+  }, [load, loadBackups, loadAcademies, loadJournal]);
 
   useEffect(() => {
     void loadBounds(boundsYear);
@@ -270,9 +298,12 @@ export default function Settings() {
         setSavedHint(trimmedHint);
         setHint(trimmedHint);
         // L'écran de déverrouillage lit l'indice dans le statut du verrou, qui
-        // n'est pas relu au verrouillage : sans ce rafraîchissement, le nouvel
-        // indice n'apparaîtrait qu'au prochain démarrage de SGPA.
-        await refresh();
+        // n'est pas relu au verrouillage : sans cette relecture, le nouvel
+        // indice n'apparaîtrait qu'au prochain démarrage de SGPA. Et c'est
+        // `applyStatus`, non `refresh()` : ce dernier démontait cet écran le
+        // temps de l'aller-retour, et « Réglages enregistrés. » se perdait avec
+        // lui dès que l'indice avait changé.
+        applyStatus(await api.getLockStatus());
       }
 
       setSaveMessage("Réglages enregistrés.");
@@ -318,6 +349,64 @@ export default function Settings() {
       setPasswordError(errorMessage(err));
     } finally {
       setPasswordBusy(false);
+    }
+  };
+
+  const handleEnablePin = async () => {
+    setPinError(null);
+    setPinMessage(null);
+    if (!pinPassword) {
+      setPinError(
+        "Saisissez votre mot de passe : lui seul déballe la clé maître, et la session ouverte ne la garde pas en mémoire.",
+      );
+      return;
+    }
+    if (pinCode.length !== PIN_LENGTH) {
+      setPinError(
+        `Le code PIN doit contenir exactement ${PIN_LENGTH} chiffres.`,
+      );
+      return;
+    }
+    if (pinCode !== pinConfirm) {
+      setPinError("Les deux codes PIN ne correspondent pas.");
+      return;
+    }
+    setPinBusy(true);
+    try {
+      // `applyStatus` et non `refresh()` : celui-ci démonterait cet écran le
+      // temps de l'aller-retour, donc le message qui suit.
+      applyStatus(await api.enablePin(pinPassword, pinCode));
+      setPinPassword("");
+      setPinCode("");
+      setPinConfirm("");
+      setPinMessage(
+        pinEnabled
+          ? "Code PIN remplacé. L'ancien ne fonctionne plus."
+          : "Code PIN activé sur ce poste.",
+      );
+    } catch (err) {
+      setPinError(errorMessage(err));
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
+  const handleDisablePin = async () => {
+    setPinError(null);
+    setPinMessage(null);
+    setPinBusy(true);
+    try {
+      applyStatus(await api.disablePin());
+      setPinPassword("");
+      setPinCode("");
+      setPinConfirm("");
+      setPinMessage(
+        "Ce poste est oublié : le déverrouillage y redemandera le mot de passe.",
+      );
+    } catch (err) {
+      setPinError(errorMessage(err));
+    } finally {
+      setPinBusy(false);
     }
   };
 
@@ -369,6 +458,15 @@ export default function Settings() {
       await api.revealDataDir();
     } catch (err) {
       setBackupError(errorMessage(err));
+    }
+  };
+
+  const handleRevealLogs = async () => {
+    setJournalError(null);
+    try {
+      await api.revealLogsDir();
+    } catch (err) {
+      setJournalError(errorMessage(err));
     }
   };
 
@@ -647,6 +745,137 @@ export default function Settings() {
 
             <Card>
               <CardHeader>
+                <CardTitle className="flex flex-wrap items-center gap-2">
+                  <Laptop className="h-4 w-4" />
+                  Code PIN sur ce poste
+                  <Badge variant={pinEnabled ? "secondary" : "outline"}>
+                    {pinEnabled ? "Activé" : "Inactif"}
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  Six chiffres pour ouvrir la session plus vite, sur cet
+                  ordinateur et sous ce compte Windows uniquement. Ce n'est pas
+                  un second mot de passe : un million de combinaisons ne
+                  protégeraient rien contre quelqu'un qui emporte la clé USB. Ce
+                  qui tient, c'est que l'autre moitié du secret reste ici, dans
+                  votre profil Windows, et ne part pas avec la clé.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-start gap-2 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    Le mot de passe reste la clé : il ouvre la base partout, le
+                    code PIN nulle part ailleurs — sur un autre ordinateur,
+                    l'écran de déverrouillage ne propose même pas le champ.
+                    Activer le PIN écrit un petit fichier illisible dans votre
+                    profil Windows, le seul de SGPA à sortir de la clé USB. Dix
+                    essais manqués le suppriment et renvoient au mot de passe.
+                  </span>
+                </div>
+
+                {pinEnabled && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Changer le mot de passe{" "}
+                      <strong className="font-medium">ne retire pas</strong> ce
+                      code PIN : les deux ouvrent la même clé maître, et elle ne
+                      bouge jamais. Si le code a pu être vu, ou si cet
+                      ordinateur n'est plus le vôtre, c'est « Oublier ce poste »
+                      qu'il faut.
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-end gap-6">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pin-password">
+                      Mot de passe, pour confirmer
+                    </Label>
+                    <Input
+                      id="pin-password"
+                      type="password"
+                      className="w-64"
+                      value={pinPassword}
+                      onChange={(e) => setPinPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pin-code">
+                      {pinEnabled ? "Nouveau code PIN" : "Code PIN"}
+                    </Label>
+                    <PinInput
+                      id="pin-code"
+                      value={pinCode}
+                      onChange={setPinCode}
+                      // Le sixième chiffre envoie sur la confirmation : c'est
+                      // ce que six cases laissent attendre. Par l'identifiant
+                      // plutôt que par une ref, le composant n'en expose pas.
+                      onComplete={() =>
+                        document.getElementById("pin-confirm")?.focus()
+                      }
+                      disabled={pinBusy}
+                      label={`Code PIN à ${PIN_LENGTH} chiffres`}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pin-confirm">Confirmation</Label>
+                    <PinInput
+                      id="pin-confirm"
+                      value={pinConfirm}
+                      onChange={setPinConfirm}
+                      disabled={pinBusy}
+                      invalid={
+                        pinConfirm.length === PIN_LENGTH &&
+                        pinConfirm !== pinCode
+                      }
+                      label="Confirmation du code PIN"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => void handleEnablePin()}
+                    disabled={pinBusy}
+                  >
+                    {pinBusy && (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    )}
+                    {pinEnabled
+                      ? "Modifier le code PIN"
+                      : "Activer le code PIN"}
+                  </Button>
+                  {pinEnabled && (
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleDisablePin()}
+                      disabled={pinBusy}
+                    >
+                      Oublier ce poste
+                    </Button>
+                  )}
+                  {pinMessage && (
+                    <span className="flex items-center gap-1.5 text-sm text-green-700">
+                      <Check className="h-4 w-4" />
+                      {pinMessage}
+                    </span>
+                  )}
+                  {pinError && (
+                    <span className="flex items-start gap-1.5 whitespace-pre-line text-sm text-destructive">
+                      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      {pinError}
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <LifeBuoy className="h-4 w-4" />
                   Phrase de récupération
@@ -869,39 +1098,197 @@ export default function Settings() {
               </CardContent>
             </Card>
 
+            {/* Ces deux règles décident de la façon dont les notes sont
+                agrégées, et de rien d'autre : aucune des deux n'écrit ni
+                n'efface une note. Les moyennes sont calculées à la lecture,
+                donc changer de règle recalcule aussi les bilans déjà établis —
+                c'est dit dans la carte, parce qu'un trimestre déjà imprimé ne
+                correspondrait plus à ce que l'écran affiche. */}
             <Card>
               <CardHeader>
                 <CardTitle>Règles de calcul</CardTitle>
                 <CardDescription>
-                  Ces deux règles ne sont pas modifiables tant que la règle de
-                  votre établissement n'est pas arrêtée.
+                  Elles ne touchent à aucune note saisie : elles décident
+                  seulement de la façon dont les notes se combinent. Les
+                  modifier recalcule les bilans déjà établis, y compris ceux des
+                  trimestres passés.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-1.5">
+                  <Label htmlFor="regle-moyenne">Moyenne générale</Label>
+                  <Select
+                    value={form.overall_average_rule}
+                    onValueChange={(valeur) =>
+                      setField({
+                        overall_average_rule: valeur as OverallAverageRule,
+                      })
+                    }
+                  >
+                    <SelectTrigger id="regle-moyenne">
+                      <SelectValue />
+                    </SelectTrigger>
+                    {/* Les intitulés sortent de la même table que les bilans et
+                        les PDF : réécrits ici, la même règle porterait deux noms
+                        selon l'écran. */}
+                    <SelectContent>
+                      <SelectItem value="unweighted_mean">
+                        {AVERAGE_RULE_LABELS.unweighted_mean}
+                      </SelectItem>
+                      <SelectItem value="weighted_by_count">
+                        {AVERAGE_RULE_LABELS.weighted_by_count}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Non pondérée, une compétence évaluée une seule fois compte
+                    autant qu'une compétence évaluée huit fois. Pondérée, chaque
+                    compétence pèse à proportion de son nombre de notes.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="regle-retirees">
+                    Compétences retirées d'une évaluation
+                  </Label>
+                  <Select
+                    value={form.removed_competency_policy}
+                    onValueChange={(valeur) =>
+                      setField({
+                        removed_competency_policy:
+                          valeur as RemovedCompetencyPolicy,
+                      })
+                    }
+                  >
+                    <SelectTrigger id="regle-retirees">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="keep">
+                        {REMOVED_POLICY_LABELS.keep}
+                      </SelectItem>
+                      <SelectItem value="ignore">
+                        {REMOVED_POLICY_LABELS.ignore}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Dans les deux cas les notes restent dans la base : rien
+                    n'est supprimé, et remettre la compétence dans l'évaluation
+                    les fait revenir dans le calcul. Le choix ne porte que sur
+                    leur comptage.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <NeedTagsCard />
+
+            {/* Le journal existe pour une raison précise : en release,
+                `windows_subsystem = "windows"` supprime la console, donc une
+                panique Rust, une exception de rendu ou un palier de migration
+                en échec ne laissaient aucune trace. Il est en clair et hors de
+                la base — la panne qu'il doit couvrir inclut « la base ne
+                s'ouvre plus » —, et c'est pourquoi il ne porte RIEN de
+                personnel. La carte le dit, parce que c'est la question que se
+                posera l'enseignant avant d'envoyer le fichier. */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ScrollText className="h-4 w-4" />
+                  Journal de diagnostic
+                </CardTitle>
+                <CardDescription>
+                  Quand quelque chose se passe mal, SGPA l'inscrit dans un
+                  fichier par jour, dans le sous-dossier « logs ». Envoyez ce
+                  fichier pour faire corriger le problème : il ne contient aucun
+                  nom d'élève, aucune note et aucun mot de passe — seulement des
+                  messages techniques et l'heure à laquelle ils sont survenus.
+                  Les fichiers de plus de quinze jours s'effacent d'eux-mêmes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">Moyenne générale</span>
-                    <Badge variant="secondary">
-                      En attente de la règle de votre établissement
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {AVERAGE_RULE_LABELS[form.overall_average_rule]}
+                {journal ? (
+                  <>
+                    <dl className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">
+                          Fichier du jour
+                        </dt>
+                        <dd className="font-mono text-xs font-medium">
+                          {journal.today_file}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">
+                          Taille
+                        </dt>
+                        <dd className="text-sm font-medium">
+                          {formatSize(journal.today_bytes)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">
+                          Fichiers conservés
+                        </dt>
+                        <dd className="text-sm font-medium">
+                          {journal.file_count}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button variant="outline" onClick={handleRevealLogs}>
+                        <FolderOpen className="h-4 w-4" />
+                        Ouvrir le dossier des journaux
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setJournalOuvert((o) => !o);
+                          void loadJournal();
+                        }}
+                      >
+                        <ScrollText className="h-4 w-4" />
+                        {journalOuvert
+                          ? "Masquer les dernières lignes"
+                          : "Voir les dernières lignes"}
+                      </Button>
+                      {journalError && (
+                        <span className="flex items-center gap-1.5 text-sm text-destructive">
+                          <TriangleAlert className="h-4 w-4" />
+                          {journalError}
+                        </span>
+                      )}
+                    </div>
+
+                    {journalOuvert && (
+                      <>
+                        <Separator />
+                        {journal.recent_lines.length > 0 ? (
+                          // Rendu tel quel, dans l'ordre du fichier : le format
+                          // d'une ligne est décidé en Rust, et redécoupé ici il
+                          // divergerait au premier changement.
+                          <pre className="max-h-64 overflow-auto rounded-md bg-muted px-3 py-2 text-xs leading-relaxed">
+                            {journal.recent_lines.join("\n")}
+                          </pre>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            Le fichier du jour est vide : rien n'a été signalé.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
+                ) : journalError ? (
+                  <p className="flex items-center gap-1.5 text-sm text-destructive">
+                    <TriangleAlert className="h-4 w-4" />
+                    {journalError}
                   </p>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">
-                      Compétences retirées d'une évaluation
-                    </span>
-                    <Badge variant="secondary">
-                      En attente de la règle de votre établissement
-                    </Badge>
-                  </div>
+                ) : (
                   <p className="text-sm text-muted-foreground">
-                    {REMOVED_POLICY_LABELS[form.removed_competency_policy]}
+                    Lecture du journal…
                   </p>
-                </div>
+                )}
               </CardContent>
             </Card>
 

@@ -21,12 +21,14 @@
 //! commande les enveloppe dans un `Zeroizing` dès sa première ligne : c'est le
 //! dernier moment où leur effacement est encore garanti.
 
+use std::path::Path;
+
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::state::AppState;
-use crate::{db, keys};
+use crate::{db, device, keys};
 
 const AVERAGE_RULES: [&str; 2] = ["unweighted_mean", "weighted_by_count"];
 const REMOVED_COMPETENCY_POLICIES: [&str; 2] = ["keep", "ignore"];
@@ -41,6 +43,14 @@ pub struct LockStatus {
     pub configured: bool,
     pub unlocked: bool,
     pub password_hint: String,
+    /// Vrai si **ce poste** peut ouvrir cette base par un code PIN.
+    ///
+    /// Un booléen, et rien de plus : il ne nomme personne, et la règle « une clé
+    /// USB trouvée ne doit pas dire à qui elle appartient » tient donc encore.
+    /// Sur un poste du collège il vaut faux, et l'écran de déverrouillage ne
+    /// propose alors même pas le champ — c'est l'intérêt de le calculer ici
+    /// plutôt que de laisser le front essayer pour voir.
+    pub pin_available: bool,
 }
 
 /// Retour de `setup_lock`.
@@ -158,6 +168,101 @@ pub fn unlock(state: tauri::State<'_, AppState>, password: String) -> Result<Loc
     let conn = db::prepare_encrypted(&state.layout, &master).map_err(|e| e.to_string())?;
 
     state.set_connection(conn);
+    Ok(status(&state))
+}
+
+/// Déverrouille par le code PIN de ce poste.
+///
+/// Mêmes effets qu'`unlock` — la même clé maître, la même base — par une autre
+/// enveloppe. Le PIN n'est **pas** un second mot de passe : six chiffres ne
+/// protégeraient rien seuls, et ce qui les complète est resté sur ce poste.
+///
+/// Un essai manqué est compté dans le fichier du poste, et au dixième ce poste
+/// est oublié : plus de fichier, plus d'enveloppe, retour au mot de passe. Rien
+/// n'est perdu pour autant — le mot de passe et la phrase de récupération
+/// atteignent toujours la clé maître.
+#[tauri::command]
+pub fn unlock_with_pin(
+    state: tauri::State<'_, AppState>,
+    pin: String,
+) -> Result<LockStatus, String> {
+    let pin = Zeroizing::new(pin);
+    let root = &state.layout.root;
+
+    let dir = device::dir().map_err(|e| e.to_string())?;
+    let poste = device::load(&dir)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| keys::KeyError::PinAbsent.to_string())?;
+
+    match keys::unwrap_with_pin(root, poste.id(), poste.secret(), pin.as_str()) {
+        Ok(master) => {
+            let conn = db::prepare_encrypted(&state.layout, &master).map_err(|e| e.to_string())?;
+            // Le compteur n'est remis à zéro qu'une fois la base réellement
+            // ouverte : un PIN juste suivi d'une base illisible n'est pas un
+            // succès, et créditer l'essai masquerait le vrai problème.
+            let _ = device::set_failures(&dir, &poste, 0);
+            state.set_connection(conn);
+            Ok(status(&state))
+        }
+        // Une saisie mal formée n'a rien dérivé : ce n'est pas un essai, et la
+        // compter punirait une faute de frappe.
+        Err(e @ keys::KeyError::MalformedPin) => Err(e.to_string()),
+        Err(keys::KeyError::WrongPin) => Err(compter_echec_pin(&dir, &poste, root)),
+        Err(other) => Err(to_message(other)),
+    }
+}
+
+/// Active le code PIN sur ce poste.
+///
+/// Le mot de passe est redemandé parce qu'il est le seul moyen d'atteindre la
+/// clé maître : la session ouverte ne la garde pas en mémoire, elle ne vit que
+/// dans le contexte SQLCipher de la connexion. Ce n'est donc pas une formalité
+/// de confirmation, c'est une nécessité technique — et une bonne chose par
+/// ailleurs, puisque poser un PIN est un affaiblissement consenti.
+#[tauri::command]
+pub fn enable_pin(
+    state: tauri::State<'_, AppState>,
+    password: String,
+    pin: String,
+) -> Result<LockStatus, String> {
+    require_unlocked(&state)?;
+    let password = Zeroizing::new(password);
+    let pin = Zeroizing::new(pin);
+    let root = &state.layout.root;
+
+    // Le PIN est validé d'abord : sans cela, six chiffres mal tapés laisseraient
+    // derrière eux un fichier de poste que rien n'utilise.
+    keys::check_pin(pin.as_str()).map_err(to_message)?;
+    let dir = device::dir().map_err(|e| e.to_string())?;
+
+    let master = keys::unwrap_with_password(root, password.as_str()).map_err(to_message)?;
+    let poste = device::ensure(&dir).map_err(|e| e.to_string())?;
+    keys::set_pin(root, &master, poste.id(), poste.secret(), pin.as_str()).map_err(to_message)?;
+
+    Ok(status(&state))
+}
+
+/// « Oublier ce poste » : retire le secret du poste **puis** l'enveloppe.
+///
+/// Cet ordre n'est pas indifférent. Le secret du poste est ce qui, combiné à un
+/// million d'essais, ouvre l'enveloppe : il part le premier. Si la seconde
+/// moitié échouait, il resterait dans `sgpa.keys` une enveloppe que plus rien ne
+/// peut ouvrir — inoffensive. L'ordre inverse aurait laissé, le temps d'un
+/// échec, un secret vivant sur le disque.
+#[tauri::command]
+pub fn disable_pin(state: tauri::State<'_, AppState>) -> Result<LockStatus, String> {
+    require_unlocked(&state)?;
+
+    let dir = device::dir().map_err(|e| e.to_string())?;
+    let identifiant = device::load(&dir)
+        .ok()
+        .flatten()
+        .map(|poste| poste.id().to_string());
+    device::forget(&dir).map_err(|e| e.to_string())?;
+    if let Some(identifiant) = identifiant {
+        keys::remove_pin(&state.layout.root, &identifiant).map_err(to_message)?;
+    }
+
     Ok(status(&state))
 }
 
@@ -356,7 +461,59 @@ fn status(state: &AppState) -> LockStatus {
         configured: keys::exists(root),
         unlocked: state.is_unlocked(),
         password_hint: keys::read_hint(root),
+        pin_available: pin_available(root),
     }
+}
+
+/// Le PIN n'est proposé que si **les deux** moitiés du secret sont là :
+/// l'enveloppe sur la clé USB, et le fichier de ce poste.
+///
+/// Toute erreur répond « non » : ni l'absence de `%LOCALAPPDATA%`, ni un fichier
+/// de poste écrit par un autre compte Windows ne doit empêcher l'écran de
+/// déverrouillage de s'afficher. Le mot de passe, lui, marche toujours.
+fn pin_available(root: &Path) -> bool {
+    let Ok(dir) = device::dir() else {
+        return false;
+    };
+    match device::load(&dir) {
+        Ok(Some(poste)) => keys::has_pin(root, poste.id()),
+        _ => false,
+    }
+}
+
+/// Compte un essai manqué, et rend le message à afficher.
+///
+/// Au dixième, ce poste est oublié — mêmes gestes et même ordre que
+/// `disable_pin`. L'écran de déverrouillage rafraîchit son état après un échec :
+/// le champ PIN disparaît alors de lui-même, sans avoir à être désactivé à la
+/// main.
+///
+/// Les erreurs d'écriture du compteur sont ignorées. Un fichier de poste devenu
+/// non inscriptible ne doit pas transformer « code PIN incorrect » en message
+/// technique : l'enseignant a encore son mot de passe, et c'est ce qu'il faut
+/// lui dire.
+fn compter_echec_pin(dir: &Path, poste: &device::Device, root: &Path) -> String {
+    let essais = poste.failures().saturating_add(1);
+    if essais >= device::MAX_FAILURES {
+        let _ = device::forget(dir);
+        let _ = keys::remove_pin(root, poste.id());
+        return format!(
+            "Code PIN incorrect, et c'était le {}e essai manqué : le code PIN de ce \
+             poste vient d'être désactivé.\n\n\
+             Rien n'est perdu — déverrouillez avec votre mot de passe. Vous pourrez \
+             réactiver un code PIN depuis les réglages.",
+            device::MAX_FAILURES
+        );
+    }
+
+    let _ = device::set_failures(dir, poste, essais);
+    let restants = device::MAX_FAILURES - essais;
+    format!(
+        "Code PIN incorrect.\n\n\
+         Il reste {restants} essai{} avant que le code PIN de ce poste ne soit \
+         désactivé. Votre mot de passe, lui, fonctionne toujours.",
+        if restants > 1 { "s" } else { "" }
+    )
 }
 
 /// Retire les enveloppes écrites par un `setup_lock` qui n'ira pas à son terme,

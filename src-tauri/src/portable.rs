@@ -22,6 +22,13 @@ pub struct PortableLayout {
     pub keys_path: PathBuf,
     pub backups_dir: PathBuf,
     pub exports_dir: PathBuf,
+    /// Journaux de diagnostic, un fichier par jour.
+    ///
+    /// **En clair**, et délibérément hors de la base : la panne qu'ils
+    /// doivent couvrir inclut « la base ne s'ouvre plus », et un journal
+    /// chiffré serait illisible le jour où il sert. C'est aussi pourquoi
+    /// rien de personnel n'y entre — voir `src/journal.rs`.
+    pub logs_dir: PathBuf,
     /// Profil WebView2 (localStorage, cookies, cache).
     ///
     /// Sans cette surcharge, WebView2 écrit dans le `%LOCALAPPDATA%` du poste
@@ -139,9 +146,11 @@ pub fn resolve() -> Result<PortableLayout, LayoutError> {
 
     let backups_dir = root.join("backups");
     let webview_dir = root.join("webview");
+    let logs_dir = root.join("logs");
     let exports_dir = exe_dir_or(&root).join("exports");
     ensure_dir(&backups_dir)?;
     ensure_dir(&webview_dir)?;
+    ensure_dir(&logs_dir)?;
     ensure_dir(&exports_dir)?;
 
     Ok(PortableLayout {
@@ -150,6 +159,7 @@ pub fn resolve() -> Result<PortableLayout, LayoutError> {
         root,
         backups_dir,
         exports_dir,
+        logs_dir,
         webview_dir,
     })
 }

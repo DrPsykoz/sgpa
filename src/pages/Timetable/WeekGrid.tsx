@@ -11,6 +11,32 @@ import {
 
 import { TriangleAlert } from "lucide-react";
 
+import {
+  cibleDuRendezVous,
+  motifDeFermeture as fermetureDuJour,
+  motifDuCreneau,
+  studentName,
+} from "@/pages/Timetable/journee";
+import {
+  amplitudeDe,
+  estPlacable,
+  fromMinutes,
+  HAUTEUR_DEMIE,
+  HAUTEUR_PAS,
+  heureFinDe,
+  libelleHeure,
+  libelleHoraire,
+  PAS,
+  placer,
+  type Candidat as CandidatBrut,
+  type Place as PlaceBrute,
+} from "@/pages/Timetable/geometry";
+import {
+  compteRenduRegle,
+  motsDuCahier,
+  motsDuCompteRendu,
+} from "@/lib/contenu";
+import { styleTeinte, type TableTeintes } from "@/lib/teintes";
 import { cn } from "@/lib/utils";
 import {
   schoolYearLabel,
@@ -26,55 +52,18 @@ import type {
 } from "@/types";
 
 // ---------------------------------------------------------------------------
-// Arithmétique du temps — privée à la grille
+// Lecture d'une journée — propre à la grille
 //
-// Les horaires s'affichent en `HH:MM`, comme partout ailleurs dans l'écran
-// (`DayList`) : deux façons d'écrire la même heure sur la même page se lisent
-// comme deux heures différentes. Seule la colonne de gauche abrège en « 08h »,
-// parce qu'elle ne porte jamais de minutes.
+// L'arithmétique du temps, elle, vit dans `geometry.ts` : la grille de la
+// semaine et le calendrier de l'accueil placent 9h25 au même endroit parce
+// qu'ils partagent le même module, pas parce qu'on a recopié la même formule
+// deux fois.
 //
-// Aucune arithmétique de calendrier ici : les sept dates, le numéro de semaine
-// et la parité arrivent tout faits du backend (`WeekSchedule`). Un `getDay()`
-// posé ici rendrait 0 le dimanche et contredirait le jour ISO de tout le reste
-// du projet.
+// Aucune arithmétique de calendrier ici non plus : les sept dates, le numéro de
+// semaine et la parité arrivent tout faits du backend (`WeekSchedule`). Un
+// `getDay()` posé ici rendrait 0 le dimanche et contredirait le jour ISO de
+// tout le reste du projet.
 // ---------------------------------------------------------------------------
-
-/** « 08:30 » → 510. `null` si l'heure est vide ou mal formée : une séance
- *  antérieure au palier 004 porte `''`, et elle n'a rien à faire dans la
- *  géométrie. */
-function toMinutes(time: string): number | null {
-  if (time.length !== 5 || time[2] !== ":") return null;
-  const heures = Number(time.slice(0, 2));
-  const minutes = Number(time.slice(3));
-  if (!Number.isInteger(heures) || !Number.isInteger(minutes)) return null;
-  if (heures < 0 || heures > 23 || minutes < 0 || minutes > 59) return null;
-  return heures * 60 + minutes;
-}
-
-function fromMinutes(total: number): string {
-  const heures = Math.floor(total / 60);
-  const minutes = total % 60;
-  return `${String(heures).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
-/** Dernière heure de fin qui existe vraiment.
- *
- *  La grille s'étire jusqu'à minuit pour loger un rendez-vous tardif : une
- *  entrée d'agenda 22:00–23:15 pousse l'amplitude à 1440, la dernière bande
- *  commence à 23:30, et sa fin retombe sur « 24:00 ». Cette chaîne n'est pas
- *  une heure : `toMinutes` la refuse, et l'`<input type="time">` du dialogue
- *  laisse le champ de fin vide sans rien dire. L'amplitude peut atteindre
- *  minuit ; l'heure qu'on en tire, non. */
-const FIN_MAX = 23 * 60 + 55;
-
-function heureFinDe(total: number): string {
-  return fromMinutes(Math.min(total, FIN_MAX));
-}
-
-/** Repère de la colonne des heures : « 08h ». */
-function libelleHeure(minutes: number): string {
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}h`;
-}
 
 /** Quantième du mois, lu dans la chaîne ISO. Passer par `Date` pour ça
  *  rouvrirait le décalage UTC que tout l'écran évite déjà. */
@@ -83,44 +72,23 @@ function quantieme(iso: string): string {
 }
 
 /**
- * Pourquoi personne ne fait cours ce jour-là, en une phrase, ou `null`.
+ * Pourquoi personne ne fait cours ce jour-là, et pourquoi tel créneau n'a pas
+ * lieu : la règle est celle de `journee.ts`, pas une seconde écriture d'elle.
  *
- * Le férié passe AVANT les vacances quand les deux tombent : « Toussaint » est
- * plus précis que « Vacances de la Toussaint » sur la journée du 1er novembre,
- * et c'est ce que l'enseignant cherche à lire. Les deux sont rendus par le
- * backend ; c'est ici qu'on choisit.
+ * La grille y ajoute une seule chose, et c'est la raison de ces deux lignes :
+ * elle dessine aussi des colonnes dont le backend ne lui a rendu aucune journée
+ * — samedi et dimanche portés par un seul rendez-vous. `null` n'y vaut ni
+ * « fermé » ni « masqué » : on ne sait pas, donc on ne retire rien.
  */
 function motifDeFermeture(journee: DaySchedule | null): string | null {
-  if (journee === null || journee.closures.length === 0) return null;
-  const ferie = journee.closures.find((c) => c.origin === "ferie");
-  return (ferie ?? journee.closures[0]).label;
+  return journee === null ? null : fermetureDuJour(journee);
 }
 
-/**
- * Un créneau est-il à masquer ce jour-là ?
- *
- * Deux raisons, et elles ne portent pas sur le même périmètre :
- *
- * * le JOUR est fermé — vacances scolaires ou férié : personne ne fait cours,
- *   tous les créneaux disparaissent ;
- * * une CLASSE est absente — un stage : seuls les créneaux de CETTE classe
- *   disparaissent, les autres restent. Une période nominative n'entre jamais
- *   ici (le backend ne la rend pas) : la classe est là, un élève manque.
- *
- * On masque le créneau et non la journée entière parce qu'un créneau est un
- * MODÈLE : il n'existe pas, il est seulement projeté. Une séance réelle ou un
- * rendez-vous datés ce jour-là restent dessinés à pleine force — un rattrapage
- * pendant les vacances est un fait, et une faute de frappe sur la date doit se
- * voir.
- */
 function creneauMasque(
   journee: DaySchedule | null,
   sessionId: string | null,
 ): boolean {
-  if (journee === null) return false;
-  if (journee.closures.length > 0) return true;
-  if (sessionId === null) return false;
-  return journee.sessions_away.some((c) => c.session_id === sessionId);
+  return journee !== null && motifDuCreneau(journee, sessionId) !== null;
 }
 
 /** « 27/05/2029 ». */
@@ -139,38 +107,6 @@ function reculDeSixMois(iso: string): string {
 function aujourdhui(): string {
   return new Date().toLocaleDateString("sv-SE");
 }
-
-/** Horaire lisible, y compris quand une borne manque — même règle que
- *  `DayList`, pour que les deux écrans écrivent la même heure pareil. */
-function libelleHoraire(debut: string, fin: string): string {
-  if (!debut && !fin) return "";
-  if (!fin) return debut;
-  if (!debut) return `jusqu'à ${fin}`;
-  return `${debut} – ${fin}`;
-}
-
-// ---------------------------------------------------------------------------
-// Géométrie
-// ---------------------------------------------------------------------------
-
-/** Pas de 5 minutes : seule granularité qui encaisse à la fois un cours de
- *  55 minutes et un atelier de 3 h, et qui tombe juste sur 9h25. */
-const PAS = 5;
-
-/** Hauteur d'un pas, en pixels — une heure occupe donc 48 px. */
-const HAUTEUR_PAS = 4;
-
-/** Hauteur d'une bande d'une demi-heure, en pixels : 24. C'est le quadrillage
- *  que l'enseignant voit, donc l'unité sur laquelle le tracé à la souris
- *  s'aligne. Elle se déduit des deux constantes au-dessus, elle ne se recopie
- *  pas à la main. */
-const HAUTEUR_DEMIE = (30 / PAS) * HAUTEUR_PAS;
-
-/** Amplitude plancher. La grille s'étire pour accueillir les créneaux réels,
- *  mais ne se rétrécit jamais en deçà : sinon supprimer le dernier cours de
- *  l'après-midi ferait sauter la grille d'une taille à l'autre sous les yeux. */
-const AMPLITUDE_MIN = 8 * 60;
-const AMPLITUDE_MAX = 17 * 60;
 
 /** Durée proposée par défaut au clic sur une bande vide. L'enseignant corrige
  *  dans le dialogue : la grille ne devine pas un horaire, elle le préremplit. */
@@ -200,86 +136,10 @@ type Contenu =
   | { nature: "seanceLibre"; seance: DaySeance }
   | { nature: "entree"; entry: AgendaEntrySummary };
 
-/** Un contenu replacé dans la grille : bornes en minutes, et la voie qu'il
- *  occupe quand plusieurs contenus se chevauchent le même jour. */
-interface Place {
-  cle: string;
-  contenu: Contenu;
-  debut: number;
-  fin: number;
-  voie: number;
-  voies: number;
-}
-
-/** Un contenu candidat au placement, avec ses deux horaires bruts. */
-interface Candidat {
-  cle: string;
-  contenu: Contenu;
-  debut: string;
-  fin: string;
-}
-
-/**
- * Répartit en voies les contenus d'une même journée.
- *
- * Le chevauchement n'est pas une anomalie à signaler : une co-intervention ou
- * une barrette est légitime, et le plan a explicitement renoncé à l'avertir.
- * Il reste à le DESSINER — sans voies, deux contenus simultanés se recouvrent
- * et le second devient invisible. Une réunion datée par-dessus un cours du
- * modèle relève exactement du même dessin, d'où la liste commune.
- */
-function placer(candidats: Candidat[]): Place[] {
-  const bornes = candidats
-    .map((candidat) => {
-      const debut = toMinutes(candidat.debut);
-      const fin = toMinutes(candidat.fin);
-      return debut === null || fin === null || fin <= debut
-        ? null
-        : { cle: candidat.cle, contenu: candidat.contenu, debut, fin };
-    })
-    .filter((b): b is Omit<Place, "voie" | "voies"> => Boolean(b))
-    .sort((a, b) => a.debut - b.debut || a.fin - b.fin);
-
-  const places: Place[] = [];
-  // Un groupe = des contenus liés de proche en proche par un chevauchement ;
-  // c'est lui qui fixe le nombre de voies, pas la journée entière.
-  let groupe: Place[] = [];
-  let finsParVoie: number[] = [];
-
-  const clore = () => {
-    for (const place of groupe) place.voies = finsParVoie.length;
-    places.push(...groupe);
-    groupe = [];
-    finsParVoie = [];
-  };
-
-  for (const borne of bornes) {
-    if (groupe.length > 0 && finsParVoie.every((fin) => fin <= borne.debut)) {
-      clore();
-    }
-    let voie = finsParVoie.findIndex((fin) => fin <= borne.debut);
-    if (voie === -1) {
-      voie = finsParVoie.length;
-      finsParVoie.push(borne.fin);
-    } else {
-      finsParVoie[voie] = borne.fin;
-    }
-    groupe.push({ ...borne, voie, voies: 1 });
-  }
-  if (groupe.length > 0) clore();
-
-  return places;
-}
-
-/** Un contenu a-t-il une position défendable dans la grille horaire ? Sinon il
- *  part dans la rangée « hors horaire » plutôt que d'être posé quelque part au
- *  jugé : `start_time = ''` est un cas encouragé par le dialogue des
- *  rendez-vous, pas une donnée abîmée. */
-function estPlacable(debut: string, fin: string): boolean {
-  const d = toMinutes(debut);
-  const f = toMinutes(fin);
-  return d !== null && f !== null && f > d;
-}
+/** La géométrie ne sait pas ce qu'elle place : on la spécialise ici pour que
+ *  tout le fichier continue d'écrire `Place` et `Candidat` tout court. */
+type Candidat = CandidatBrut<Contenu>;
+type Place = PlaceBrute<Contenu>;
 
 function cleDe(contenu: Contenu): string {
   switch (contenu.nature) {
@@ -349,14 +209,14 @@ export interface WeekGridProps {
   /** Clic sur un créneau. Absent : la grille est en lecture seule. */
   onSelectSlot?: (slot: TimetableSlot) => void;
   /** Clic sur un rendez-vous daté : la visite de stage s'ouvre sur son compte
-   *  rendu, sans détour par l'onglet Journée. Absent : la carte reste inerte. */
+   *  rendu. Absent : la carte reste inerte.
+   *
+   *  **Il n'y a pas de pendant pour la séance datée, et c'est voulu.** Une
+   *  séance s'ouvre depuis l'accueil ou depuis sa fiche de classe ; la grille
+   *  sert à définir l'emploi du temps, pas à tenir un appel. Un rendez-vous,
+   *  lui, n'est listé par aucun autre écran — pas même par la fiche de la
+   *  classe qu'il nomme. */
   onOpenEntry?: (entry: AgendaEntrySummary) => void;
-  /** Clic sur une séance datée — un cours ponctuel, ou une séance saisie
-   *  depuis la fiche de classe : elle s'ouvre sur son cahier de texte. Même
-   *  signature que `DayList.onOpenSeance`, parce que c'est exactement le même
-   *  geste ; un second vocabulaire pour la même action se paierait au premier
-   *  refactor. Absent : la carte reste inerte. */
-  onOpenSeance?: (seance: DaySeance) => void;
   /** Clic ou glissé sur une bande vide, jour ISO et horaire préremplis. */
   /**
    * Clic ou tracé sur une bande vide. Le jour ISO sert aux formes
@@ -371,6 +231,10 @@ export interface WeekGridProps {
     endTime: string,
     date: string,
   ) => void;
+  /** Classe → teinte, telle que `tableDesTeintes()` la rend. Absente, toutes
+   *  les cartes retombent sur le bleu : le repli d'`index.css` est le bleu de
+   *  l'application. */
+  teintes?: TableTeintes;
   className?: string;
 }
 
@@ -396,8 +260,10 @@ export interface WeekGridProps {
  *
  * **Une carte n'écrit rien non plus : elle ouvre.** Le modèle hebdomadaire
  * ouvre son dialogue de créneau, dont la portée est toutes les semaines ; le
- * rendez-vous daté ouvre son compte rendu ; la séance datée ouvre son cahier de
- * texte. Trois natures, trois destinations, et aucune création au passage.
+ * rendez-vous daté ouvre son compte rendu. La séance datée, elle, n'ouvre rien
+ * ici : **une carte ouvre sa définition, jamais son contenu** — l'appel et le
+ * cahier de texte se tiennent depuis l'accueil ou depuis la fiche de classe.
+ * Aucune création au passage, dans aucun des cas.
  */
 export function WeekGrid({
   yearStart,
@@ -405,8 +271,8 @@ export function WeekGrid({
   week,
   onSelectSlot,
   onOpenEntry,
-  onOpenSeance,
   onCreateSlot,
+  teintes,
   className,
 }: WeekGridProps): ReactElement {
   const {
@@ -506,14 +372,9 @@ export function WeekGrid({
       if (porte) jours.push(jour);
     }
 
-    let debut = AMPLITUDE_MIN;
-    let fin = AMPLITUDE_MAX;
-    for (const jour of jours) {
-      for (const place of placesParJour.get(jour) ?? []) {
-        debut = Math.min(debut, Math.floor(place.debut / 60) * 60);
-        fin = Math.max(fin, Math.ceil(place.fin / 60) * 60);
-      }
-    }
+    const { debut, fin } = amplitudeDe(
+      jours.flatMap((jour) => placesParJour.get(jour) ?? []),
+    );
 
     return {
       debut,
@@ -771,7 +632,7 @@ export function WeekGrid({
           {/* Rangée « hors horaire », en tête de grille : un rendez-vous dont
               l'heure reste à caler (`start_time = ''`) n'a aucune place dans la
               grille horaire, et il ne doit pas pour autant disparaître. Même
-              doctrine que `DayList`, qui ouvre la journée par ces lignes-là.
+              doctrine qu'à l'accueil, qui ouvre la journée par ces lignes-là.
               Vide, la rangée `auto` ne prend aucune hauteur. */}
           {aHorsHoraire && (
             <div
@@ -795,9 +656,9 @@ export function WeekGrid({
                   <CarteLibre
                     key={cleDe(contenu)}
                     contenu={contenu}
+                    teintes={teintes}
                     onSelect={onSelectSlot}
                     onOpenEntry={onOpenEntry}
-                    onOpenSeance={onOpenSeance}
                   />
                 ))}
               </div>
@@ -849,9 +710,9 @@ export function WeekGrid({
                 // Un contenu de moins de 5 minutes retomberait sur la même
                 // ligne de départ et d'arrivée, donc sur une case invisible.
                 ligneFin={Math.max(ligneDe(place.fin), ligneDe(place.debut) + 1)}
+                teintes={teintes}
                 onSelect={onSelectSlot}
                 onOpenEntry={onOpenEntry}
-                onOpenSeance={onOpenSeance}
               />
             )),
           )}
@@ -1002,35 +863,54 @@ function abregerQuinzaine(slot: TimetableSlot): string | null {
   return slot.week_parity === "paires" ? "sem. paires" : "sem. impaires";
 }
 
+/** La classe à laquelle la carte appartient, ou `null` — une occupation sans
+ *  classe, un rendez-vous. C'est elle qui donne sa teinte à la carte. */
+function sessionDe(contenu: Contenu): string | null {
+  switch (contenu.nature) {
+    case "creneau":
+      return contenu.slot.session_id;
+    case "seanceLibre":
+      return contenu.seance.session_id;
+    case "entree":
+      return null;
+  }
+}
+
 /**
- * Les quatre états de carte, aucun signe nouveau : bord plein = cours prévu,
- * bord tireté = occupation sans classe, barre épaisse à gauche = une séance
- * existe à cette date (convention de `DayList`), `opacity-40` = créneau de
- * quinzaine qui ne tombe pas cette semaine — estompé, jamais masqué : une case
- * disparue passerait pour un créneau perdu.
+ * Les quatre états de carte, aucun signe nouveau : filet pâle = cours prévu et
+ * rien d'écrit, filet tireté = occupation sans classe, **filet franc et fond
+ * d'un cran plus soutenu = une séance existe à cette date**, `opacity-40` =
+ * créneau de quinzaine qui ne tombe pas cette semaine — estompé, jamais
+ * masqué : une case disparue passerait pour un créneau perdu.
+ *
+ * Le troisième état était une barre épaisse le long du bord gauche. Elle
+ * disait juste, mais c'était un ornement posé à côté de la carte, là où la
+ * carte pouvait le dire elle-même ; `teinte-appui` ne fait que l'appuyer d'un
+ * cran, donc rien n'est devenu plus pâle qu'avant.
+ *
+ * Le cours porte en plus la **teinte de sa classe** : `teinte-carte` lit
+ * `--classe-h`, posée en style en ligne par `styleTeinte()`. Sans table de
+ * teintes, le repli d'`index.css` vaut le bleu, c'est-à-dire exactement
+ * l'aspect d'avant — un appelant qui ne passe pas `teintes` ne casse rien.
+ *
+ * Aucune classe utilitaire de couleur sur les branches teintées : la couche
+ * `utilities` de Tailwind passe après `components`, donc un `border-primary/30`
+ * emporterait `teinte-carte` en silence.
  */
 function apparenceDe(contenu: Contenu): string {
   switch (contenu.nature) {
     case "creneau":
       return cn(
         contenu.slot.session_id
-          ? "border-primary/30 bg-primary/10 text-foreground"
+          ? cn("teinte-carte", contenu.seance && "teinte-appui")
           : "border-dashed border-border bg-muted text-muted-foreground",
-        contenu.seance && "border-l-4 border-l-primary",
         contenu.horsSemaine && "opacity-40",
       );
     case "seanceLibre":
-      return "border-primary/40 border-l-4 border-l-primary bg-primary/10 text-foreground";
+      return "teinte-carte teinte-appui";
     case "entree":
-      return "border-blue-200 border-l-4 border-l-blue-500 bg-blue-50 text-blue-900";
+      return "border-agenda bg-agenda-fond text-agenda-encre";
   }
-}
-
-function nomEleve(entry: AgendaEntrySummary): string | null {
-  if (entry.student_id === null) return null;
-  const nom =
-    `${entry.student_last_name ?? ""} ${entry.student_first_name ?? ""}`.trim();
-  return nom || null;
 }
 
 /**
@@ -1055,9 +935,7 @@ function etatDeLaSeance(seance: DaySeance): string {
       }`,
     );
   }
-  parts.push(
-    seance.has_content ? "cahier de texte rempli" : "cahier de texte vide",
-  );
+  parts.push(motsDuCahier(seance).infobulle);
   const texte = parts.join(" · ");
   return `${texte.charAt(0).toUpperCase()}${texte.slice(1)}.`;
 }
@@ -1108,20 +986,26 @@ function titreDe(contenu: Contenu): string {
   const { entry } = contenu;
   lignes.push(entry.title);
   lignes.push(libelleHoraire(entry.start_time, entry.end_time));
-  const eleve = nomEleve(entry);
+  // L'infobulle a la place de dire les deux, là où la carte doit choisir :
+  // « MARTIN Hugo » puis « 4ème A » sur deux lignes.
+  const eleve = studentName(entry);
   if (eleve) lignes.push(eleve);
-  lignes.push(
-    entry.has_content
-      ? "Rendez-vous · compte rendu rédigé."
-      : "Rendez-vous · compte rendu vide. N'entre dans aucun calcul d'assiduité.",
-  );
+  if (entry.session_name) lignes.push(entry.session_name);
+  lignes.push(`Rendez-vous · ${motsDuCompteRendu(entry).infobulle}.`);
+  // Phrase à part, et non accrochée au seul cas vide : un rendez-vous n'a pas
+  // d'appel, qu'il porte un compte rendu ou non. La coller à « compte rendu
+  // vide » laissait croire que le remplir le ferait compter.
+  lignes.push("N'entre dans aucun calcul d'assiduité.");
   return lignes.filter((ligne) => ligne).join("\n");
 }
 
 /** Les signes d'état d'une séance, dans une carte de 7 rem : `●` appel
- *  terminé, `○` appel commencé ou non fait, `▣` cahier de texte rempli. Les
- *  mots correspondants sont dans le `title=` de la carte, d'où l'`aria-hidden`
- *  — un lecteur d'écran ne lit pas des ronds. */
+ *  terminé, `○` appel commencé ou non fait, `▣` cahier de texte **réglé**.
+ *  Réglé et non rempli : l'enseignant a trois façons d'en avoir fini — écrire,
+ *  dire « rien à écrire », joindre la photo du tableau — et un signe qui n'en
+ *  reconnaîtrait qu'une réclamerait ce que l'accueil ne demande plus. Les mots
+ *  correspondants sont dans le `title=` de la carte, d'où l'`aria-hidden` — un
+ *  lecteur d'écran ne lit pas des ronds. */
 function Signes({ seance }: { seance: DaySeance }): ReactElement | null {
   if (seance.cancelled) return null;
   const complet =
@@ -1130,7 +1014,7 @@ function Signes({ seance }: { seance: DaySeance }): ReactElement | null {
   return (
     <span aria-hidden className="shrink-0 font-medium">
       {seance.attendance_total > 0 && (complet ? "●" : "○")}
-      {seance.has_content && " ▣"}
+      {compteRenduRegle(seance) && " ▣"}
     </span>
   );
 }
@@ -1196,11 +1080,11 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
   }
 
   const { entry } = contenu;
-  const eleve = nomEleve(entry);
+  const cible = cibleDuRendezVous(entry);
   return (
     <>
       <span className="block truncate font-medium">{entry.title}</span>
-      {eleve && <span className="block truncate">{eleve}</span>}
+      {cible && <span className="block truncate">{cible}</span>}
       <span className="block truncate opacity-80">
         {libelleHoraire(entry.start_time, entry.end_time) || "heure à caler"}
       </span>
@@ -1216,31 +1100,34 @@ const CLASSES_CARTE =
 /**
  * Ce qu'un clic sur la carte déclenche, ou `null` si elle n'est pas ouvrable.
  *
- * **Les trois natures s'ouvrent, chacune vers un écran différent**, et c'est
- * cette distinction-là qu'il ne faut pas perdre de vue.
+ * **Une carte ouvre sa définition, jamais son contenu.** C'est la règle de
+ * tout cet écran, et c'est elle qui décide des branches ci-dessous.
  *
  * Le **modèle** hebdomadaire s'ouvre sur son dialogue de créneau : la
  * modification vaut alors pour toutes les semaines, pas pour la case cliquée.
  * Le **rendez-vous daté** — une visite de stage d'abord — s'ouvre sur son
- * compte rendu : c'est le texte qu'on vient écrire au retour de la visite, et
- * le chercher dans l'onglet Journée quand on l'a sous les yeux dans la semaine
- * n'avait pas de raison d'être. La **séance datée** s'ouvre sur son cahier de
- * texte, comme depuis la journée.
+ * compte rendu, parce qu'il n'a pas d'autre définition que ce texte et
+ * qu'aucun autre écran ne le liste.
  *
- * Une séance rattachée à un créneau n'a pas de carte à elle : elle est dessinée
- * en surcouche de son modèle (`nature: "creneau"`, champ `seance`), et cette
- * carte-là ouvre donc le créneau. L'occurrence, avec son appel, se tient
- * toujours depuis la journée — la grille n'ayant qu'une carte pour ce cours,
- * elle ne peut pas offrir deux destinations sans faire deviner laquelle.
+ * La **séance datée** n'ouvre rien ici. Son appel et son cahier de texte sont
+ * son contenu, pas sa définition, et ils ont deux écrans à eux : l'accueil,
+ * qui montre le jour même et les suivants, et la fiche de sa classe, qui liste
+ * toutes ses séances. Ne pas rouvrir cette porte : deux écrans qui modifient
+ * la même séance finissent par ne pas en dire la même chose.
  *
- * Ouvrir est une **lecture** : aucune de ces trois branches n'écrit quoi que ce
+ * Une séance rattachée à un créneau n'a de toute façon pas de carte à elle :
+ * elle est dessinée en surcouche de son modèle (`nature: "creneau"`, champ
+ * `seance`), et cette carte-là ouvre donc le créneau — la grille n'ayant
+ * qu'une carte pour ce cours, elle ne peut pas offrir deux destinations sans
+ * faire deviner laquelle.
+ *
+ * Ouvrir est une **lecture** : aucune de ces branches n'écrit quoi que ce
  * soit, et une carte de créneau posée sur un jour sans séance n'en crée pas.
  */
 function ouvertureDe(
   contenu: Contenu,
   onSelect?: (slot: TimetableSlot) => void,
   onOpenEntry?: (entry: AgendaEntrySummary) => void,
-  onOpenSeance?: (seance: DaySeance) => void,
 ): (() => void) | null {
   if (contenu.nature === "creneau" && onSelect) {
     const { slot } = contenu;
@@ -1249,10 +1136,6 @@ function ouvertureDe(
   if (contenu.nature === "entree" && onOpenEntry) {
     const { entry } = contenu;
     return () => onOpenEntry(entry);
-  }
-  if (contenu.nature === "seanceLibre" && onOpenSeance) {
-    const { seance } = contenu;
-    return () => onOpenSeance(seance);
   }
   return null;
 }
@@ -1280,8 +1163,8 @@ function libelleOuverture(contenu: Contenu): string {
     return `Ouvrir le cahier de texte de « ${seance.title} » — ${seance.session_name}`;
   }
   const { entry } = contenu;
-  const eleve = nomEleve(entry);
-  return `Ouvrir le compte rendu de « ${entry.title} »${eleve ? ` — ${eleve}` : ""}`;
+  const cible = cibleDuRendezVous(entry);
+  return `Ouvrir le compte rendu de « ${entry.title} »${cible ? ` — ${cible}` : ""}`;
 }
 
 /**
@@ -1306,20 +1189,25 @@ function titreDeLaCarte(contenu: Contenu, ouvrable: boolean): string {
 /** Le survol reprend la couleur de la carte : un rendez-vous bleu qui virerait
  *  au ton des créneaux au passage de la souris se lirait comme un changement de
  *  nature. */
-function survolDe(contenu: Contenu): string {
-  return contenu.nature === "entree"
-    ? "cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-100"
-    : "cursor-pointer transition-colors hover:border-primary hover:bg-primary/20";
-}
+/**
+ * Le survol d'une carte ouvrable.
+ *
+ * Il ne touche plus au FOND, et il ne peut plus : `teinte-carte` vit dans la
+ * couche `components`, un `hover:bg-primary/20` est une utilitaire, et les
+ * utilitaires passent après — la carte d'une classe verte serait devenue bleue
+ * au passage de la souris. Le relief dit « ceci s'ouvre » sans rien promettre
+ * sur la couleur.
+ */
+const SURVOL_CARTE = "cursor-pointer transition-shadow hover:shadow-relief";
 
 interface CarteProps {
   place: Place;
   colonne: number;
   ligneDebut: number;
   ligneFin: number;
+  teintes?: TableTeintes;
   onSelect?: (slot: TimetableSlot) => void;
   onOpenEntry?: (entry: AgendaEntrySummary) => void;
-  onOpenSeance?: (seance: DaySeance) => void;
 }
 
 function Carte({
@@ -1327,9 +1215,9 @@ function Carte({
   colonne,
   ligneDebut,
   ligneFin,
+  teintes,
   onSelect,
   onOpenEntry,
-  onOpenSeance,
 }: CarteProps): ReactElement {
   const { contenu, voie, voies } = place;
 
@@ -1344,14 +1232,19 @@ function Carte({
   // partagée en deux voies les cartes sont déjà étroites, ouvrait « Ajouter à
   // l'emploi du temps » au lieu du compte rendu. Le geste n'écrivait rien, mais
   // c'était un faux départ.
+  //
+  // `--classe-h` est posée ici, sur l'enveloppe, et non sur la carte : les
+  // propriétés personnalisées s'héritent, et c'est l'enveloppe qui porte déjà
+  // un style en ligne.
   const style: CSSProperties = {
     gridColumn: colonne,
     gridRow: `${ligneDebut} / ${ligneFin}`,
     width: `${100 / voies}%`,
     marginLeft: `${(voie * 100) / voies}%`,
+    ...styleTeinte(teintes, sessionDe(contenu)),
   };
 
-  const ouvrir = ouvertureDe(contenu, onSelect, onOpenEntry, onOpenSeance);
+  const ouvrir = ouvertureDe(contenu, onSelect, onOpenEntry);
   // `px-0.5 pt-px` : les 2 px latéraux et le 1 px du haut d'autrefois, au pixel
   // près — mais à l'intérieur de la surface sensible, pas à côté.
   const enveloppe = cn("z-10 block px-0.5 pt-px", ouvrir && "cursor-pointer");
@@ -1359,7 +1252,7 @@ function Carte({
     CLASSES_CARTE,
     "h-full",
     apparenceDe(contenu),
-    ouvrir && survolDe(contenu),
+    ouvrir && SURVOL_CARTE,
   );
 
   if (ouvrir === null) {
@@ -1391,21 +1284,25 @@ function Carte({
 /** La même carte, hors de la grille horaire : ni position ni voie.
  *
  *  C'est là que tombent la visite de stage dont l'heure reste à caler et le
- *  cours ponctuel saisi sans horaire — donc là aussi qu'ils doivent s'ouvrir
- *  d'un clic, sinon la seule carte que l'enseignant cherche est la seule qui
- *  ne répond pas. */
+ *  cours ponctuel saisi sans horaire. La visite s'y ouvre d'un clic — sa place
+ *  dans la grille est précisément ce qu'on vient y définir ; le cours ponctuel,
+ *  comme toute séance, reste inerte et s'ouvre depuis l'accueil ou depuis sa
+ *  fiche de classe. */
 function CarteLibre({
   contenu,
+  teintes,
   onSelect,
   onOpenEntry,
-  onOpenSeance,
 }: {
   contenu: Contenu;
+  teintes?: TableTeintes;
   onSelect?: (slot: TimetableSlot) => void;
   onOpenEntry?: (entry: AgendaEntrySummary) => void;
-  onOpenSeance?: (seance: DaySeance) => void;
 }): ReactElement {
-  const ouvrir = ouvertureDe(contenu, onSelect, onOpenEntry, onOpenSeance);
+  const ouvrir = ouvertureDe(contenu, onSelect, onOpenEntry);
+  // Ici la teinte va sur la carte elle-même : la rangée « hors horaire » n'a
+  // pas d'enveloppe de grille pour la porter.
+  const style = styleTeinte(teintes, sessionDe(contenu));
   // `z-10` est inerte ici — la rangée « hors horaire » n'empile rien — mais la
   // carte reste un vrai `<button>`, donc atteignable au clavier en tête de
   // grille.
@@ -1413,12 +1310,16 @@ function CarteLibre({
     CLASSES_CARTE,
     "block w-full",
     apparenceDe(contenu),
-    ouvrir && survolDe(contenu),
+    ouvrir && SURVOL_CARTE,
   );
 
   if (ouvrir === null) {
     return (
-      <div className={classes} title={titreDeLaCarte(contenu, false)}>
+      <div
+        className={classes}
+        style={style}
+        title={titreDeLaCarte(contenu, false)}
+      >
         <CorpsCarte contenu={contenu} />
       </div>
     );
@@ -1428,6 +1329,7 @@ function CarteLibre({
     <button
       type="button"
       className={classes}
+      style={style}
       title={titreDeLaCarte(contenu, true)}
       aria-label={libelleOuverture(contenu)}
       onClick={ouvrir}
@@ -1437,5 +1339,5 @@ function CarteLibre({
   );
 }
 
-/** Alias par défaut, comme `DayList` : les deux formes d'import fonctionnent. */
+/** Alias par défaut : les deux formes d'import fonctionnent. */
 export default WeekGrid;

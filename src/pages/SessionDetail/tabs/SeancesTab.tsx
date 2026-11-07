@@ -1,5 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookOpen, Calendar, Plus, Trash2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from "react";
+import {
+  AlertTriangle,
+  BookDashed,
+  BookOpen,
+  Calendar,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 import { DataState } from "@/components/DataState";
 import { Badge } from "@/components/ui/badge";
@@ -21,15 +34,62 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ConfirmDialog } from "@/pages/SessionDetail/dialogs/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SeanceDetail } from "@/pages/SessionDetail/seance/SeanceDetail";
 import { api } from "@/lib/api";
+import {
+  compteRenduRegle,
+  etatDuCompteRendu,
+  motsDuCahier,
+  renduDeLaSeance,
+} from "@/lib/contenu";
 import { cn } from "@/lib/utils";
 import type { Seance, Session, Student } from "@/types";
 
-export interface SeancesTabProps {
+export /**
+ * L'icône d'état du cahier de texte, dans la liste d'une classe.
+ *
+ * Quatre états et non deux. Une séance déclarée « rien à écrire » n'est pas un
+ * cahier en retard : sans un signe à elle, elle se lisait dans cette liste
+ * exactement comme un oubli, et l'enseignant rouvrait une séance qu'il avait
+ * déjà traitée. Le pointillé dit « volontairement vide ». Et une séance dont la
+ * photo du tableau EST le compte rendu est réglée elle aussi — l'accueil a
+ * cessé de la réclamer au palier 014, cette liste le dit depuis le 017.
+ *
+ * Les mots viennent de `motsDuCahier`, comme ceux des deux calendriers : la
+ * liste a la place d'une phrase, donc le registre long, capitalisé parce qu'il
+ * est seul dans l'infobulle.
+ */
+function IconeDuCahier({ seance }: { seance: Seance }): ReactElement {
+  const rendu = renduDeLaSeance(seance);
+  const mots = motsDuCahier(rendu).infobulle;
+  return (
+    <div
+      className={cn(
+        "rounded-lg p-2",
+        compteRenduRegle(rendu)
+          ? "bg-primary/10 text-primary"
+          : "bg-muted text-muted-foreground",
+      )}
+      title={`${mots.charAt(0).toUpperCase()}${mots.slice(1)}`}
+    >
+      {etatDuCompteRendu(rendu) === "renonce" ? (
+        <BookDashed className="h-4 w-4" />
+      ) : (
+        <BookOpen className="h-4 w-4" />
+      )}
+    </div>
+  );
+}
+
+interface SeancesTabProps {
   session: Session;
   students: Student[];
+  /** Séance à ouvrir d'emblée, quand on arrive depuis un rappel de l'accueil.
+   *  Lu une seule fois, à la construction de l'état : le parent remonte
+   *  l'instance (`key`) quand la cible change, donc une prop figée suffit et
+   *  rien ne vient réouvrir ce que l'enseignant a refermé. */
+  openId?: string | null;
 }
 
 type TrimesterChoice = "auto" | "1" | "2" | "3";
@@ -65,17 +125,7 @@ function messageOf(err: unknown): string {
     : "Une erreur inattendue est survenue.";
 }
 
-/** Le cahier de texte vide vaut `<p></p>` une fois passé par l'éditeur. */
-function hasContent(html: string): boolean {
-  return (
-    html
-      .replace(/<[^>]*>/g, "")
-      .replace(/&nbsp;/g, " ")
-      .trim().length > 0
-  );
-}
-
-export function SeancesTab({ session, students }: SeancesTabProps) {
+export function SeancesTab({ session, students, openId }: SeancesTabProps) {
   const [seances, setSeances] = useState<Seance[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -84,7 +134,7 @@ export function SeancesTab({ session, students }: SeancesTabProps) {
   // L'écran de détail ne détient jamais la séance : le parent garde la liste et
   // l'identifiant sélectionné, et dérive l'entité. Un rechargement de la liste
   // rafraîchit donc l'enfant au lieu de le laisser sur une copie figée.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(openId ?? null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -235,21 +285,7 @@ export function SeancesTab({ session, students }: SeancesTabProps) {
                   }}
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <div
-                      className={cn(
-                        "rounded-lg p-2",
-                        hasContent(seance.content_html)
-                          ? "bg-primary/10 text-primary"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                      title={
-                        hasContent(seance.content_html)
-                          ? "Cahier de texte rempli"
-                          : "Cahier de texte vide"
-                      }
-                    >
-                      <BookOpen className="h-4 w-4" />
-                    </div>
+                    <IconeDuCahier seance={seance} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p

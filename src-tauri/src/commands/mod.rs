@@ -1,8 +1,12 @@
 pub mod absences;
+pub mod attachments;
 pub mod contracts;
+pub mod diagnostics;
 pub mod evaluations;
+pub mod home;
 pub mod lock;
 pub mod maintenance;
+pub mod needs;
 pub mod referential;
 pub mod reports;
 pub mod seances;
