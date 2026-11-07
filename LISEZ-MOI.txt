@@ -69,6 +69,12 @@ NE SONT PAS PROTÉGÉS, quoi que vous fassiez dans l'application :
     chez personne. Videz ce dossier quand vous n'en avez plus l'usage, et ne
     laissez pas ces fichiers sur un poste partagé.
 
+  - exports/ reçoit aussi les PIÈCES JOINTES que vous OUVREZ. Une pièce jointe
+    est rangée chiffrée dans la base ; mais pour qu'un PDF s'ouvre dans votre
+    lecteur, ou un .docx dans Word, il faut bien un fichier sur le disque — SGPA
+    en dépose donc une copie EN CLAIR dans exports/, et vous le dit. Cette copie
+    reste là ensuite : c'est le même dossier à vider.
+
   - data/webview/ — le profil technique de l'affichage. SGPA y efface à chaque
     démarrage l'historique et les saisies mémorisées qui s'y déposent, mais
     pendant que l'application tourne, ils y sont de nouveau, en clair.
@@ -114,6 +120,164 @@ Enfin, les habitudes, qu'aucun chiffrement ne remplace :
     sécurité »), surtout juste après avoir saisi des notes.
 
 
+LE CODE PIN — PLUS RAPIDE, ET SEULEMENT SUR VOTRE ORDINATEUR
+------------------------------------------------------------
+
+Retaper une longue phrase dix fois par jour, c'est ce qui finit par faire
+choisir un mot de passe court. Vous pouvez donc, si vous le souhaitez, ouvrir
+la session avec 6 CHIFFRES — mais seulement sur les ordinateurs où vous l'aurez
+activé, et c'est tout l'intérêt.
+
+Réglages → « Code PIN sur ce poste » → votre mot de passe, le code, sa
+confirmation → « Activer le code PIN ».
+
+CE N'EST PAS UN SECOND MOT DE PASSE. Six chiffres ne font qu'un million de
+combinaisons : quelqu'un qui ramasse la clé USB et prend son temps les
+essaierait toutes. Si le code suffisait, il ouvrirait la base. Il ne suffit
+pas : la moitié du secret reste SUR L'ORDINATEUR, dans votre compte Windows,
+et ne part pas avec la clé.
+
+Ce que cela donne concrètement :
+
+  - Sur votre ordinateur, sous votre compte Windows : le champ « Code PIN »
+    apparaît au déverrouillage, 6 chiffres et c'est ouvert.
+  - Sur n'importe quel autre ordinateur, ou sous un autre compte Windows : le
+    champ n'apparaît même pas. Seul le mot de passe ouvre la base.
+  - Clé USB perdue ou volée : le code PIN n'y sert à rien, il manque la moitié
+    restée chez vous. La protection est exactement celle du mot de passe.
+  - Dix codes faux de suite : SGPA retire le PIN de ce poste et redemande le
+    mot de passe. Vous pourrez le réactiver ensuite.
+
+Le prix à payer, dit franchement : activer le code PIN écrit un petit fichier
+illisible dans votre profil Windows, sur CET ordinateur. C'est la seule chose
+que SGPA écrit hors de la clé. Le bouton « Oublier ce poste », dans le même
+écran, l'efface — faites-le avant de rendre un ordinateur de prêt, ou si
+quelqu'un a pu voir votre code.
+
+ATTENTION : CHANGER DE MOT DE PASSE NE RETIRE PAS LE CODE PIN. Les deux ouvrent
+la même base, et changer l'un ne touche pas l'autre. Si vous changez de mot de
+passe parce que vous le croyez connu de quelqu'un, pensez aussi à
+« Oublier ce poste » sur les ordinateurs concernés.
+
+Enfin : votre mot de passe reste indispensable. Il est demandé pour activer le
+code PIN, il ouvre la base partout, et c'est lui — avec la phrase de
+récupération — qu'il faut connaître le jour où cet ordinateur n'est plus
+disponible. Un code PIN ne remplace jamais ni l'un ni l'autre.
+
+
+LES BESOINS PARTICULIERS DES ÉLÈVES
+-----------------------------------
+
+Onglet « Élèves » d'une classe, icône en forme de mains : vous pouvez noter
+pour chaque élève ses besoins particuliers — dysorthographie, dyscalculie,
+présence d'une AESH, PAP — avec vos propres étiquettes et une note libre
+(« tiers temps », « lit mieux en Arial 14 »).
+
+SGPA ne fournit AUCUNE étiquette d'avance, et c'est volontaire : les libellés
+justes sont ceux des notifications et des PAP de votre établissement, pas ceux
+qu'une application aurait devinés. Vous créez la première au moment où vous en
+avez besoin ; elle resservira pour tous vos élèves, toutes vos classes et toutes
+les années. Réglages → « Besoins particuliers » pour les renommer ou les
+supprimer.
+
+Elles s'affichent là où elles servent : à la feuille d'appel, dans la grille de
+notation d'une évaluation, dans la liste de la classe et dans les bilans à
+l'écran. Mettez un abrégé (« Dys-o ») pour les endroits où la place manque — le
+libellé complet reste lisible au survol.
+
+ELLES NE FIGURENT SUR AUCUN DOCUMENT IMPRIMÉ. Ni bulletin, ni fiche contrat, ni
+liste exportée : ce sont des données de santé concernant des mineurs, et un PDF
+oublié en salle des profs ne doit rien en dire. Ce choix est verrouillé dans le
+code, pas laissé à une case à cocher.
+
+Une limite à connaître : une étiquette est posée sur un élève D'UNE CLASSE
+D'UNE ANNÉE. Le même enfant que vous retrouvez l'année suivante est une nouvelle
+fiche, et ses étiquettes sont à reposer — quelques clics en septembre. Vos
+étiquettes, elles, sont toujours là.
+
+
+LES PIÈCES JOINTES DU CAHIER DE TEXTE
+-------------------------------------
+
+Dans le cahier de texte d'une séance, sous l'éditeur : vous pouvez joindre des
+images, des PDF, des fichiers audio, des documents Word. Une photo du tableau,
+le sujet distribué, un enregistrement de lecture.
+
+Deux façons de faire, qui donnent exactement le même résultat : le bouton
+« Ajouter un fichier », ou GLISSER VOS FICHIERS depuis l'explorateur Windows et
+les lâcher N'IMPORTE OÙ DANS L'ONGLET « Cahier de texte » — l'éditeur compris.
+Un cadre apparaît pour vous dire que le dépôt est accepté.
+
+Les fichiers lâchés rejoignent les pièces jointes. Ils NE SONT PAS insérés dans
+le texte de votre compte rendu : celui-ci reste ce que vous avez écrit.
+
+Vous pouvez en lâcher plusieurs d'un coup. Un dossier, en revanche, est refusé
+en vous le nommant : ouvrez-le et déposez les fichiers qu'il contient.
+
+Ces fichiers sont rangés DANS la base chiffrée, pas à côté. Trois conséquences,
+toutes utiles :
+
+  - ils sont protégés comme le reste de vos données ;
+  - vos sauvegardes les emportent, sans rien à copier en plus ;
+  - déplacer le dossier SGPA ne casse aucun lien.
+
+Une pièce jointe est enregistrée DÈS QUE VOUS LA CHOISISSEZ OU LA DÉPOSEZ : il
+n'y a pas de bouton « Enregistrer » pour elles, contrairement au texte du
+cahier.
+
+Deux limites : 10 Mo par fichier, et les photos sont automatiquement réduites
+avant d'être rangées (assez large pour relire un tableau à l'écran). C'est ce
+qui évite qu'une base de classe passe à plusieurs gigaoctets — et avec elle vos
+dix sauvegardes.
+
+Pour ouvrir une pièce jointe dans Word ou dans un lecteur du poste, SGPA en
+dépose une copie EN CLAIR dans exports/. Voyez la section
+« Ce qui est protégé, ce qui ne l'est pas ».
+
+
+« RIEN À ÉCRIRE » — FAIRE TAIRE UN RAPPEL QUI A TORT
+---------------------------------------------------
+
+L'accueil liste ce qui reste à reprendre : appels non terminés, cahiers de texte
+vides, annulations sans motif, notes manquantes.
+
+Toutes les séances n'ont pas de compte rendu à écrire : une évaluation
+surveillée, une sortie, une heure de vie de classe, une séance confiée à
+l'AESH. Dans le cahier de texte d'une telle séance, sous l'éditeur resté vide,
+un bouton « Marquer "rien à écrire" » la fait sortir de la liste — et SGPA note
+la date de cette décision, que vous pouvez retirer à tout moment.
+
+CE N'EST PAS UNE ANNULATION. La séance a eu lieu, votre appel y compte
+normalement dans les statistiques d'assiduité. Seul le rappel disparaît.
+
+Une séance qui porte au moins une pièce jointe sort aussi de la liste toute
+seule : la photo du tableau EST le compte rendu.
+
+
+LES DEUX RÈGLES DE CALCUL DES BILANS
+------------------------------------
+
+Réglages → « Règles de calcul ». Elles décident de la façon dont vos notes se
+combinent, et de rien d'autre : AUCUNE DES DEUX NE TOUCHE À UNE NOTE SAISIE.
+
+  1. LA MOYENNE GÉNÉRALE d'un élève, à partir de ses moyennes par compétence.
+     Soit chaque compétence pèse pareil, qu'elle porte une note ou huit — c'est
+     le réglage livré. Soit chacune pèse à proportion de son nombre de notes.
+
+  2. LES NOTES D'UNE COMPÉTENCE QUE VOUS RETIREZ D'UNE ÉVALUATION après l'avoir
+     notée. Soit elles continuent de compter, soit elles sortent des moyennes —
+     c'est le réglage livré.
+
+Dans les deux cas du point 2, les notes RESTENT dans la base : rien n'est
+supprimé, et remettre la compétence dans l'évaluation les fait revenir dans le
+calcul. Le réglage ne porte que sur leur comptage.
+
+ATTENTION : les moyennes sont recalculées à chaque affichage. Changer l'une de
+ces deux règles change donc aussi les bilans DÉJÀ ÉTABLIS, trimestres passés
+compris. Un bulletin imprimé avant le changement ne correspondra plus à ce que
+l'écran affiche après.
+
+
 OÙ SONT MES DONNÉES
 -------------------
 
@@ -124,6 +288,9 @@ Tout vit à côté de SGPA.exe :
   data/sgpa.keys      un kilo-octet : la clé de la base, elle-même fermée par
                       votre mot de passe et par votre phrase de récupération
   data/backups/       vos sauvegardes, chiffrées de la même façon
+  data/logs/          le journal de ce qui s'est mal passé, un fichier par
+                      jour — en clair, mais sans aucun nom d'élève (voir
+                      « Un autre problème », plus bas)
   data/webview/       fichiers techniques de l'affichage
   data/.sgpa.lock     fichier vide, qui empêche d'ouvrir SGPA deux fois
   exports/            les PDF que vous générez — en clair, voir plus haut
@@ -132,8 +299,15 @@ data/sgpa.keys EST AUSSI IMPORTANT QUE LA BASE. Sans lui, ni le mot de passe ni
 la phrase de récupération n'ouvrent quoi que ce soit. Ne le supprimez jamais, et
 copiez-le avec vos sauvegardes (voir la section suivante).
 
-Rien n'est écrit ailleurs sur l'ordinateur. Vous pouvez débrancher la clé et la
-brancher sur un autre poste : tout suit.
+Rien n'est écrit ailleurs sur l'ordinateur — à une exception près, et
+seulement si vous la demandez : activer le code PIN (voir la section
+précédente) dépose un petit fichier illisible dans votre profil Windows, sur
+l'ordinateur concerné. Il ne contient aucune donnée d'élève, et
+« Oublier ce poste » l'efface.
+
+Vos données, elles, suivent toujours la clé : débranchez-la, branchez-la sur un
+autre poste, tout est là. Le code PIN, lui, ne suit pas — c'est voulu : sur cet
+autre poste, SGPA demandera le mot de passe.
 
 Vous pouvez aussi voir ce fichier :
 
@@ -158,6 +332,10 @@ Une clé USB se perd, se casse, et finit toujours par lâcher.
 Dans Réglages → Sauvegarde, le bouton « Créer une sauvegarde » dépose une copie
 complète dans data/backups/. Les dix plus récentes sont conservées. Ces copies
 sont chiffrées, exactement comme la base.
+
+Une sauvegarde pèse ce que pèse la base, pièces jointes comprises : si
+data/backups/ devient gros, ce sont vos photos et vos PDF joints, et c'est
+là qu'il faut regarder. Les dix copies conservées multiplient ce poids par dix.
 
 MAIS une sauvegarde qui reste sur la même clé ne protège de rien. Copiez
 régulièrement ailleurs — ordinateur, disque externe, espace de stockage
@@ -228,6 +406,16 @@ EN CAS DE PROBLÈME
     Vérifiez la touche Verr. Maj. L'indice, s'il a été enregistré, s'affiche
     sous le champ. Sinon, utilisez la phrase de récupération.
 
+« Code PIN incorrect »
+    Le message indique combien d'essais restent avant que SGPA ne retire le
+    code PIN de ce poste. Passez au mot de passe en cliquant
+    « Utiliser le mot de passe » : il ouvre la base dans tous les cas.
+
+Le champ « Code PIN » n'apparaît pas au déverrouillage
+    C'est normal partout où vous ne l'avez pas activé : autre ordinateur, autre
+    compte Windows, ou dix essais manqués. Utilisez le mot de passe, puis
+    Réglages → « Code PIN sur ce poste » pour l'activer ou le réactiver.
+
 « Impossible de créer le dossier de données »
     L'application est lancée depuis un support en lecture seule, depuis
     l'intérieur du ZIP, ou depuis un dossier protégé (Program Files).
@@ -254,6 +442,32 @@ La fenêtre ne s'ouvre pas du tout
     sur Windows 10 à jour. S'il manque sur un poste ancien, installez
     « Microsoft Edge WebView2 Runtime » depuis le site de Microsoft. C'est la
     seule dépendance possible, et elle concerne l'affichage, pas vos données.
+
+
+UN AUTRE PROBLÈME, UN ÉCRAN QUI S'INTERROMPT
+--------------------------------------------
+
+SGPA écrit dans un fichier tout ce qui se passe mal : un fichier par jour, dans
+data/logs/, nommé par sa date. C'est ce qu'il faut envoyer pour faire corriger
+le problème — avec ce fichier, on sait ce qui a échoué et à quelle heure ; sans
+lui, il ne reste que « ça n'a pas marché ».
+
+Réglages → « Journal de diagnostic » vous montre le fichier du jour, et le
+bouton « Ouvrir le dossier des journaux » l'affiche dans l'Explorateur : vous
+n'avez plus qu'à le joindre à un message.
+
+VOUS POUVEZ L'ENVOYER SANS RIEN RELIRE. Il ne contient aucun nom d'élève,
+aucune note, aucune appréciation, aucun mot de passe : seulement des messages
+techniques, le nom de l'opération qui a échoué, et l'heure. Ce n'est pas une
+promesse de prudence, c'est la façon dont il est fabriqué — l'application n'a
+simplement aucun moyen d'y écrire une donnée de vos classes.
+
+Les fichiers de plus de quinze jours s'effacent d'eux-mêmes, et le dossier ne
+grossit pas : vous n'avez rien à y entretenir.
+
+Si un écran s'interrompt, SGPA l'affiche au lieu de laisser une fenêtre
+blanche, et propose de revenir à l'accueil. Rien n'est perdu : aucune donnée
+n'est enregistrée sans votre action, et la base n'est pas touchée.
 
 
 MISE À JOUR
