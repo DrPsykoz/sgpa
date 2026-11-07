@@ -50,3 +50,18 @@ sgpa.db-shm
 sgpa.keys
 .sgpa.lock
 sgpa-legacy-v1*.db
+# Les journaux de diagnostic ne portent rien de personnel, par
+# construction (voir `src-tauri/src/journal.rs`) : ils sont ici parce
+# qu'un fichier daté par jour n'a rien à faire dans l'historique, pas
+# parce qu'il serait sensible.
+sgpa-????-??-??.log
+
+# Documents de travail de l'enseignant — JAMAIS dans l'historique.
+#
+# `documents/` sert d'atelier : classeurs et fiches d'origine, scripts de
+# dépouillement, tableaux de contrôle. On y trouve des prénoms d'élèves
+# mineurs (une feuille Excel par enfant dans `evaluation sequence 1.xls`), et
+# le dépôt est public. Décision de l'auteur, 2026-11-04 : ce dossier n'est pas
+# versionné. Ce qui doit survivre à un clone se recopie dans `src-tauri/src/db/`
+# — un palier de migration ou un `db/data/*.json` — pas ici.
+/documents/
