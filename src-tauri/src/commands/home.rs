@@ -216,15 +216,17 @@ SELECT se.id, se.title, se.date, se.session_id, s.name,
 /// arrivé en février pour un devoir de novembre — c'est la même fenêtre
 /// `enrolled_on` / `left_on` que `reports::ATTENDANCE_SQL`.
 ///
-/// Trois restrictions sur le numérateur, chacune pour une raison :
-///   * `g.level > 0` — la règle de `reports::AVERAGES_HEAD`. Le niveau 0 est
-///     « pas évalué », pas une note basse ; sans ce filtre, une grille ouverte
-///     puis refermée sans rien saisir passerait pour complète.
+/// Deux restrictions sur le numérateur, chacune pour une raison :
 ///   * la compétence doit être ENCORE rattachée — sinon une compétence retirée
 ///     de l'évaluation laisserait ses notes gonfler le numérateur au-dessus du
 ///     dénominateur, et l'évaluation serait « complète à 112 % ».
 ///   * l'élève doit être inscrit ce jour-là, pour que les deux termes de la
 ///     fraction parlent de la même population.
+///
+/// Il y en avait une troisième, `g.level > 0`, et le palier 018 l'a rendue
+/// inutile : « pas de note » n'est plus un niveau de l'échelle, c'est l'absence
+/// de ligne. Compter les lignes compte donc exactement les notes, et une grille
+/// ouverte puis refermée sans rien saisir n'en crée aucune.
 const EVALUATIONS_PASSEES: &str = "\
 SELECT e.id, e.title, e.date, e.session_id, s.name,
        (SELECT COUNT(*) FROM evaluation_competencies ec
@@ -236,7 +238,6 @@ SELECT e.id, e.title, e.date, e.session_id, s.name,
        (SELECT COUNT(*) FROM grades g
           JOIN students sg ON sg.id = g.student_id
          WHERE g.evaluation_id = e.id
-           AND g.level > 0
            AND sg.enrolled_on <= e.date
            AND (sg.left_on IS NULL OR e.date <= sg.left_on)
            AND EXISTS (SELECT 1 FROM evaluation_competencies ec

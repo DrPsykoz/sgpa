@@ -625,10 +625,35 @@ export interface CompetencyInfo {
 }
 
 // ---- Notes ----
-export type MasteryLevel = 0 | 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Bornes de la note, **entière**, sur 20.
+ *
+ * **Il n'y a pas de note de 0** — décision de l'auteur du 2026-11-07. La note
+ * la plus basse est 1, et « non évalué » n'est pas une note basse : c'est
+ * l'absence de ligne dans `grades`, que `api.deleteGrade` rétablit. Même règle
+ * que l'appel non fait, qui ne vaut pas « présent ».
+ *
+ * Doublées côté Rust (`MARK_MIN` / `MARK_MAX`) et par le CHECK du schéma, et ce
+ * n'est pas une redondance oisive : le CHECK est le garde-fou, ces deux-ci sont
+ * ce qui permet de refuser une saisie **avant** de l'envoyer, dans les mots de
+ * l'enseignant.
+ */
+export const MARK_MIN = 1;
+export const MARK_MAX = 20;
+
+/**
+ * Les cinq degrés de maîtrise. **Ils ne se saisissent plus, ils se lisent.**
+ *
+ * Jusqu'au palier 018, l'enseignant cliquait un degré et la note sur 20 en
+ * était déduite. La chaîne est inversée : il saisit la note, et le degré n'est
+ * plus qu'une façon de la nommer. Il n'y a donc plus de niveau `0` — « non
+ * évalué » n'est pas un degré de maîtrise, c'est une case vide, et une case
+ * vide n'a pas de libellé à porter.
+ */
+export type MasteryLevel = 1 | 2 | 3 | 4 | 5;
 
 export const MASTERY_LABELS: Record<MasteryLevel, string> = {
-	0: "Non évalué",
 	1: "Maîtrise insuffisante",
 	2: "Maîtrise fragile",
 	3: "Presque maîtrisé",
@@ -636,11 +661,10 @@ export const MASTERY_LABELS: Record<MasteryLevel, string> = {
 	5: "Très bonne maîtrise",
 };
 
-/** Forme courte des mêmes libellés, pour les carrés de la grille de notation.
+/** Forme courte des mêmes libellés, là où la colonne est trop étroite.
  *  Elle vit ici, collée à `MASTERY_LABELS` : une table d'abréviations rangée
- *  dans un composant divergerait le jour où un niveau serait renommé. */
+ *  dans un composant divergerait le jour où un degré serait renommé. */
 export const MASTERY_SHORT: Record<MasteryLevel, string> = {
-	0: "NE",
 	1: "MI",
 	2: "MF",
 	3: "PM",
@@ -648,8 +672,9 @@ export const MASTERY_SHORT: Record<MasteryLevel, string> = {
 	5: "TBM",
 };
 
-/** L'échelle dans l'ordre. Sert partout où les six niveaux se parcourent. */
-export const MASTERY_LEVELS: MasteryLevel[] = [0, 1, 2, 3, 4, 5];
+/** L'échelle dans l'ordre. Sert là où les cinq degrés se parcourent — une
+ *  légende, l'axe d'un graphique. **Plus jamais une surface de saisie.** */
+export const MASTERY_LEVELS: MasteryLevel[] = [1, 2, 3, 4, 5];
 
 /**
  * Motifs d'annulation proposés en un clic, dans l'agenda comme sur la séance.
@@ -679,48 +704,78 @@ export const CANCEL_REASON_SUGGESTIONS = [
 ];
 
 /**
- * Barème de conversion d'un niveau de maîtrise en points sur 20.
+ * Les tranches de notes, et le degré de maîtrise que chacune porte.
  *
- * **Règle choisie par l'auteur le 2026-10-13 : linéaire, le niveau × 4.**
- * L'échelle est traitée comme régulière, chaque échelon vaut quatre points.
- * C'est la règle la plus facile à expliquer à une famille, et la seule qui se
- * relise à l'envers — une note de 12/20 se lit « Presque maîtrisé en moyenne ».
+ * **Découpage choisi par l'auteur le 2026-11-07 : quatre points par degré.**
  *
- * `0` (Non évalué) n'a **pas** de valeur et vaut `null` : une compétence non
- * notée est écartée du calcul, elle ne vaut pas zéro. C'est la même règle que
- * `AVERAGES_HEAD` côté Rust (`g.level > 0`) et que tout ce projet applique à
- * l'absence d'enregistrement — un appel oublié ne vaut pas « présent », une
- * compétence non notée ne vaut pas « insuffisant ».
+ * ```text
+ *       1 · 2 · 3 · 4   Maîtrise insuffisante
+ *       5 · 6 · 7 · 8   Maîtrise fragile
+ *    9 · 10 · 11 · 12   Presque maîtrisé
+ *   13 · 14 · 15 · 16   Maîtrise satisfaisante
+ *   17 · 18 · 19 · 20   Très bonne maîtrise
+ * ```
  *
- * Il vit ici, à côté de `MASTERY_LABELS` et `MASTERY_SHORT`, et non dans l'écran
- * de notation : le jour où un niveau change de nom ou de rang, les trois se
- * corrigent sous les yeux l'un de l'autre. **Si la note /20 apparaît un jour sur
- * le bilan, elle doit lire CE tableau** — deux barèmes feraient deux chiffres
- * différents pour le même élève sur deux écrans.
+ * Ce tableau remplace `MASTERY_POINTS`, qui faisait le trajet inverse — niveau
+ * × 4 ⇒ note — et dont la règle linéaire avait été retenue le 2026-10-13. Elle
+ * n'est pas désavouée, elle est devenue l'autre sens du même barème : les cinq
+ * valeurs qu'elle produisait (4, 8, 12, 16, 20) sont exactement les bornes
+ * hautes des cinq tranches ci-dessus. C'est pour ça que le palier 018 a pu
+ * convertir toute la base sans rien arbitrer.
+ *
+ * **C'EST LE SEUL ENDROIT OÙ CE DÉCOUPAGE EST ÉCRIT.** Ni le schéma, ni les
+ * commandes Rust, ni un écran ne nomment un degré : le backend stocke et valide
+ * un nombre, rien de plus. Deux découpages donneraient deux libellés pour la
+ * même note sur deux écrans — et l'un des deux finirait imprimé.
  */
-export const MASTERY_POINTS: Record<MasteryLevel, number | null> = {
-	0: null,
-	1: 4,
-	2: 8,
-	3: 12,
-	4: 16,
-	5: 20,
+export const MASTERY_BANDS: Record<MasteryLevel, readonly [number, number]> = {
+	1: [1, 4],
+	2: [5, 8],
+	3: [9, 12],
+	4: [13, 16],
+	5: [17, 20],
 };
 
 /**
- * Note sur 20 d'un élève, à partir de ses niveaux sur une évaluation.
+ * Le degré de maîtrise d'une note : `plafond(note / 4)`, borné à l'échelle.
+ *
+ * Accepte une note **fractionnaire** à dessein : une moyenne de 13,5 se lit
+ * « Maîtrise satisfaisante » comme 14 le fait, et le bilan trimestriel n'a que
+ * des moyennes à nommer.
+ *
+ * Elle **borne** au lieu de rendre `null` hors barème. Les deux seules façons
+ * d'arriver ici hors des bornes sont une note écrite par un autre chemin que
+ * `set_grade` — donc un défaut à corriger, pas un cas à afficher — et un
+ * arrondi flottant sur une borne. Un libellé manquant au milieu d'un bilan
+ * serait une panne plus difficile à lire qu'un libellé de bord.
+ */
+export function niveauDeNote(mark: number): MasteryLevel {
+	const degre = Math.ceil(mark / 4);
+	return Math.min(Math.max(degre, 1), 5) as MasteryLevel;
+}
+
+/** Le libellé d'une note : « 14 » ⇒ « Maîtrise satisfaisante ». */
+export function labelDeNote(mark: number): string {
+	return MASTERY_LABELS[niveauDeNote(mark)];
+}
+
+/** La forme courte du même libellé, là où la colonne est trop étroite. */
+export function shortDeNote(mark: number): string {
+	return MASTERY_SHORT[niveauDeNote(mark)];
+}
+
+/**
+ * Moyenne sur 20 d'un élève, à partir de ses notes sur une évaluation.
  *
  * `null` quand aucune compétence n'est notée — **jamais `0`**. Un élève dont la
  * grille est vierge n'a pas zéro, il n'a pas de note : afficher « 0,0 / 20 »
  * serait une affirmation que personne n'a faite, et c'est exactement le piège
- * que `scoring::overall_average` évite déjà côté Rust.
+ * que `scoring::overall_average` évite déjà côté Rust. Depuis le palier 018 ce
+ * serait doublement faux — 0 n'est même plus une note saisissable.
  */
-export function masteryMark20(levels: MasteryLevel[]): number | null {
-	const points = levels
-		.map((level) => MASTERY_POINTS[level])
-		.filter((p): p is number => p !== null);
-	if (points.length === 0) return null;
-	return points.reduce((a, b) => a + b, 0) / points.length;
+export function moyenneDesNotes(marks: number[]): number | null {
+	if (marks.length === 0) return null;
+	return marks.reduce((a, b) => a + b, 0) / marks.length;
 }
 
 /** « 12,5 » — virgule décimale, une décimale, comme partout en français. */
@@ -729,7 +784,6 @@ export function formatMark20(mark: number | null): string {
 }
 
 export const MASTERY_COLORS: Record<MasteryLevel, string> = {
-	0: "bg-gray-200 text-gray-600",
 	1: "bg-red-100 text-red-700",
 	2: "bg-orange-100 text-orange-700",
 	3: "bg-yellow-100 text-yellow-700",
@@ -741,7 +795,9 @@ export interface Grade {
 	evaluation_id: string;
 	student_id: string;
 	competency_id: string;
-	level: MasteryLevel;
+	/** Note entière de 1 à 20. Le libellé de maîtrise ne voyage pas avec elle :
+	 *  il se lit par `labelDeNote`, et une seule fois. */
+	mark: number;
 }
 
 // ---- Trimestres ----
@@ -839,7 +895,7 @@ export interface CompetencyAverage {
 	competency_name: string;
 	field_name: string;
 	domain_name: string;
-	average_level: number;
+	average_mark: number;
 	grade_count: number;
 }
 

@@ -45,7 +45,11 @@ pub struct Grade {
     pub evaluation_id: String,
     pub student_id: String,
     pub competency_id: String,
-    pub level: i32,
+    /// Note entière sur 20, de 1 à 20. **Pas de 0, et pas de « non évalué »** :
+    /// une compétence non notée n'a pas de ligne dans `grades` (palier 018). Le
+    /// libellé de maîtrise ne voyage pas avec elle — il est dérivé de la note
+    /// par le front, qui porte le découpage en tranches.
+    pub mark: i32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -59,6 +63,20 @@ pub struct OrphanGrades {
 // ---------------------------------------------------------------------------
 
 const DATE_HINT: &str = "La date doit être au format AAAA-MM-JJ, par exemple 2025-09-15.";
+
+/// Bornes de la note sur 20. **Elles doublent le CHECK du schéma, exprès** : le
+/// CHECK est le garde-fou, ces deux constantes sont ce qui permet de l'EXPLIQUER
+/// — « CHECK constraint failed: grades » ne dit rien à un enseignant.
+///
+/// Le minimum est 1 et non 0 : il n'y a pas de note de 0 (décision du
+/// 2026-11-07). Une compétence non notée n'a pas de ligne, et c'est
+/// `delete_grade` qui l'y ramène.
+///
+/// Le découpage en tranches de maîtrise, lui, n'est **pas** ici : le backend ne
+/// nomme jamais un niveau, il ne stocke et ne valide qu'un nombre. La règle vit
+/// dans `src/types/index.ts`, en un seul endroit.
+const MARK_MIN: i32 = 1;
+const MARK_MAX: i32 = 20;
 
 /// Le CHECK du schéma refuserait déjà une date mal formée, mais son message est
 /// illisible pour un enseignant : on valide ici pour pouvoir l'expliquer.
@@ -504,7 +522,7 @@ pub fn get_grades(
     let conn = state.conn()?;
     let mut stmt = conn
         .prepare(
-            "SELECT evaluation_id, student_id, competency_id, level
+            "SELECT evaluation_id, student_id, competency_id, mark
                FROM grades WHERE evaluation_id = ?1",
         )
         .map_err(|e| e.to_string())?;
@@ -515,7 +533,7 @@ pub fn get_grades(
                 evaluation_id: row.get(0)?,
                 student_id: row.get(1)?,
                 competency_id: row.get(2)?,
-                level: row.get(3)?,
+                mark: row.get(3)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -531,19 +549,51 @@ pub fn set_grade(
     evaluation_id: String,
     student_id: String,
     competency_id: String,
-    level: i32,
+    mark: i32,
 ) -> Result<(), String> {
-    if !(0..=5).contains(&level) {
-        return Err("Le niveau doit être compris entre 0 et 5.".to_string());
+    if !(MARK_MIN..=MARK_MAX).contains(&mark) {
+        return Err(format!(
+            "La note doit être un nombre entier compris entre {MARK_MIN} et {MARK_MAX}."
+        ));
     }
 
     let conn = state.conn()?;
     conn.execute(
-        "INSERT INTO grades (evaluation_id, competency_id, student_id, level)
+        "INSERT INTO grades (evaluation_id, competency_id, student_id, mark)
          VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(evaluation_id, competency_id, student_id)
-         DO UPDATE SET level = excluded.level, updated_at = datetime('now')",
-        params![evaluation_id, competency_id, student_id, level],
+         DO UPDATE SET mark = excluded.mark, updated_at = datetime('now')",
+        params![evaluation_id, competency_id, student_id, mark],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Efface une note : la case redevient vierge, c'est-à-dire « non évaluée ».
+///
+/// **Commande distincte de `set_grade`, et non un `mark` conventionnel.** Avant
+/// le palier 018, effacer s'écrivait `set_grade(…, 0)` : « non évalué » était un
+/// niveau de l'échelle, et une flèche du clavier maintenue une seconde de trop
+/// effaçait une note sans que personne ne l'ait demandé. Maintenant que 0 n'est
+/// plus une note, effacer est un geste à part, qui ne peut pas arriver par
+/// dépassement d'un autre.
+///
+/// Silencieuse sur une case déjà vierge : l'enseignant a voulu l'absence de
+/// note, et il l'obtient. Lui rendre une erreur pour un état déjà atteint
+/// n'apprendrait rien.
+#[tauri::command]
+pub fn delete_grade(
+    state: tauri::State<'_, AppState>,
+    evaluation_id: String,
+    student_id: String,
+    competency_id: String,
+) -> Result<(), String> {
+    let conn = state.conn()?;
+    conn.execute(
+        "DELETE FROM grades
+          WHERE evaluation_id = ?1 AND competency_id = ?2 AND student_id = ?3",
+        params![evaluation_id, competency_id, student_id],
     )
     .map_err(|e| e.to_string())?;
 

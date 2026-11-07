@@ -41,8 +41,14 @@ export interface EvaluationSheetCandidate {
    *  de l'évaluation, `null` sinon. Informe, n'interdit pas : c'est
    *  l'enseignant qui sait s'il veut lui remettre la feuille. */
   note: string | null;
-  /** Niveau obtenu par compétence. Vide = aucune note saisie. */
+  /** Degré de maîtrise par compétence, **déduit de la note** par le parent.
+   *  Vide = aucune note saisie.
+   *
+   *  La note elle-même ne passe pas par ici, et c'est voulu : la feuille dit
+   *  à l'élève « Presque maîtrisé », pas le 11/20 qui l'a produit. Seule la
+   *  moyenne ci-dessous est un chiffre qu'il lit. */
   levels: Record<string, MasteryLevel>;
+  /** La moyenne sur l'évaluation — la seule note du document. */
   mark20: number | null;
 }
 

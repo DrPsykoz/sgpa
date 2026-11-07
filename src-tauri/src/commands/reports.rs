@@ -41,7 +41,10 @@ pub struct CompetencyAverage {
     pub competency_name: String,
     pub field_name: String,
     pub domain_name: String,
-    pub average_level: f64,
+    /// Moyenne des notes sur 20 de cette compétence, sur le trimestre. Le
+    /// libellé de maîtrise n'est pas calculé ici : il se lit de la note, et la
+    /// règle qui le lit vit en un seul endroit, `src/types/index.ts`.
+    pub average_mark: f64,
     pub grade_count: i32,
 }
 
@@ -210,13 +213,13 @@ SELECT st.id,
 
 /// Moyennes par compétence de toute la classe : une requête, pas 1 + 3N.
 const AVERAGES_HEAD: &str = "\
-SELECT g.student_id, c.id, c.name, f.name, d.name, AVG(g.level), COUNT(*)
+SELECT g.student_id, c.id, c.name, f.name, d.name, AVG(g.mark), COUNT(*)
   FROM grades g
   JOIN evaluations e ON e.id = g.evaluation_id
   JOIN competencies c ON c.id = g.competency_id
   JOIN fields f ON f.id = c.field_id
   JOIN domains d ON d.id = f.domain_id
- WHERE e.session_id = ?1 AND e.trimester = ?2 AND g.level > 0";
+ WHERE e.session_id = ?1 AND e.trimester = ?2";
 
 const AVERAGES_TAIL: &str = "\
  GROUP BY g.student_id, c.id
@@ -475,7 +478,7 @@ fn load_competency_averages(
                     competency_name: row.get(2)?,
                     field_name: row.get(3)?,
                     domain_name: row.get(4)?,
-                    average_level: row.get(5)?,
+                    average_mark: row.get(5)?,
                     grade_count: row.get(6)?,
                 },
             ))

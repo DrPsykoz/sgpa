@@ -17,11 +17,12 @@ import type {
 } from "@/types";
 import {
   formatMark20,
+  MASTERY_BANDS,
   MASTERY_COLORS,
   MASTERY_LABELS,
   MASTERY_LEVELS,
-  MASTERY_SHORT,
-  masteryMark20,
+  moyenneDesNotes,
+  niveauDeNote,
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +60,7 @@ import {
   type EvaluationSheetCandidate,
 } from "@/components/EvaluationSheetPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { GradeScale } from "@/pages/SessionDetail/evaluation/GradeScale";
+import { GradeInput } from "@/pages/SessionDetail/evaluation/GradeInput";
 
 interface EvaluationDetailProps {
   evaluation: Evaluation;
@@ -179,15 +180,18 @@ export function EvaluationDetail({
   }, [metaKey]);
 
   const gradeIndex = useMemo(() => {
-    const map = new Map<string, MasteryLevel>();
+    const map = new Map<string, number>();
     for (const grade of grades) {
-      map.set(grade.student_id + "|" + grade.competency_id, grade.level);
+      map.set(grade.student_id + "|" + grade.competency_id, grade.mark);
     }
     return map;
   }, [grades]);
 
-  const levelFor = (studentId: string, competencyId: string): MasteryLevel =>
-    gradeIndex.get(studentId + "|" + competencyId) ?? 0;
+  /** La note d'une case, ou `null` si elle est vierge. **`null`, et jamais 0** :
+   *  depuis le palier 018, l'absence de note est l'absence de ligne, et 0 n'est
+   *  plus une valeur que l'enseignant puisse saisir. */
+  const noteDe = (studentId: string, competencyId: string): number | null =>
+    gradeIndex.get(studentId + "|" + competencyId) ?? null;
 
   /** Compétences retirées du brouillon qui portent encore des notes. Sert à
    *  prévenir AVANT d'enregistrer ; le refus du backend reste le vrai garde-fou. */
@@ -209,9 +213,9 @@ export function EvaluationDetail({
   const filledCount = useMemo(() => {
     const studentIds = new Set(students.map((student) => student.id));
     const competencyIds = new Set(competencies.map((comp) => comp.id));
+    // Plus de filtre sur la valeur : toute ligne de `grades` est une note.
     return grades.filter(
       (grade) =>
-        grade.level > 0 &&
         studentIds.has(grade.student_id) &&
         competencyIds.has(grade.competency_id),
     ).length;
@@ -226,40 +230,55 @@ export function EvaluationDetail({
 
   const compsDirty = !sameIds(draftIds, evaluation.competency_ids);
 
+  /**
+   * Écrit une note, ou l'efface de la base quand `mark` est `null`.
+   *
+   * Deux commandes derrière un seul geste d'écran, et c'est voulu : `set_grade`
+   * et `delete_grade` ne touchent pas aux mêmes lignes, et effacer ne doit pas
+   * pouvoir arriver par débordement d'une saisie. Ce qui est commun aux deux,
+   * c'est le rattrapage optimiste ci-dessous, qui n'avait pas à être écrit
+   * deux fois.
+   */
   const handleGrade = async (
     studentId: string,
     competencyId: string,
-    level: MasteryLevel,
+    mark: number | null,
   ) => {
     const viseCetteCase = (grade: Grade) =>
       grade.student_id === studentId && grade.competency_id === competencyId;
 
-    // Le niveau d'AVANT, pour cette seule case — jamais le tableau entier.
+    // La note d'AVANT, pour cette seule case — jamais le tableau entier.
     //
     // Restaurer tout le tableau en cas d'échec effaçait de l'écran les notes
     // saisies PENDANT l'écriture qui a échoué, et qui, elles, avaient abouti :
-    // on clique « Maîtrise satisfaisante » sur Léa, puis aussitôt « Très bonne
-    // maîtrise » sur Théo ; si la première échoue — session verrouillée sur
-    // inactivité, le cas le plus courant — Théo repassait à « Non évalué » à
-    // l'écran alors que la base portait sa note. Le message d'erreur parlait de
-    // Léa, et rien ne signalait Théo. Six carrés se cliquent bien plus vite
-    // qu'une liste déroulante : ce qui était improbable est devenu courant.
+    // on pose 16 sur Léa, puis aussitôt 19 sur Théo ; si la première échoue —
+    // session verrouillée sur inactivité, le cas le plus courant — la case de
+    // Théo redevenait vierge à l'écran alors que la base portait sa note. Le
+    // message d'erreur parlait de Léa, et rien ne signalait Théo.
     const avant = grades.find(viseCetteCase) ?? null;
 
     // Optimiste : la grille se remplit colonne après colonne, attendre
     // l'aller-retour ferait clignoter chaque cellule.
-    setGrades((current) => [
-      ...current.filter((grade) => !viseCetteCase(grade)),
-      {
-        evaluation_id: evaluation.id,
-        student_id: studentId,
-        competency_id: competencyId,
-        level,
-      },
-    ]);
+    setGrades((current) => {
+      const sansCetteCase = current.filter((grade) => !viseCetteCase(grade));
+      if (mark === null) return sansCetteCase;
+      return [
+        ...sansCetteCase,
+        {
+          evaluation_id: evaluation.id,
+          student_id: studentId,
+          competency_id: competencyId,
+          mark,
+        },
+      ];
+    });
     setActionError(null);
     try {
-      await api.setGrade(evaluation.id, studentId, competencyId, level);
+      if (mark === null) {
+        await api.deleteGrade(evaluation.id, studentId, competencyId);
+      } else {
+        await api.setGrade(evaluation.id, studentId, competencyId, mark);
+      }
     } catch (err) {
       // Défait CETTE case et elle seule, sur l'état courant — donc sans toucher
       // aux écritures concurrentes qui ont réussi entre-temps.
@@ -352,6 +371,14 @@ export function EvaluationDetail({
    *  pour l'ordre du nom et pour le rappel d'inscription, qui sont déjà
    *  affichés deux colonnes plus loin.
    *
+   *  **La fiche reçoit les DEGRÉS, jamais les notes par compétence.** L'élève
+   *  lit « Presque maîtrisé » et sa moyenne sur l'évaluation, pas le 11/20 qui
+   *  a produit le premier — décision de l'auteur du 2026-11-07. La conversion
+   *  est faite ici, à la source : ainsi la note par compétence n'arrive même
+   *  pas jusqu'au papier, et aucune retouche future de `pdf.ts` ne peut
+   *  l'imprimer par inadvertance. Une consigne tenue par la forme des données
+   *  vaut mieux qu'une consigne tenue par la vigilance.
+   *
    *  `useMemo` n'est pas une optimisation : le panneau coche ses cases quand
    *  cette liste change, et un nouveau tableau à chaque rendu du parent
    *  remettrait la sélection à zéro sous les doigts de l'enseignant. */
@@ -359,18 +386,19 @@ export function EvaluationDetail({
     () =>
       students.map((student) => {
         const levels: Record<string, MasteryLevel> = {};
+        const notes: number[] = [];
         for (const comp of competencies) {
-          const level = levelFor(student.id, comp.id);
-          if (level > 0) levels[comp.id] = level;
+          const note = noteDe(student.id, comp.id);
+          if (note === null) continue;
+          levels[comp.id] = niveauDeNote(note);
+          notes.push(note);
         }
         return {
           id: student.id,
           full_name: `${student.last_name} ${student.first_name}`.trim(),
           note: enrollmentNote(student),
           levels,
-          mark20: masteryMark20(
-            competencies.map((comp) => levelFor(student.id, comp.id)),
-          ),
+          mark20: moyenneDesNotes(notes),
         };
       }),
     // `gradeIndex` porte déjà `grades`, et `enrollmentNote` ne lit que la date
@@ -666,62 +694,75 @@ export function EvaluationDetail({
                                     />
                                   </span>
                                 </TableCell>
-                                {competencies.map((comp) => {
-                                  const level = levelFor(student.id, comp.id);
-                                  return (
-                                    <TableCell
-                                      key={comp.id}
-                                      className="whitespace-nowrap p-1 text-center"
-                                    >
-                                      <GradeScale
-                                        value={level}
-                                        label={
-                                          student.last_name +
-                                          " " +
-                                          student.first_name +
-                                          " — " +
-                                          comp.name
-                                        }
-                                        onChange={(next) =>
-                                          void handleGrade(
-                                            student.id,
-                                            comp.id,
-                                            next,
-                                          )
-                                        }
-                                      />
-                                    </TableCell>
-                                  );
-                                })}
-                                {/* Calculée, jamais saisie : barème linéaire du
-                                    niveau × 4, dans `MASTERY_POINTS`. Les
-                                    compétences non évaluées sont ÉCARTÉES du
-                                    calcul — elles ne valent pas zéro, pas plus
-                                    qu'un appel oublié ne vaut « présent ». Une
-                                    grille vierge n'affiche donc pas « 0,0 » mais
-                                    un tiret : l'application n'affirme rien que
-                                    l'enseignant n'ait saisi. */}
+                                {competencies.map((comp) => (
+                                  <TableCell
+                                    key={comp.id}
+                                    className="whitespace-nowrap p-1 text-center"
+                                  >
+                                    {/* `key` sur le composant et pas seulement
+                                        sur la cellule : il détient un brouillon
+                                        de saisie, et deux cases ne doivent
+                                        jamais partager une instance. */}
+                                    <GradeInput
+                                      key={student.id + "|" + comp.id}
+                                      value={noteDe(student.id, comp.id)}
+                                      label={
+                                        student.last_name +
+                                        " " +
+                                        student.first_name +
+                                        " — " +
+                                        comp.name
+                                      }
+                                      onChange={(next) =>
+                                        void handleGrade(
+                                          student.id,
+                                          comp.id,
+                                          next,
+                                        )
+                                      }
+                                      onClear={() =>
+                                        void handleGrade(
+                                          student.id,
+                                          comp.id,
+                                          null,
+                                        )
+                                      }
+                                      onRefus={setActionError}
+                                    />
+                                  </TableCell>
+                                ))}
+                                {/* Calculée, jamais saisie : la moyenne des
+                                    notes posées. Les compétences non évaluées
+                                    sont ÉCARTÉES du calcul — elles ne valent pas
+                                    zéro, pas plus qu'un appel oublié ne vaut
+                                    « présent ». Une grille vierge n'affiche donc
+                                    pas « 0,0 » mais un tiret : l'application
+                                    n'affirme rien que l'enseignant n'ait saisi.
+                                    C'est la SEULE note que l'élève verra sur sa
+                                    fiche. */}
                                 <TableCell className="text-center">
                                   {(() => {
-                                    const note = masteryMark20(
-                                      competencies.map((comp) =>
-                                        levelFor(student.id, comp.id),
-                                      ),
+                                    const moyenne = moyenneDesNotes(
+                                      competencies
+                                        .map((comp) =>
+                                          noteDe(student.id, comp.id),
+                                        )
+                                        .filter((n): n is number => n !== null),
                                     );
                                     return (
                                       <span
                                         className={cn(
                                           "font-mono text-sm tabular-nums",
-                                          note === null &&
+                                          moyenne === null &&
                                             "text-muted-foreground",
                                         )}
                                         title={
-                                          note === null
+                                          moyenne === null
                                             ? "Aucune compétence évaluée : pas de note."
-                                            : "Moyenne des compétences évaluées, chaque niveau valant 4 points."
+                                            : "Moyenne des notes posées, les compétences non évaluées étant écartées."
                                         }
                                       >
-                                        {formatMark20(note)}
+                                        {formatMark20(moyenne)}
                                       </span>
                                     );
                                   })()}
@@ -735,25 +776,31 @@ export function EvaluationDetail({
                   </CardContent>
                 </Card>
 
-                {/* La légende porte l'abréviation ET le libellé : c'est elle
-                    qui rend les carrés lisibles le premier jour. */}
+                {/* La légende porte la TRANCHE et son libellé. Elle ne
+                    décode plus une abréviation — le libellé complet est déjà
+                    dans chaque cellule —, elle dit où tombe une note avant
+                    qu'on la tape. C'est la seule chose que l'enseignant ne
+                    peut pas deviner de l'écran. */}
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  {MASTERY_LEVELS.map((level) => (
-                    <span
-                      key={level}
-                      className="flex items-center gap-1.5 rounded border border-border py-1 pl-1 pr-2"
-                    >
+                  {MASTERY_LEVELS.map((level) => {
+                    const [bas, haut] = MASTERY_BANDS[level];
+                    return (
                       <span
-                        className={cn(
-                          "flex h-5 w-7 items-center justify-center rounded text-[10px] font-semibold",
-                          MASTERY_COLORS[level],
-                        )}
+                        key={level}
+                        className="flex items-center gap-1.5 rounded border border-border py-1 pl-1 pr-2"
                       >
-                        {MASTERY_SHORT[level]}
+                        <span
+                          className={cn(
+                            "flex h-5 min-w-10 items-center justify-center rounded px-1 text-[10px] font-semibold tabular-nums",
+                            MASTERY_COLORS[level],
+                          )}
+                        >
+                          {bas}–{haut}
+                        </span>
+                        {MASTERY_LABELS[level]}
                       </span>
-                      {MASTERY_LABELS[level]}
-                    </span>
-                  ))}
+                    );
+                  })}
                   <span className="text-muted-foreground">
                     {filledCount} note{filledCount > 1 ? "s" : ""} saisie
                     {filledCount > 1 ? "s" : ""} sur {cellCount} case

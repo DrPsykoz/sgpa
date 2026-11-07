@@ -31,7 +31,7 @@ La base est **chiffrée** — une clé USB perdue ne livre aucun nom d'élève.
 | **Besoins particuliers** | Étiquettes de l'enseignant (dysorthographie, dyscalculie, AESH, PAP…) et une note libre par élève. L'application **n'en livre aucune** : les libellés justes sont ceux des notifications et des PAP de l'établissement. Affichés à l'appel, dans les grilles de notation, dans la liste de la classe et dans les bilans à l'écran — **sur aucun document imprimé**, et un test le vérifie. |
 | **Appel**             | Cinq états : `non_fait`, `present`, `absent`, `retard`, `excuse`. « Non fait » est un état réel : rien n'est pré-rempli à « présent », et l'appel oublié se voit.                                             |
 | **Référentiel**       | Arbre Cycle → Domaine → Champ → Compétence en 6 commandes, saisie par collage multi-lignes, archivage d'une compétence déjà notée plutôt que suppression. Livré pré-rempli avec les 5 domaines du socle.      |
-| **Évaluations**       | Grille compétences × élèves, notation 0 à 5 (`0` = non évalué), trimestre déduit de la date. Retirer une compétence d'une évaluation demande confirmation avant de toucher aux notes.                         |
+| **Évaluations**       | Grille compétences × élèves, note entière de 1 à 20 avec son libellé de maîtrise affiché à côté (case vide = non évalué), trimestre déduit de la date. Retirer une compétence d'une évaluation demande confirmation avant de toucher aux notes.                         |
 | **Fiches contrat**    | Une trame par évaluation (projet, champ professionnel et son sous-ensemble, activités de référence, métiers visés), des lignes d'activités ordonnées dont chacune peut pointer une compétence du référentiel, un tableau donné / demandé / exigé **ligne par ligne**, et une couche nominative par élève. Composable en un clic depuis les compétences de l'évaluation. |
 | **Bilans**            | Par classe et par trimestre : moyennes par compétence, moyenne générale, statistiques d'assiduité (dont les séances hors période d'inscription), commentaire enseignant.                                      |
 | **Export PDF**        | Bilan trimestriel et fiche contrat du projet (`src/lib/pdf.ts`), déposés dans `exports/` à côté de l'exécutable. La **fiche nominative par élève** n'a toujours pas d'export : c'est sa maquette qui n'est pas arrêtée, pas celle de la trame. |
@@ -257,7 +257,7 @@ La variable d'environnement `SGPA_DATA_DIR` impose un autre emplacement pour `da
 
 ```powershell
 pnpm exec tsc --noEmit            # typecheck du front
-cd src-tauri ; cargo test --lib   # 170 tests
+cd src-tauri ; cargo test --lib   # 171 tests
 cd src-tauri ; cargo clippy       # doit rester à zéro avertissement
 ```
 
@@ -473,7 +473,8 @@ sessions                         une classe pour une année (level_code + year_s
 │   └── seance_attachments       BLOB dans la base : les sauvegardes les emportent
 └── evaluations                  trimester, trimester_is_manual
     ├── evaluation_competencies  compétences retenues, RESTRICT vers competencies
-    ├── grades                   (evaluation_id, competency_id, student_id) → level 0 à 5
+    ├── grades                   (evaluation_id, competency_id, student_id) → mark 1 à 20,
+    │                             le libellé de maîtrise n'est que sa lecture ; pas de ligne = non évalué
     └── contract_sheets          une trame par évaluation
         ├── contract_sheet_rows          lignes d'activités, id stable d'un enregistrement à l'autre,
         │                                competency_id facultatif vers competencies
@@ -516,6 +517,7 @@ liste ordonnée des paliers, chacun étant un fichier de `db/sql/` :
 | 15     | `015_regles_de_calcul.sql`     | règles de calcul arrêtées : les notes d'une compétence retirée sortent des moyennes (aucune table, aucune colonne — une valeur) |
 | 16     | `016_rendez_vous_classe.sql`   | `agenda_entries.session_id` : la classe d'un rendez-vous, facultative, déduite de l'élève quand il y en a un (aucune table nouvelle) |
 | 17     | `017_rendez_vous_compte_rendu.sql` | `agenda_entries.content_waived_at` et `agenda_entry_attachments` : un rendez-vous a désormais le même compte rendu qu'une séance — pièces jointes comprises |
+| 18     | `018_note_sur_20.sql`          | `grades.mark`, note entière de 1 à 20, remplace `grades.level` : le libellé de maîtrise devient la lecture de la note et non son origine. Table reconstruite — SQLite ne sait pas remplacer le CHECK d'une colonne, et `BETWEEN 0 AND 5` aurait refusé toute note au-dessus de 5 dès la première frappe |
 
 Le palier 3 vide la base de tout ce qui touchait au verrou. Le condensat bcrypt n'a plus de
 vérificateur — le mot de passe se prouve en déballant la clé maître — et un condensat resté là
@@ -745,7 +747,7 @@ touche la base.
 
 ## Tests
 
-`cargo test --lib`, depuis `src-tauri/` — **170 tests** :
+`cargo test --lib`, depuis `src-tauri/` — **171 tests** :
 
 | Fichier                       | Tests | Ce qui est vérifié                                                                                                            |
 | ----------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -755,8 +757,8 @@ touche la base.
 | `db/mod.rs`                   | 9     | la base se rouvre avec la même clé, une mauvaise clé est refusée par la lecture de contrôle, le fichier sur le disque ne laisse rien lire, `VACUUM INTO` reste chiffré, base sans `sgpa.keys` mise de côté ; trimestre aux dates charnières, hors bornes, année bissextile, bornes par défaut |
 | `commands/students.rs`        | 6     | découpage nom / prénom des lignes collées, noms composés, lignes vides, validation des dates                                   |
 | `commands/trimesters.rs`      | 6     | validation des bornes : ordre, égalité fin / début de T3, dates impossibles, année hors bornes, libellé court de date          |
-| `db/migrations.rs`            | 13    | version atteinte, idempotence, base trop récente refusée, semis du socle, aucune référence orpheline ; et des bases peuplées qui traversent les derniers paliers **intactes** — celle du palier 016 vérifie en plus que la classe d'un rendez-vous est bien déduite de son élève et qu'une reprise n'en invente aucune, celle du palier 017 qu'aucun « rien à écrire » n'est inventé et qu'**aucun octet ne survit à sa classe** — deux cascades enchaînées, posées par `ALTER TABLE`, réellement actives |
-| `commands/reports/scoring.rs` | 5     | moyenne non pondérée, moyenne pondérée par le nombre de notes, absence de note                                                 |
+| `db/migrations.rs`            | 14    | version atteinte, idempotence, base trop récente refusée, semis du socle, aucune référence orpheline ; et des bases peuplées qui traversent les derniers paliers **intactes** — celle du palier 016 vérifie en plus que la classe d'un rendez-vous est bien déduite de son élève et qu'une reprise n'en invente aucune, celle du palier 017 qu'aucun « rien à écrire » n'est inventé et qu'**aucun octet ne survit à sa classe** — deux cascades enchaînées, posées par `ALTER TABLE`, réellement actives ; celle du palier 018 qu'aucun libellé ne change de sens à la conversion, que les index et le `RESTRICT` sont bien reposés sur la table reconstruite, et que le nouveau CHECK refuse 0, 21 et −1 |
+| `commands/reports/scoring.rs` | 5     | moyenne non pondérée, moyenne pondérée par le nombre de notes, absence de note — sur 20 depuis le palier 018                     |
 | `portable.rs`                 | 5     | sonde d'écriture (dossier inscriptible, chemin inexistant), purge des traces WebView2 et profil absent, verrou qui refuse une seconde instance |
 | `commands/timetable.rs`       | 19    | créneaux récurrents : chevauchements, bornes d'horaire, jours de la semaine, entrées datées et leur rattachement ; `feries.rs` ajoute 4 tests sur les jours fériés mobiles |
 | `commands/reports.rs`         | 15    | assiduité : séances hors période d'inscription, absences justifiées collectives ou nominatives, placements de stage qui désarment la période pour un seul élève |
@@ -827,8 +829,36 @@ Les moyennes étant calculées à la lecture, changer l'une de ces règles **rec
 déjà établis**, trimestres passés compris. La carte des Réglages le dit.
 
 L'**ordre de l'échelle de maîtrise** a été confirmé le même jour : insuffisante · fragile ·
-presque · satisfaisante · très bonne, soit 4 · 8 · 12 · 16 · 20 points. Le classeur source
-inverse les niveaux 2 et 3 ; l'ordre du code a été retenu.
+presque · satisfaisante · très bonne. Le classeur source inverse les niveaux 2 et 3 ; l'ordre
+du code a été retenu.
+
+### La note sur 20 (palier 018, 2026-11-07)
+
+L'enseignant **saisit une note entière de 1 à 20**, et le libellé de maîtrise s'affiche à côté
+d'elle. La chaîne allait dans l'autre sens jusque-là : on cliquait un degré parmi cinq, et la
+note /20 s'en déduisait à quatre points par degré.
+
+Les cinq tranches sont 1-4 insuffisante, 5-8 fragile, 9-12 presque, 13-16 satisfaisante,
+17-20 très bonne. Elles ne sont écrites **qu'une fois**, dans `MASTERY_BANDS` et `niveauDeNote`
+(`src/types/index.ts`) : pas de CHECK sur le libellé, pas de colonne calculée, pas de table de
+correspondance. Le backend ne nomme jamais un degré — il stocke un nombre et en vérifie les
+bornes. Un libellé stocké figerait le découpage au jour de la saisie, et le relâcher plus tard
+changerait les bilans déjà établis sans que rien ne le signale.
+
+**Il n'y a pas de note de 0.** « Non évalué » est l'absence de ligne dans `grades`, comme
+l'appel non fait n'est pas un « présent » par défaut. Effacer une note est donc une commande
+à part, `delete_grade`, et non un `set_grade(…, 0)` : une flèche restée enfoncée effacerait
+sinon une note par simple débordement.
+
+La conversion n'a perdu aucun libellé : les anciens points 4, 8, 12, 16 et 20 sont exactement
+les **hauts** des cinq tranches, donc `mark = level * 4` a conservé à chaque note déjà saisie
+le libellé qu'elle affichait. C'est ce que tient le test
+`une_base_v17_notee_traverse_le_palier_018_sans_perdre_un_libelle`.
+
+Sur la **fiche d'évaluation remise à l'élève**, la note par compétence n'apparaît pas : il lit
+un libellé de maîtrise — une croix dans l'une des cinq colonnes — et sa moyenne sur
+l'évaluation. La règle est tenue par la forme des données : la fiche reçoit des degrés,
+convertis à la source, et la note par compétence n'arrive jamais jusqu'au générateur de PDF.
 
 Ce qui **n'existe pas** et reste à concevoir si le besoin vient : pondération des trimestres et
 moyenne annuelle, coefficients d'évaluation, et toute notion de dispense — absente du schéma.

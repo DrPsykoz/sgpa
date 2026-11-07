@@ -640,13 +640,28 @@ export const api = {
 		evaluationId: string,
 		studentId: string,
 		competencyId: string,
-		level: number,
+		mark: number,
 	) =>
 		call<void>("set_grade", {
 			evaluationId,
 			studentId,
 			competencyId,
-			level,
+			mark,
+		}),
+
+	/** Efface une note : la case redevient vierge, donc « non évaluée ».
+	 *  Commande distincte de `setGrade` et non un `setGrade(…, 0)` — 0 n'est
+	 *  plus une note, et effacer ne doit pas pouvoir arriver par débordement
+	 *  d'une autre saisie. */
+	deleteGrade: (
+		evaluationId: string,
+		studentId: string,
+		competencyId: string,
+	) =>
+		call<void>("delete_grade", {
+			evaluationId,
+			studentId,
+			competencyId,
 		}),
 
 	// ---- Trimestres ----

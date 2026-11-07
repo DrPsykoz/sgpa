@@ -187,6 +187,7 @@ pub fn run() {
             evaluations::get_evaluation_competencies,
             evaluations::get_grades,
             evaluations::set_grade,
+            evaluations::delete_grade,
             // Accueil
             home::get_upcoming_days,
             home::get_home_overview,

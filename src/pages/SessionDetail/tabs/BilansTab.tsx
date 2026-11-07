@@ -26,6 +26,7 @@ import {
   LEVEL_LABELS,
   MASTERY_COLORS,
   MASTERY_LABELS,
+  niveauDeNote,
   schoolYearLabel,
   type MasteryLevel,
   type NeedTag,
@@ -45,7 +46,6 @@ const TRIMESTERS = [1, 2, 3] as const;
 /** Barres pleines : MASTERY_COLORS est prévu pour des pastilles de texte et
  *  reste illisible en aplat de 8 px de haut. */
 const MASTERY_BARS: Record<MasteryLevel, string> = {
-  0: "bg-gray-300",
   1: "bg-red-400",
   2: "bg-orange-400",
   3: "bg-yellow-400",
@@ -65,13 +65,10 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n > 1 ? many : one}`;
 }
 
-/** « — » et jamais « 0,0/5 » : un élève sans note ne doit pas paraître en échec. */
+/** « — » et jamais « 0,0/20 » : un élève sans note ne doit pas paraître en
+ *  échec. Et depuis le palier 018, 0 n'est même plus une note saisissable. */
 function formatAverage(value: number | null): string {
-  return value === null ? "—" : `${value.toFixed(1).replace(".", ",")}/5`;
-}
-
-function masteryStep(value: number): MasteryLevel {
-  return Math.min(5, Math.max(0, Math.round(value))) as MasteryLevel;
+  return value === null ? "—" : `${value.toFixed(1).replace(".", ",")}/20`;
 }
 
 /** Trimestre couvrant la date du jour, pour ouvrir l'onglet sur le bon bilan. */
@@ -404,14 +401,11 @@ function StudentReportCard({
                 "border-transparent",
                 report.overall_average === null
                   ? "bg-muted text-muted-foreground"
-                  : MASTERY_COLORS[masteryStep(report.overall_average)],
+                  : MASTERY_COLORS[niveauDeNote(report.overall_average)],
               )}
             >
               Moyenne générale : {formatAverage(report.overall_average)}
             </Badge>
-            <span className="text-xs italic text-muted-foreground">
-              moyenne indicative, règle à confirmer
-            </span>
           </div>
         </div>
       </CardHeader>
@@ -437,19 +431,21 @@ function StudentReportCard({
                   </span>
                 </div>
                 <span className="hidden w-44 shrink-0 text-right text-xs text-muted-foreground sm:inline">
-                  {MASTERY_LABELS[masteryStep(competency.average_level)]}
+                  {MASTERY_LABELS[niveauDeNote(competency.average_mark)]}
                 </span>
                 <div className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
                   <div
                     className={cn(
                       "h-full rounded-full",
-                      MASTERY_BARS[masteryStep(competency.average_level)],
+                      MASTERY_BARS[niveauDeNote(competency.average_mark)],
                     )}
-                    style={{ width: `${(competency.average_level / 5) * 100}%` }}
+                    style={{
+                      width: `${(competency.average_mark / 20) * 100}%`,
+                    }}
                   />
                 </div>
                 <span className="w-16 shrink-0 text-right text-xs font-medium">
-                  {competency.average_level.toFixed(1).replace(".", ",")}
+                  {competency.average_mark.toFixed(1).replace(".", ",")}
                   <span className="ml-1 font-normal text-muted-foreground">
                     ({competency.grade_count})
                   </span>

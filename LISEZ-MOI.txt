@@ -254,6 +254,35 @@ Une séance qui porte au moins une pièce jointe sort aussi de la liste toute
 seule : la photo du tableau EST le compte rendu.
 
 
+COMMENT ON NOTE
+---------------
+
+Dans la grille d'une évaluation, vous tapez une NOTE ENTIÈRE DE 1 À 20 dans la
+case, et SGPA affiche à côté le libellé de maîtrise qui lui correspond :
+
+     1 à 4    maîtrise insuffisante
+     5 à 8    maîtrise fragile
+     9 à 12   presque maîtrisé
+    13 à 16   maîtrise satisfaisante
+    17 à 20   très bonne maîtrise
+
+La note part quand vous quittez la case ou que vous appuyez sur Entrée, pas à
+chaque chiffre tapé : sans cela, le « 1 » de « 14 » serait enregistré au
+passage. Les virgules et les décimales sont refusées, et SGPA vous le dit.
+
+IL N'Y A PAS DE NOTE DE 0. Une case vide veut dire « pas encore évalué », ce
+qui n'est pas la même chose qu'une note basse : une compétence non évaluée est
+écartée des moyennes au lieu d'y entrer pour zéro. Pour effacer une note,
+videz la case : la note est supprimée, et l'élève redevient non évalué sur
+cette compétence.
+
+SUR LA FICHE D'ÉVALUATION QUE VOUS REMETTEZ À L'ÉLÈVE, il ne lit PAS sa note par
+compétence : il lit le libellé de maîtrise — une croix dans l'une des cinq
+colonnes — et sa MOYENNE sur l'évaluation, en haut à droite. C'est voulu : le
+chiffre exact d'une compétence est un outil de travail pour vous, pas une note
+à rendre.
+
+
 LES DEUX RÈGLES DE CALCUL DES BILANS
 ------------------------------------
 

@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 17;
+pub const SCHEMA_VERSION: i32 = 18;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -91,6 +91,11 @@ const STEPS: &[(i32, &str, &str)] = &[
         17,
         "le compte rendu d'un rendez-vous",
         include_str!("sql/017_rendez_vous_compte_rendu.sql"),
+    ),
+    (
+        18,
+        "la note sur 20 remplace le niveau de maîtrise, qui en devient la lecture",
+        include_str!("sql/018_note_sur_20.sql"),
     ),
 ];
 
@@ -1057,9 +1062,15 @@ SELECT st.id,
         // LE point du palier. « Sortir des moyennes » est une règle de LECTURE :
         // la note est toujours là, et remettre la compétence la remettrait dans
         // le calcul.
-        let (niveau, notes): (i32, i64) = conn
+        //
+        // La note est lue dans `mark` et non dans `level` : le palier 018, que
+        // ce `run` traverse aussi, a converti la colonne. `niveau 3` devient
+        // donc `12/20` — et c'est la seconde chose que ce test tient, puisque
+        // 12 est la borne haute de la tranche « Presque maîtrisé », exactement
+        // le libellé que le niveau 3 portait. La conversion n'a rien arbitré.
+        let (note, notes): (i32, i64) = conn
             .query_row(
-                "SELECT (SELECT level FROM grades
+                "SELECT (SELECT mark FROM grades
                           WHERE evaluation_id = 'ev1' AND student_id = 'e1'),
                         (SELECT COUNT(*) FROM grades)",
                 [],
@@ -1067,7 +1078,7 @@ SELECT st.id,
             )
             .unwrap();
         assert_eq!(notes, 1, "changer de règle ne supprime aucune note");
-        assert_eq!(niveau, 3, "et n'en modifie aucune");
+        assert_eq!(note, 12, "niveau 3 × 4 points : le libellé est conservé");
 
         // Aucune table ajoutée : 015 ne corrige qu'une valeur.
         let tables: i64 = conn
@@ -1312,6 +1323,143 @@ SELECT st.id,
             )
             .unwrap();
         assert_eq!(tables, TABLES_ATTENDUES, "017 ajoute une table, pas deux");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 018 inverse la chaîne : la note sur 20 devient la donnée
+    /// stockée, le libellé de maîtrise n'en est plus que la lecture.
+    ///
+    /// Ce test tient les quatre choses qu'une reconstruction de table peut
+    /// perdre en silence :
+    ///
+    ///   * **la conversion ne perd aucun libellé.** Les cinq niveaux sortants
+    ///     valaient 4, 8, 12, 16 et 20 points, soit exactement les bornes
+    ///     hautes des cinq tranches entrantes. Chaque note garde donc son
+    ///     libellé mot pour mot, et c'est la seule raison pour laquelle le
+    ///     palier n'a rien demandé à l'enseignant.
+    ///   * **`level = 0` disparaît.** C'était « pas de note », et « pas de
+    ///     note » est désormais l'absence de ligne. Une conversion qui aurait
+    ///     écrit `0 × 4 = 0` aurait buté sur le CHECK — ou, pire sans CHECK,
+    ///     fait entrer des zéros dans `AVG`, c'est-à-dire donné 0/20 à un élève
+    ///     que personne n'avait évalué.
+    ///   * **le nouveau CHECK est vivant**, et il refuse autant 0 que 21. Sans
+    ///     lui, un appel mal formé écrirait une note hors barème que rien
+    ///     n'intercepterait, et le bilan l'imprimerait.
+    ///   * **les deux index sont reposés.** Ils tombent avec la table qu'ils
+    ///     indexent ; `ix_grades_competency` est celui dont dépend le
+    ///     ON DELETE RESTRICT de `competency_id`, et l'absence d'un index ne se
+    ///     voit pas, elle se mesure.
+    #[test]
+    fn une_base_v17_notee_traverse_le_palier_018_sans_perdre_un_libelle() {
+        let dir = temp_dir("v17-notee");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 17);
+
+        // Les six valeurs que l'ancienne colonne acceptait, 0 compris : c'est
+        // 0 qui doit disparaître et les cinq autres qui doivent se convertir.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème A', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO evaluations (id, session_id, title, date, trimester)
+                  VALUES ('ev1', 's1', 'Séquence 1', '2026-11-17', 1);
+             INSERT INTO grades (evaluation_id, student_id, competency_id, level)
+                  VALUES ('ev1', 'e1', 'seed-c3-l06', 0),
+                         ('ev1', 'e1', 'seed-c3-l07', 1),
+                         ('ev1', 'e1', 'seed-c3-l08', 2),
+                         ('ev1', 'e1', 'seed-c3-l10', 3),
+                         ('ev1', 'e1', 'seed-c3-l11', 4),
+                         ('ev1', 'e1', 'seed-c3-l12', 5);",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // Les cinq notes converties, dans l'ordre des compétences, et la
+        // sixième ligne absente.
+        let mut stmt = conn
+            .prepare(
+                "SELECT competency_id, mark FROM grades
+                  WHERE evaluation_id = 'ev1' ORDER BY competency_id",
+            )
+            .unwrap();
+        let notes: Vec<(String, i32)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        drop(stmt);
+        assert_eq!(
+            notes,
+            vec![
+                ("seed-c3-l07".to_string(), 4),
+                ("seed-c3-l08".to_string(), 8),
+                ("seed-c3-l10".to_string(), 12),
+                ("seed-c3-l11".to_string(), 16),
+                ("seed-c3-l12".to_string(), 20),
+            ],
+            "niveau × 4, et la ligne « non évaluée » n'est plus là"
+        );
+
+        // Le CHECK, aux deux bouts. 0 n'est pas « la note la plus basse », il
+        // n'est pas une note.
+        for hors_bareme in [0, 21, -1] {
+            let refus = conn.execute(
+                "INSERT INTO grades (evaluation_id, student_id, competency_id, mark)
+                      VALUES ('ev1', 'e1', 'seed-c3-l13', ?1)",
+                rusqlite::params![hors_bareme],
+            );
+            assert!(
+                refus.is_err(),
+                "la note {hors_bareme} doit être refusée par le schéma"
+            );
+        }
+
+        // Les deux index du palier 001, reposés sur la table neuve.
+        let index: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'index'
+                    AND name IN ('ix_grades_student', 'ix_grades_competency')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(index, 2, "un index tombe avec la table qu'il indexe");
+
+        // Le RESTRICT aussi : une compétence notée ne se supprime pas.
+        let restrict = conn.execute("DELETE FROM competencies WHERE id = 'seed-c3-l12'", []);
+        assert!(
+            restrict.is_err(),
+            "la clé étrangère RESTRICT survit à la reconstruction"
+        );
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            tables, TABLES_ATTENDUES,
+            "018 reconstruit `grades`, il n'en laisse pas deux"
+        );
 
         let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();

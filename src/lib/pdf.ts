@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import {
 	formatMark20,
 	AVERAGE_RULE_PHRASES,
+	labelDeNote,
 	LEVEL_LABELS,
 	MASTERY_LABELS,
 	MASTERY_LEVELS,
@@ -48,11 +49,6 @@ function formatAverage(value: number): string {
 		minimumFractionDigits: 1,
 		maximumFractionDigits: 1,
 	});
-}
-
-function masteryLabel(average: number): string {
-	const level = Math.min(5, Math.max(0, Math.round(average))) as MasteryLevel;
-	return MASTERY_LABELS[level];
 }
 
 function plural(count: number): string {
@@ -267,8 +263,8 @@ export async function exportReportPDF(
 					competency.domain_name,
 					competency.field_name,
 					competency.competency_name,
-					masteryLabel(competency.average_level),
-					`${formatAverage(competency.average_level)}/5`,
+					labelDeNote(competency.average_mark),
+					`${formatAverage(competency.average_mark)}/20`,
 					String(competency.grade_count),
 				]),
 				theme: "grid",
@@ -311,8 +307,10 @@ export async function exportReportPDF(
 		doc.setFontSize(11);
 		doc.setTextColor(...INK);
 		if (student.overall_average === null) {
-			// Jamais « 0,0/5 » : sur un document remis à une famille, cela se lit
-			// comme une maîtrise nulle et non comme une absence de note.
+			// Jamais « 0,0/20 » : sur un document remis à une famille, cela se lit
+			// comme une maîtrise nulle et non comme une absence de note. Depuis le
+			// palier 018, 0 n'est d'ailleurs plus une note que l'enseignant puisse
+			// saisir — l'écrire ici serait une invention de l'application.
 			doc.text("Moyenne générale : —", MARGIN_X, y);
 			y += 5;
 			doc.setFont("helvetica", "normal");
@@ -322,7 +320,7 @@ export async function exportReportPDF(
 			y += 5;
 		} else {
 			doc.text(
-				`Moyenne générale : ${formatAverage(student.overall_average)}/5`,
+				`Moyenne générale : ${formatAverage(student.overall_average)}/20`,
 				MARGIN_X,
 				y,
 			);
@@ -331,9 +329,9 @@ export async function exportReportPDF(
 			doc.setFontSize(8);
 			doc.setTextColor(...GREY);
 			doc.text(
-				`Moyenne indicative — règle de calcul à confirmer (${
+				`Règle de calcul : ${
 					AVERAGE_RULE_PHRASES[report.average_rule] ?? report.average_rule
-				})`,
+				}`,
 				MARGIN_X,
 				y,
 			);
@@ -947,19 +945,29 @@ export async function exportContractSheetPDF(
 /** Un élève, et ce qu'il a obtenu sur cette évaluation.
  *
  *  `mark20` est **calculée par l'appelant**, pas ici. L'écran de notation
- *  affiche déjà une note /20 par élève, lue sur les compétences de
- *  l'ÉVALUATION via `masteryMark20` : la recalculer ici sur les lignes de la
+ *  affiche déjà une moyenne /20 par élève, lue sur les compétences de
+ *  l'ÉVALUATION via `moyenneDesNotes` : la recalculer ici sur les lignes de la
  *  fiche donnerait un second chiffre pour le même élève — la fiche peut citer
  *  une compétence que l'évaluation ne note pas, ou n'en citer aucune. Un seul
- *  calcul, un seul nombre. C'est la consigne que porte déjà `MASTERY_POINTS`. */
+ *  calcul, un seul nombre.
+ *
+ *  **Et c'est la SEULE note que ce document porte.** L'élève lit un libellé de
+ *  maîtrise par compétence — une croix dans l'une des cinq colonnes — et sa
+ *  moyenne sur l'évaluation, jamais le 11/20 qui a produit la croix. Décision
+ *  de l'auteur du 2026-11-07, et elle est tenue par la FORME de ce type :
+ *  `levels` ne porte que des degrés, la note par compétence n'arrive même pas
+ *  jusqu'ici. Ne pas y ajouter un champ qui la ferait venir. */
 export interface EvaluationSheetStudent {
 	id: string;
 	/** « Léa BERNARD ». Composé par l'appelant : la fiche est nominative, et
 	 *  c'est la seule chose qui distingue deux pages par ailleurs identiques. */
 	full_name: string;
-	/** Niveau obtenu, par identifiant de compétence. Une compétence absente, ou
-	 *  à `0`, ne reçoit **aucune croix** : non évalué n'est pas « insuffisant ».
-	 *  C'est la même règle que l'appel non fait, qui ne vaut pas « présent ». */
+	/** Degré de maîtrise obtenu, par identifiant de compétence — **déduit de la
+	 *  note** par l'appelant, qui est le seul à la connaître. Une compétence
+	 *  absente ne reçoit **aucune croix** : non évalué n'est pas « insuffisant ».
+	 *  C'est la même règle que l'appel non fait, qui ne vaut pas « présent ».
+	 *  Depuis le palier 018 il n'y a plus de degré `0` : l'absence d'évaluation
+	 *  est l'absence de clé dans cet objet, et nulle part une valeur basse. */
 	levels: Record<string, MasteryLevel>;
 	/** `null` = aucune compétence notée. La case reste alors **vide**, pas à
 	 *  « — » : la fiche est un formulaire, et une case vide se remplit au stylo
@@ -982,12 +990,12 @@ export interface EvaluationSheetInput {
 	rows: ContractRow[];
 }
 
-/** Les cinq niveaux, dans l'ordre de l'échelle — `0` (non évalué) n'a pas de
- *  colonne : il n'y a rien à cocher.
+/** Les cinq niveaux, dans l'ordre de l'échelle. Non évalué n'a pas de colonne :
+ *  il n'y a rien à cocher, et depuis le palier 018 ce n'est plus un niveau.
  *
- *  **L'ordre est celui de `MASTERY_LABELS`**, donc celui de `MASTERY_POINTS` :
- *  insuffisante, fragile, presque, satisfaisante, très bonne — 4, 8, 12, 16, 20
- *  points. **Confirmé par l'auteur le 2026-11-06.**
+ *  **L'ordre est celui de `MASTERY_LABELS`**, donc celui de `MASTERY_BANDS` :
+ *  insuffisante, fragile, presque, satisfaisante, très bonne — tranches 1-4,
+ *  5-8, 9-12, 13-16, 17-20. **Confirmé par l'auteur le 2026-11-06.**
  *
  *  Son classeur source range « presque maîtrisé » avant « maîtrise fragile », ce
  *  qui inverserait les niveaux 2 et 3 ; la question lui a été posée et il a
@@ -995,9 +1003,7 @@ export interface EvaluationSheetInput {
  *  imprimée se lit de gauche à droite dans l'ordre où elle compte, et inverser
  *  deux colonnes ferait valoir 8 points la croix qui en vaut 12 — sur un
  *  document déjà remis à une famille. */
-const MASTERY_SCALE: MasteryLevel[] = MASTERY_LEVELS.filter(
-	(level) => level !== 0,
-);
+const MASTERY_SCALE: MasteryLevel[] = MASTERY_LEVELS;
 
 /** Une ligne s'imprime si elle dit quelque chose dans l'une des colonnes de CE
  *  document.
@@ -1096,8 +1102,8 @@ function renderEvaluationSheets(
 	// compétence, un niveau, une croix. Son classeur coupe parfois les croix
 	// plus fin que la compétence qui les couvre (le domaine 3 de sa feuille a
 	// une compétence sur deux lignes d'activité, mais deux lignes de croix) ;
-	// le suivre produirait deux niveaux pour une seule compétence, donc deux
-	// poids dans la note /20 — le défaut même que la fusion existe pour éviter.
+	// le suivre produirait deux croix pour une seule compétence, donc deux poids
+	// dans la moyenne /20 — le défaut même que la fusion existe pour éviter.
 	const rows = [...sheet.rows]
 		.sort((a, b) => a.position - b.position)
 		.filter(evaluationRowIsPrintable);

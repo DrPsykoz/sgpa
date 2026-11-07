@@ -302,9 +302,9 @@ L'étape Perl est délibérément placée **avant** le bump de version : un éch
 
 Ces points appartiennent à l'enseignant. S'y substituer produirait des documents faux remis à des familles.
 
-1. **Règle de la moyenne générale.** Implémentation provisoire isolée dans `commands/reports/scoring.rs` ; la règle est lue dans `app_settings.overall_average_rule` (`unweighted_mean` par défaut, `weighted_by_count` disponible). En changer coûte l'`UPDATE` d'une ligne, **jamais** une migration.
-2. **Sort des notes d'une compétence retirée d'une évaluation.** `app_settings.removed_competency_policy`, `keep` par défaut, `ignore` prévu.
+1. ~~Règle de la moyenne générale~~ — **arrêtée le 2026-11-06** : `unweighted_mean`, et réglable dans Réglages.
+2. ~~Sort des notes d'une compétence retirée d'une évaluation~~ — **arrêtée le 2026-11-06** : `ignore`, la règle vivant dans la requête (`reports::AVERAGES_IGNORE_REMOVED`) et jamais dans le stockage.
 3. **Maquette de la fiche contrat PDF**, nominative par élève. La table `contract_sheet_students` en pose le socle minimal ; le reste attend la maquette.
 4. **Liste des champs professionnels SEGPA.** `professional_fields` est volontairement vide à la livraison : deux listes circulent et la référence réglementaire n'est pas vérifiée. Ne rien y semer sans confirmation.
 
-Même principe pour l'échelle de maîtrise (`grades.level` 0..5) : ne pas en changer le nombre de niveaux avant que la question soit tranchée.
+L'échelle de maîtrise, elle, est tranchée : depuis le palier 018 la donnée est `grades.mark`, une note **entière de 1 à 20**, et les cinq libellés n'en sont que la lecture (tranches 1-4, 5-8, 9-12, 13-16, 17-20). Le découpage n'est écrit **qu'une fois**, dans `MASTERY_BANDS` / `niveauDeNote` (`src/types/index.ts`) : ne pas le recopier en CHECK, en colonne calculée ni en table de correspondance, et ne jamais faire nommer un degré par le backend. Il n'y a **pas de note de 0** : « non évalué » est l'absence de ligne, donc effacer est `delete_grade` et jamais `set_grade(…, 0)`.

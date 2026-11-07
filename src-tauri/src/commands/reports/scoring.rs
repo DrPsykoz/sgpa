@@ -9,8 +9,10 @@ use super::CompetencyAverage;
 /// Moyenne générale d'un élève, calculée à partir de ses moyennes par compétence.
 ///
 /// Renvoie `None` quand l'élève n'a aucune note. `0.0` s'imprimerait
-/// « Moyenne générale : 0.0/5 » sur un document remis à une famille, ce qui se lit
-/// comme une maîtrise nulle et non comme une absence d'évaluation.
+/// « Moyenne générale : 0,0/20 » sur un document remis à une famille, ce qui se
+/// lit comme une maîtrise nulle et non comme une absence d'évaluation. Et depuis
+/// le palier 018 ce serait doublement faux : 0 n'est même plus une note que
+/// l'enseignant puisse saisir.
 pub fn overall_average(averages: &[CompetencyAverage], rule: &str) -> Option<f64> {
     if averages.is_empty() {
         return None;
@@ -26,7 +28,7 @@ pub fn overall_average(averages: &[CompetencyAverage], rule: &str) -> Option<f64
 /// Moyenne non pondérée : chaque compétence pèse autant, quel que soit le nombre
 /// de notes qui la fondent.
 fn unweighted_mean(averages: &[CompetencyAverage]) -> f64 {
-    averages.iter().map(|a| a.average_level).sum::<f64>() / averages.len() as f64
+    averages.iter().map(|a| a.average_mark).sum::<f64>() / averages.len() as f64
 }
 
 /// Moyenne pondérée par le nombre de notes : une compétence évaluée cinq fois
@@ -41,7 +43,7 @@ fn weighted_by_count(averages: &[CompetencyAverage]) -> f64 {
     }
     let weighted: f64 = averages
         .iter()
-        .map(|a| a.average_level * a.grade_count.max(0) as f64)
+        .map(|a| a.average_mark * a.grade_count.max(0) as f64)
         .sum();
     weighted / total as f64
 }
@@ -50,13 +52,13 @@ fn weighted_by_count(averages: &[CompetencyAverage]) -> f64 {
 mod tests {
     use super::*;
 
-    fn avg(level: f64, count: i32) -> CompetencyAverage {
+    fn avg(mark: f64, count: i32) -> CompetencyAverage {
         CompetencyAverage {
             competency_id: "c1".to_string(),
             competency_name: "Compétence".to_string(),
             field_name: "Champ".to_string(),
             domain_name: "Domaine".to_string(),
-            average_level: level,
+            average_mark: mark,
             grade_count: count,
         }
     }
@@ -69,30 +71,30 @@ mod tests {
 
     #[test]
     fn une_seule_competence() {
-        let une = [avg(3.5, 2)];
-        assert_eq!(overall_average(&une, "unweighted_mean"), Some(3.5));
-        assert_eq!(overall_average(&une, "weighted_by_count"), Some(3.5));
+        let une = [avg(13.5, 2)];
+        assert_eq!(overall_average(&une, "unweighted_mean"), Some(13.5));
+        assert_eq!(overall_average(&une, "weighted_by_count"), Some(13.5));
     }
 
     #[test]
     fn ponderee_differe_de_non_ponderee() {
-        // 4.0 sur une seule note, 2.0 sur trois notes.
-        let data = [avg(4.0, 1), avg(2.0, 3)];
-        // (4.0 + 2.0) / 2
-        assert_eq!(overall_average(&data, "unweighted_mean"), Some(3.0));
-        // (4.0 * 1 + 2.0 * 3) / 4
-        assert_eq!(overall_average(&data, "weighted_by_count"), Some(2.5));
+        // 16/20 sur une seule note, 8/20 sur trois notes.
+        let data = [avg(16.0, 1), avg(8.0, 3)];
+        // (16 + 8) / 2
+        assert_eq!(overall_average(&data, "unweighted_mean"), Some(12.0));
+        // (16 * 1 + 8 * 3) / 4
+        assert_eq!(overall_average(&data, "weighted_by_count"), Some(10.0));
     }
 
     #[test]
     fn regle_inconnue_retombe_sur_la_moyenne_simple() {
-        let data = [avg(4.0, 1), avg(2.0, 3)];
-        assert_eq!(overall_average(&data, "regle_du_futur"), Some(3.0));
+        let data = [avg(16.0, 1), avg(8.0, 3)];
+        assert_eq!(overall_average(&data, "regle_du_futur"), Some(12.0));
     }
 
     #[test]
     fn compte_de_notes_nul_ne_divise_pas_par_zero() {
-        let data = [avg(4.0, 0), avg(2.0, 0)];
-        assert_eq!(overall_average(&data, "weighted_by_count"), Some(3.0));
+        let data = [avg(16.0, 0), avg(8.0, 0)];
+        assert_eq!(overall_average(&data, "weighted_by_count"), Some(12.0));
     }
 }

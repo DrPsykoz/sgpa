@@ -16,7 +16,7 @@ Application de bureau **portable** pour enseignant de SEGPA. Tauri v2 (Rust + ru
 ```powershell
 pnpm tauri dev          # lance l'app (Vite sur 1420 + compilation Rust)
 pnpm build              # tsc --noEmit puis vite build
-cargo test --lib        # depuis src-tauri/ — 170 tests
+cargo test --lib        # depuis src-tauri/ — 171 tests
 cargo clippy            # doit rester à zéro avertissement
 ```
 
@@ -159,6 +159,10 @@ Une **session** est une classe pour une année scolaire (`level_code` + `year_st
 
 Le **trimestre** est stocké sur la séance et sur l'évaluation, dérivé de la date via `trimester_bounds`, avec un drapeau `trimester_is_manual` qui protège les corrections de l'enseignant. Le front ne recalcule jamais un trimestre : deux implémentations de la même règle divergeraient au premier changement de bornes.
 
+La **note est sur 20, entière, et le libellé de maîtrise n'en est que la lecture** (palier 018). La chaîne allait dans l'autre sens jusqu'au 2026-11-07 : l'enseignant cliquait un degré et la note s'en déduisait à raison de quatre points par degré. Il saisit maintenant la note, et `grades.mark` est la donnée. Les cinq tranches — 1-4 insuffisante, 5-8 fragile, 9-12 presque, 13-16 satisfaisante, 17-20 très bonne — vivent **dans un seul endroit**, `MASTERY_BANDS` et `niveauDeNote` (`src/types/index.ts`) : ni CHECK, ni colonne calculée, ni table de correspondance, et le backend ne nomme jamais un degré — il stocke un nombre et en vérifie les bornes. Un libellé stocké figerait le découpage au jour de la saisie. **Il n'y a pas de note de 0** : « non évalué » est l'absence de ligne dans `grades`, exactement comme l'appel non fait ci-dessus, donc effacer une note est `delete_grade` et jamais `set_grade(…, 0)` — une flèche restée enfoncée effacerait sinon une note par débordement. Et la saisie ne s'écrit qu'au `blur` ou à `Entrée` : taper « 14 » passe par « 1 », et une écriture par frappe enregistrerait un 1/20 bien réel.
+
+**L'élève ne voit pas sa note par compétence**, seulement le libellé — une croix dans l'une des cinq colonnes — et sa **moyenne sur l'évaluation**. Décision de l'auteur du 2026-11-07, tenue par la **forme des données** et non par la vigilance : `EvaluationSheetCandidate.levels` ne porte que des degrés, convertis à la source dans `EvaluationDetail`, si bien que la note par compétence n'arrive même pas jusqu'à `pdf.ts`. Ne pas ajouter de champ qui la ferait venir.
+
 L'**appel non fait** est un état réel (`non_fait`). L'absence d'enregistrement vaut « non fait », jamais « présent » : pré-remplir à `present` donnait une assiduité parfaite à qui oubliait l'appel.
 
 `students.enrolled_on` / `left_on` bornent l'assiduité. La valeur par défaut est le début de l'année scolaire, **jamais** `date('now')`.
@@ -202,7 +206,7 @@ Les deux premières étaient en attente depuis le palier 001 ; leurs valeurs par
 
 1. **Moyenne générale** : `'unweighted_mean'`. Chaque compétence pèse pareil, qu'elle porte une note ou huit. C'était déjà la valeur livrée, donc 015 n'écrit rien pour elle — confirmer par un `UPDATE` aurait fait croire à un changement de règle.
 2. **Notes d'une compétence retirée d'une évaluation** : `'ignore'`. Elles **sortent des moyennes** mais **restent dans `grades`** : la règle vit dans la requête (`reports::AVERAGES_IGNORE_REMOVED`, greffé par un `match` sur des `&'static str`), jamais dans le stockage. Supprimer réellement ces notes donnerait le même bilan et serait irréversible — c'est le piège que tient `une_base_v14_peuplee_traverse_le_palier_015_intacte`.
-3. **Ordre de l'échelle de maîtrise** : insuffisante · fragile · presque · satisfaisante · très bonne, soit 4 · 8 · 12 · 16 · 20 points. Son classeur source inverse les niveaux 2 et 3 ; la question lui a été posée et il a retenu l'ordre du code. **Ne pas réaligner `MASTERY_SCALE` sur le classeur** (`src/lib/pdf.ts`).
+3. **Ordre de l'échelle de maîtrise** : insuffisante · fragile · presque · satisfaisante · très bonne. Son classeur source inverse les niveaux 2 et 3 ; la question lui a été posée et il a retenu l'ordre du code. **Ne pas réaligner `MASTERY_SCALE` sur le classeur** (`src/lib/pdf.ts`). Cet ordre a survécu au palier 018 : seules les valeurs ont changé de sens — l'échelle valait 4 · 8 · 12 · 16 · 20 points, elle découpe maintenant les tranches 1-4 · 5-8 · 9-12 · 13-16 · 17-20, et ses anciens points sont exactement les **hauts** de ces tranches, ce qui a rendu la conversion `mark = level * 4` fidèle à tous les libellés déjà saisis.
 
 Les deux règles sont désormais **modifiables dans Réglages** — c'est tout ce qui manquait, le backend les validait et les écrivait déjà. Les moyennes étant calculées à la lecture, en changer recalcule les bilans déjà établis, trimestres passés compris : la carte le dit.
 
@@ -210,7 +214,7 @@ Ce qui **n'existe pas du tout** et reste à concevoir avec lui si le besoin vien
 
 ## Tests
 
-`cargo test --lib` : 170 tests, dont 24 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher), 9 sur l'ouverture chiffrée, 6 sur `journal.rs` (dont celui qui vérifie qu'un dossier impossible ne fait **rien** échouer — il est appelé depuis le crochet de panique) et 8 sur `db/holidays.rs` (dont celui qui vérifie qu'un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys`). Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
+`cargo test --lib` : 171 tests, dont 24 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher), 9 sur l'ouverture chiffrée, 6 sur `journal.rs` (dont celui qui vérifie qu'un dossier impossible ne fait **rien** échouer — il est appelé depuis le crochet de panique) et 8 sur `db/holidays.rs` (dont celui qui vérifie qu'un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys`). Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
 
 **`commands/needs.rs` porte un test qui relit du code source**, et non une base : il ouvre `commands/reports.rs`, `commands/reports/scoring.rs`, `commands/contracts.rs` et `src/lib/pdf.ts`, et échoue si l'un d'eux cite `student_need_tags`, `student_needs` ou `needs_note`. C'est la décision « jamais imprimé » rendue exécutable. Si un de ces fichiers est déplacé, **corriger le chemin dans le test — ne pas retirer la ligne de la liste.** Et `src/lib/pdf.ts` y figure délibérément : c'est lui qui dessine réellement les PDF, un garde-fou qui s'arrêterait à la frontière du Rust laisserait passer exactement l'erreur qu'il surveille.
 
