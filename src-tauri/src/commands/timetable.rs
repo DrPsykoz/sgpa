@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db;
+use crate::db::collect;
 use crate::state::AppState;
 
 /// Jours fériés calculés — aucune donnée, aucune requête, et ça ne périme
@@ -214,6 +215,60 @@ pub struct WeekSchedule {
     pub show_parity: bool,
     /// Sept journées, du lundi au dimanche.
     pub days: Vec<DaySchedule>,
+}
+
+/// Une semaine de l'année scolaire, telle que la vue annuelle la montre.
+#[derive(Debug, Clone, Serialize)]
+pub struct YearWeek {
+    pub monday: String,
+    pub iso_week: i32,
+    /// Mois auquel la semaine appartient : celui qui contient son **jeudi**.
+    ///
+    /// C'est la règle qui décide déjà à quelle année appartient une semaine ISO,
+    /// et son mérite est d'être une partition : chaque semaine va dans un mois
+    /// et un seul, donc la frise n'a ni colonne dédoublée ni semaine orpheline.
+    /// Découper « au premier lundi du mois » aurait laissé un reste à placer à
+    /// la main, c'est-à-dire une décision par an.
+    pub month: i32,
+    /// Année civile du jeudi : décembre et janvier ne sont pas la même colonne.
+    pub year: i32,
+    /// Trimestre de la semaine, calculé par le backend depuis ce même jeudi —
+    /// le front ne recalcule jamais un trimestre.
+    pub trimester: i32,
+    pub week_parity: String,
+    /// Pourquoi on ne fait pas cours cette semaine-là. Vide = semaine ordinaire.
+    ///
+    /// Un motif n'y figure qu'une fois, même s'il couvre les cinq jours : la
+    /// colonne écrit « Vacances de Noël », pas cinq fois le même mot.
+    pub closures: Vec<DayClosure>,
+    /// Jours ouvrés restants, de 0 à 5 : cinq pour une semaine pleine, quatre
+    /// pour celle du 1er novembre, zéro pour des vacances.
+    ///
+    /// **C'est le nombre que le document d'origine n'avait pas.** Ses quarante
+    /// colonnes supposaient quatre semaines par mois ; une année scolaire en
+    /// compte plus de quarante, dont plusieurs ne sont pas entières, et une
+    /// progression bâtie sur le compte rond déborde en juin.
+    pub school_days: i32,
+    /// Classes dont TOUTE la classe est hors cours cette semaine — un stage.
+    ///
+    /// Jamais une période nominative : la classe est là, un élève manque.
+    pub sessions_away: Vec<SessionAway>,
+}
+
+/// L'année scolaire entière, semaine par semaine.
+#[derive(Debug, Clone, Serialize)]
+pub struct YearCalendar {
+    pub year_start: i32,
+    /// Les bornes de trimestre de l'année, telles qu'elles sont réglées.
+    ///
+    /// Rendues avec les semaines, et non relues par un second appel : la frise
+    /// dessine les trois trimestres à partir des mêmes bornes qui ont servi à
+    /// classer chaque semaine, donc la limite dessinée tombe forcément là où le
+    /// trimestre change.
+    pub bounds: db::TrimesterBounds,
+    pub show_parity: bool,
+    pub calendar_until: Option<String>,
+    pub weeks: Vec<YearWeek>,
 }
 
 /// Saisie d'un créneau.
@@ -711,20 +766,6 @@ fn map_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgendaEntry> {
     })
 }
 
-fn collect<T, P, F>(conn: &Connection, sql: &str, args: P, map: F) -> Result<Vec<T>, String>
-where
-    P: rusqlite::Params,
-    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
-{
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(args, map)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    Ok(rows)
-}
-
 fn load_entry(conn: &Connection, id: &str) -> Result<AgendaEntry, String> {
     conn.query_row(ENTREE_PAR_ID, params![id], map_entry)
         .optional()
@@ -1049,6 +1090,110 @@ fn week_schedule(conn: &Connection, monday: NaiveDate) -> Result<WeekSchedule, S
     })
 }
 
+/// Les semaines RÉELLES d'une année scolaire, en deux requêtes.
+///
+/// **Les bornes viennent de `trimester_bounds`**, pas d'un septembre-juillet
+/// écrit ici : l'enseignant les règle, et une frise qui s'arrêterait une semaine
+/// avant son dernier conseil serait fausse sans le dire. `bounds_or_default`,
+/// jamais `ensure_bounds` — une lecture n'écrit pas.
+///
+/// **Rien du calendrier n'est stocké pour cette vue.** Les vacances sortent de
+/// `school_holidays` par plage de dates, les fériés du calcul, et une classe en
+/// stage est une `absence_periods` sans élève nommé. Une vacance déplacée par
+/// l'académie bouge donc d'elle-même, là où une frise peinte à la main serait
+/// restée juste jusqu'au premier changement.
+fn year_calendar(conn: &Connection, year_start: i32) -> Result<YearCalendar, String> {
+    let bounds = db::bounds_or_default(conn, year_start).map_err(|e| e.to_string())?;
+    let debut = monday_of(parse_date(&bounds.t1_start, "Le début de l'année")?)?;
+    let fin = parse_date(&bounds.year_end, "La fin de l'année")?;
+    let hors_calendrier = || "Cette année sort du calendrier géré par SGPA.".to_string();
+
+    let show_parity = parity_is_used(conn, year_start)?;
+
+    // Chargées UNE FOIS pour l'année, puis filtrées en mémoire : quarante
+    // semaines ne doivent pas interroger quarante fois ce qu'une plage de dates
+    // rend d'un coup. C'est la règle déjà tenue par `week_schedule`.
+    let vacances = collect(
+        conn,
+        VACANCES_DE_LA_PERIODE,
+        params![iso(debut), iso(fin)],
+        map_periode,
+    )?;
+    let hors_cours = collect(
+        conn,
+        CLASSES_HORS_COURS,
+        params![iso(debut), iso(fin)],
+        map_classe_hors_cours,
+    )?;
+
+    let mut weeks = Vec::new();
+    let mut monday = debut;
+    while monday <= fin {
+        // Le jeudi décide du mois ET du trimestre : une seule date de référence,
+        // donc aucune semaine à cheval sur deux colonnes.
+        let jeudi = monday
+            .checked_add_days(Days::new(3))
+            .ok_or_else(hors_calendrier)?;
+
+        let mut closures: Vec<DayClosure> = Vec::new();
+        let mut absents: Vec<SessionAway> = Vec::new();
+        let mut school_days = 0;
+
+        // Du lundi au vendredi : le samedi et le dimanche ne sont pas des jours
+        // fermés, ils ne sont pas des jours de classe du tout, et les compter
+        // comme fermés aurait fait de chaque semaine une semaine amputée.
+        for decalage in 0..5u64 {
+            let date = monday
+                .checked_add_days(Days::new(decalage))
+                .ok_or_else(hors_calendrier)?;
+            let jour = iso(date);
+
+            let motifs = closures_du_jour(date, &jour, &vacances);
+            if motifs.is_empty() {
+                school_days += 1;
+            }
+            for motif in motifs {
+                if !closures
+                    .iter()
+                    .any(|c| c.label == motif.label && c.origin == motif.origin)
+                {
+                    closures.push(motif);
+                }
+            }
+
+            for away in sessions_away_du_jour(&jour, &hors_cours) {
+                if !absents.iter().any(|a| a.session_id == away.session_id) {
+                    absents.push(away);
+                }
+            }
+        }
+
+        weeks.push(YearWeek {
+            monday: iso(monday),
+            iso_week: monday.iso_week().week() as i32,
+            month: jeudi.month() as i32,
+            year: jeudi.year(),
+            trimester: db::trimester_for(&iso(jeudi), &bounds),
+            week_parity: week_parity(monday).to_string(),
+            closures,
+            school_days,
+            sessions_away: absents,
+        });
+
+        monday = monday
+            .checked_add_days(Days::new(7))
+            .ok_or_else(hors_calendrier)?;
+    }
+
+    Ok(YearCalendar {
+        year_start,
+        bounds,
+        show_parity,
+        calendar_until: calendar_until(),
+        weeks,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Commandes — lecture
 // ---------------------------------------------------------------------------
@@ -1073,6 +1218,23 @@ pub fn get_week_schedule(
     let date = parse_date(&monday, "La date")?;
     let conn = state.conn()?;
     week_schedule(&conn, monday_of(date)?)
+}
+
+/// L'année scolaire entière, pour la vue annuelle de l'emploi du temps.
+///
+/// **Elle montre et ne modifie rien** : aucune écriture ne se branche derrière
+/// cette lecture. La progression d'une classe s'écrit dans sa fiche, et nulle
+/// part ailleurs — deux écrans qui modifient la même chose finissent par ne pas
+/// en dire la même chose, et c'est précisément ce qui a fait supprimer l'onglet
+/// « Journée ».
+#[tauri::command]
+pub fn get_year_calendar(
+    state: tauri::State<'_, AppState>,
+    year_start: i32,
+) -> Result<YearCalendar, String> {
+    check_year(year_start)?;
+    let conn = state.conn()?;
+    year_calendar(&conn, year_start)
 }
 
 /// Les académies pour lesquelles le calendrier embarqué porte des dates.
@@ -1654,5 +1816,116 @@ mod tests {
         .unwrap();
         let jour = day_schedule(&conn, date("2026-11-17")).unwrap();
         assert!(!jour.show_parity, "rien à afficher, rien à configurer");
+    }
+
+    /// L'année RÉELLE, et non quatre semaines par mois.
+    ///
+    /// Le document d'origine comptait quarante colonnes — dix mois de quatre
+    /// semaines. L'année 2026-2027 en compte quarante-cinq, dont plusieurs ne
+    /// sont pas entières : une progression bâtie sur le compte rond déborde en
+    /// juin sans qu'une seule case l'annonce. Ce test fixe donc le compte, et
+    /// les quatre choses qui le rendent juste — la règle du jeudi, un férié qui
+    /// retire un jour, une semaine de vacances qui n'en laisse aucun, et un
+    /// stage qui nomme la classe une fois.
+    #[test]
+    fn l_annee_compte_ses_vraies_semaines() {
+        let conn = migrated_db("annee");
+        peupler(&conn);
+
+        // Des vacances SANS férié dedans : les deux semaines de Noël en portent
+        // un, et ce qu'on vérifie ici est qu'un motif ne se répète pas, non
+        // qu'il s'additionne. Et l'académie n'est pas écrite en dur — la
+        // requête la lit dans `app_settings`, le semis la relit au même endroit.
+        let semees = conn
+            .execute(
+                "INSERT INTO school_holidays
+                     (id, academie, label, start_date, end_date, origin)
+                      SELECT 'h1', academie, 'Vacances d''hiver',
+                             '2027-02-20', '2027-03-07', 'officiel'
+                        FROM app_settings WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        assert_eq!(semees, 1, "sans cette ligne, le test passerait à vide");
+
+        // Toute la classe en stage sur deux semaines…
+        conn.execute_batch(
+            "INSERT INTO absence_periods
+                 (id, session_id, student_id, reason, start_date, end_date)
+                  VALUES ('p1', 's1', NULL, 'Stage en entreprise',
+                          '2026-11-16', '2026-11-27');",
+        )
+        .unwrap();
+        // … et un seul élève absent la même semaine : la classe est là, un
+        // élève manque. La frise annuelle ne doit pas confondre les deux.
+        conn.execute_batch(
+            "INSERT INTO absence_periods
+                 (id, session_id, student_id, reason, start_date, end_date)
+                  VALUES ('p2', 's1', 'e1', 'Hospitalisation',
+                          '2026-11-16', '2026-11-20');",
+        )
+        .unwrap();
+
+        let annee = year_calendar(&conn, 2026).unwrap();
+        let semaine = |lundi: &str| {
+            annee
+                .weeks
+                .iter()
+                .find(|w| w.monday == lundi)
+                .unwrap_or_else(|| panic!("la semaine du {lundi} manque à la frise"))
+        };
+
+        // Les bornes réglées décident de l'étendue, pas un septembre-juillet
+        // écrit dans le code. La semaine qui PORTE le 1er septembre entre en
+        // entier, donc la frise commence le 31 août.
+        assert_eq!(annee.weeks.first().unwrap().monday, "2026-08-31");
+        assert_eq!(annee.weeks.first().unwrap().iso_week, 36);
+        assert_eq!(annee.weeks.last().unwrap().monday, "2027-07-05");
+        assert_eq!(annee.bounds.year_end, "2027-07-07");
+        assert_eq!(annee.weeks.len(), 45, "quarante-cinq semaines, pas quarante");
+
+        // Le jeudi décide, et il décide des deux : la semaine du 30 novembre
+        // est une semaine de DÉCEMBRE et du DEUXIÈME trimestre, alors que son
+        // lundi est encore en novembre et dans le premier.
+        let charniere = semaine("2026-11-30");
+        assert_eq!((charniere.month, charniere.year), (12, 2026));
+        assert_eq!(charniere.trimester, 2, "le jeudi tombe après le 1er décembre");
+        assert_eq!(charniere.school_days, 5);
+
+        // Un férié en semaine retire un jour, et le dit.
+        let armistice = semaine("2026-11-09");
+        assert_eq!(armistice.school_days, 4, "le 11 novembre 2026 est un mercredi");
+        assert_eq!(armistice.closures.len(), 1);
+        assert_eq!(armistice.closures[0].label, "Armistice");
+        assert_eq!(armistice.closures[0].origin, "ferie");
+
+        // Une semaine de vacances : aucun jour de classe, et UN motif — pas
+        // cinq fois le même mot, un par jour fermé.
+        let vacances = semaine("2027-02-22");
+        assert_eq!(vacances.school_days, 0);
+        assert_eq!(vacances.closures.len(), 1, "un motif par semaine");
+        assert_eq!(vacances.closures[0].label, "Vacances d'hiver");
+
+        // Le stage nomme la classe une fois par semaine, pas une fois par jour,
+        // et l'élève hospitalisé n'y paraît pas.
+        let stage = semaine("2026-11-16");
+        assert_eq!(stage.sessions_away.len(), 1, "la classe une fois, pas cinq");
+        assert_eq!(stage.sessions_away[0].session_name, "4ème A");
+        assert_eq!(stage.sessions_away[0].reason, "Stage en entreprise");
+        assert_eq!(semaine("2026-11-23").sessions_away.len(), 1, "seconde semaine");
+        assert!(semaine("2026-11-30").sessions_away.is_empty());
+
+        // La parité remonte comme pour la grille hebdomadaire : un créneau de
+        // quinzaine existe dans cette année, donc la frise peut le dire.
+        assert!(annee.show_parity);
+        assert_eq!(stage.iso_week, 47);
+        assert_eq!(stage.week_parity, "impaires");
+
+        // Et cette lecture n'écrit rien : `bounds_or_default`, jamais
+        // `ensure_bounds`.
+        let bornes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM trimester_bounds", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(bornes, 0, "aucune écriture pendant une lecture");
     }
 }

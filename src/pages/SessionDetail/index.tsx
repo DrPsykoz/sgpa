@@ -15,19 +15,27 @@ import { StudentsTab } from "@/pages/SessionDetail/tabs/StudentsTab";
 import { EvaluationsTab } from "@/pages/SessionDetail/tabs/EvaluationsTab";
 import { SeancesTab } from "@/pages/SessionDetail/tabs/SeancesTab";
 import { AbsencesTab } from "@/pages/SessionDetail/tabs/AbsencesTab";
+import { ProgressionTab } from "@/pages/SessionDetail/tabs/ProgressionTab";
 import { BilansTab } from "@/pages/SessionDetail/tabs/BilansTab";
 import { api } from "@/lib/api";
 import type { Session, Student } from "@/types";
 import { LEVEL_LABELS, schoolYearLabel } from "@/types";
 
 /** Les onglets de l'écran, dans l'ordre d'affichage. */
-type Onglet = "eleves" | "evaluations" | "seances" | "absences" | "bilans";
+type Onglet =
+  | "eleves"
+  | "evaluations"
+  | "seances"
+  | "absences"
+  | "progression"
+  | "bilans";
 
 const ONGLETS: readonly Onglet[] = [
   "eleves",
   "evaluations",
   "seances",
   "absences",
+  "progression",
   "bilans",
 ];
 
@@ -165,6 +173,11 @@ export default function SessionDetail(): ReactElement {
                     qu'il corrige : c'est le seul endroit qui se retrouve sans
                     chercher quand les dates de stage arrivent, des mois plus tard. */}
                 <TabsTrigger value="absences">Stages et absences</TabsTrigger>
+                {/* La progression s'écrit ICI, et nulle part ailleurs : la vue
+                    « Année » de l'emploi du temps montre la même frise sans y
+                    toucher. Deux écrans qui modifient la même chose finissent par
+                    ne pas en dire la même chose. */}
+                <TabsTrigger value="progression">Progression</TabsTrigger>
                 <TabsTrigger value="bilans">Bilans</TabsTrigger>
               </TabsList>
 
@@ -199,6 +212,10 @@ export default function SessionDetail(): ReactElement {
 
               <TabsContent value="absences" className="mt-6">
                 <AbsencesTab session={session} students={students} />
+              </TabsContent>
+
+              <TabsContent value="progression" className="mt-6">
+                <ProgressionTab session={session} />
               </TabsContent>
 
               <TabsContent value="bilans" className="mt-6">

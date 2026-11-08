@@ -9,6 +9,34 @@ use rusqlite::Connection;
 use crate::keys::MasterKey;
 use crate::portable::PortableLayout;
 
+/// Prépare, exécute et rassemble : le squelette de toute lecture de liste.
+///
+/// Elle vit dans `db` et non dans un module de commandes parce que trois
+/// modules s'en servent déjà. Recopiée, elle aurait surtout recopié son piège :
+/// écrit à la main, `stmt.query_map(…).collect()` en dernière expression d'un
+/// bloc fait vivre le `MappedRows` temporaire plus longtemps que le `Statement`
+/// dont il emprunte le curseur, et le compilateur refuse — on contourne alors
+/// par une liaison intermédiaire que clippy signale à son tour. Un seul endroit
+/// a le droit d'avoir résolu ce détail.
+pub(crate) fn collect<T, P, F>(
+    conn: &Connection,
+    sql: &str,
+    args: P,
+    map: F,
+) -> Result<Vec<T>, String>
+where
+    P: rusqlite::Params,
+    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+{
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(args, map)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
 #[derive(Debug)]
 pub enum DbError {
     Sqlite {

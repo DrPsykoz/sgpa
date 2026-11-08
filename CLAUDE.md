@@ -2,21 +2,41 @@
 
 Application de bureau **portable** pour enseignant de SEGPA. Tauri v2 (Rust + rusqlite) + React 19 / TypeScript. Interface **intégralement en français**, y compris les messages d'erreur.
 
-> **Phase : développement.** Le schéma n'est pas gelé. Tant que l'auteur n'a pas
-> annoncé le passage en production, refondre la base ou repartir de zéro est
-> permis : aucune donnée réelle n'est en jeu, et un modèle juste vaut mieux
-> qu'un empilement de paliers correctifs. Cela ne lève **que** la règle des
-> paliers figés ci-dessous — tout le reste de ce document tient, en
-> particulier les trois règles d'architecture, qui viennent de bugs et non du
-> schéma. Quand l'auteur annoncera la production, cette note saute et la règle
-> des paliers se réarme.
+> **Phase : production, depuis le 2026-11-08.** L'auteur a annoncé ce jour-là
+> que **des enseignants utilisent l'application sur leurs vraies classes**. La
+> note de phase de développement qui vivait ici, et qui autorisait à refondre
+> la base ou à réécrire un palier livré, est donc levée — elle disait
+> elle-même qu'elle sauterait à cette annonce. Ce qui s'applique maintenant :
+>
+> - **Un palier livré n'est jamais modifié ni renuméroté.** On ajoute un
+>   palier et on incrémente `SCHEMA_VERSION`. Réécrire `019_progression.sql`
+>   ne changerait rien chez qui l'a déjà traversé : `PRAGMA user_version`
+>   vaut déjà 19 et le fichier ne sera jamais rejoué. Le schéma divergerait
+>   silencieusement d'un poste à l'autre, et c'est la panne qu'on ne voit pas.
+> - **Aucune colonne ni table existante ne perd ses données.** Une colonne
+>   nouvelle est nullable ou porte un `DEFAULT` qui **reproduit le
+>   comportement d'avant** : une base migrée sans que l'enseignant ne touche
+>   à rien doit se comporter exactement comme la veille.
+> - **Chaque palier apporte son test « une base vNN peuplée traverse le
+>   palier NN+1 intacte »**, sur le modèle de ceux de `db/migrations.rs`. Ce
+>   n'est pas une formalité : c'est le seul endroit qui vérifie qu'une base
+>   déjà remplie survit, et les paliers 015 à 019 en ont chacun un.
+> - **Une régression d'écran vaut une perte de données.** Un enseignant qui
+>   ne retrouve pas son cahier de texte ne fait pas la différence. Donc pas de
+>   geste supprimé sans remplaçant, pas de commande retirée de
+>   `lib.rs`, pas de champ qui disparaît d'un formulaire.
+> - **Le mode d'emploi suit** : `LISEZ-MOI.txt` et le `README.md` sont lus par
+>   des gens qui n'ont pas le code.
+>
+> Tout le reste de ce document tenait déjà et tient toujours — en particulier
+> les trois règles d'architecture, qui viennent de bugs et non du schéma.
 
 ## Commandes
 
 ```powershell
 pnpm tauri dev          # lance l'app (Vite sur 1420 + compilation Rust)
 pnpm build              # tsc --noEmit puis vite build
-cargo test --lib        # depuis src-tauri/ — 171 tests
+cargo test --lib        # depuis src-tauri/ — 178 tests
 cargo clippy            # doit rester à zéro avertissement
 ```
 
@@ -86,7 +106,7 @@ La base est chiffrée par SQLCipher avec une **clé maître** de 32 octets tiré
 - **Un seul point d'accès à la base** : `AppState::conn()` dans `src/state.rs`. C'est là, et nulle part ailleurs, que vit le garde-fou de verrouillage — une commande qui n'obtient pas de `Connection` ne peut rien lire.
 - **L'état de verrouillage EST la présence de la connexion** : `db: Mutex<Option<Connection>>`, pas de drapeau à côté. `lock()` appelle `AppState::close()`, qui ferme réellement la base — une `Connection` vivante garde la clé en mémoire dans le contexte SQLCipher.
 - **Une seule `Connection`** pour tout le processus, sous `Mutex`. Ne jamais rouvrir la base dans une commande.
-- **Migrations versionnées** : `db/migrations.rs` + `db/sql/0NN_*.sql`, pilotées par `PRAGMA user_version`. En production, **un palier livré n'est jamais modifié** — on en ajoute un nouveau, et on incrémente `SCHEMA_VERSION`. En phase de développement (voir en tête), réécrire un palier existant ou fondre plusieurs paliers en un seul est autorisé : le coût est une base de démonstration à reconstruire, pas une perte de données. Ne pas s'interdire le bon modèle pour éviter une migration.
+- **Migrations versionnées** : `db/migrations.rs` + `db/sql/0NN_*.sql`, pilotées par `PRAGMA user_version`. **Un palier livré n'est jamais modifié** — on en ajoute un nouveau, et on incrémente `SCHEMA_VERSION`. Ce n'est plus négociable depuis le 2026-11-08 (voir la note en tête) : des enseignants ont des bases réelles, et un palier réécrit ne leur sera jamais rejoué. Ne pas s'interdire le bon modèle pour éviter une migration — mais l'atteindre **par ajout**, en gardant les anciennes colonnes jusqu'à ce qu'un palier ultérieur les vide puis les retire.
 - Toute commande est `#[tauri::command]`, prend `state: tauri::State<'_, AppState>` en premier paramètre, retourne `Result<T, String>`.
 - Écritures multi-lignes : **toujours** dans une transaction.
 - `rusqlite::params![]` partout. Les fragments SQL variables viennent d'un `match` renvoyant des `&'static str`, jamais d'une saisie utilisateur.
@@ -177,11 +197,22 @@ Les **pièces jointes** sont des **BLOB dans `seance_attachments`** pour une sé
 
 Le **glisser-déposer** passe par le DOM, pas par Tauri : `lib.rs` appelle `disable_drag_drop_handler()` sur le constructeur de fenêtre. L'événement de Tauri ne porte que des **chemins**, il aurait fallu lire le fichier en Rust et sauter la réduction à 1600 px — une photo de téléphone lâchée aurait été refusée à 8 Mo quand la même, choisie au bouton, passe à 300 Ko. **Le même geste doit donner le même résultat**, donc le dépôt et le bouton appellent tous deux `deposer` dans `SeanceAttachments`. Contrepartie obligatoire : privé du gestionnaire de Tauri, WebView2 **navigue vers le fichier lâché** et l'application disparaît derrière lui, sans barre d'adresse pour revenir. D'où `interdireNavigationParDepot` (`src/lib/depot.ts`), posé sur `document` dans `App()` **au-dessus du garde de verrouillage** — l'écran de mot de passe est justement celui où un fichier lâché ferait le plus de dégâts. Toute nouvelle zone de dépôt teste `estDepotDeFichiers` d'abord : sans ce test, elle avalerait le déplacement de texte à la souris dans l'éditeur. Et elle écoute en phase de **capture** avec `stopPropagation`, sinon ProseMirror voit le dépôt et insère le chemin du fichier comme texte.
 
+La **progression annuelle** (palier 019) est un **plan**, et rien qu'un plan : elle ne touche ni séance, ni appel, ni bilan. **Une seule par classe** — `progressions.session_id` est `UNIQUE` —, donc « Gr 2 » est un **libellé imprimé** (`intitule_groupe`) et non une entité : il n'existe pas d'objet « groupe » dans le modèle, et rien ne s'y rattache. Trois niveaux : l'**étape** (`progression_etapes`) est l'échelon entre l'année et l'activité, et c'est **elle** qui porte les compétences, les connaissances et les priorités — en **texte libre**, sans citer le référentiel `competencies`, parce que l'enseignant écrit des phrases et non des codes ; l'**activité** (`progression_activites`) est ce qu'on fait ; la **plage** (`progression_plages`) est une case de frise, désignée par le **lundi** de sa semaine et sa bande (`voie`, 0 ou 1), jamais par un numéro ISO — un numéro n'a pas d'année, et la semaine 1 de 2027 suit la 53 de 2026.
+
+Le **rang** d'une activité dans l'année est calculé **en Rust** (`commands/progressions.rs`) en parcourant `(etape.position, activite.position)`, et il est **0-fondé** : un numéro imprimé est `rang + 1`. C'est lui, et rien d'autre, qui donne sa couleur — `teinteDeActivite(rang)` marche la roue par l'angle d'or (137,508°) depuis 45°, à l'écart des dix teintes de classe. Calculé une fois côté Rust pour que l'écran et le PDF ne puissent pas colorier différemment la même activité : **ne pas le recalculer** à partir de l'index d'un `map`, un filtre d'affichage changerait les couleurs sans rien changer à l'année.
+
+Les **semaines sont les vraies semaines**, rendues par `get_year_calendar`, et une semaine appartient au mois **et** au trimestre qui contiennent son **jeudi** : c'est une partition, donc la frise n'a ni colonne dédoublée ni semaine orpheline. Ne pas regrouper par `monday.slice(5, 7)`. L'année 2026-2027 en compte quarante-cinq, dont plusieurs ne sont pas entières — le classeur d'origine supposait quatre semaines par mois, et `school_days` est le nombre qu'il n'avait pas. Les fermetures sont **lues du calendrier officiel** (`closures`) et non peintes à la main, et une semaine fermée **reste peignable** : le calendrier bouge, et l'application ne dicte pas où planifier. Elles sont filtrées par **l'académie choisie dans Réglages** (`app_settings.academie`) : sans académie, la frise ne montre que les fériés nationaux calculés, et ce n'est pas un défaut du code — c'est le réglage qui manque. À vérifier d'abord quand « les vacances n'apparaissent pas ».
+
+Les **domaines** (`progression_domaines`) sont le vocabulaire de l'enseignant, **livré vide** comme `professional_fields` : ne rien y semer. Ils sont **globaux** et non par classe — un domaine exploré en 4ᵉ et en 3ᵉ est le même domaine. Le backend refuse de supprimer un domaine employé, d'où `activity_count` rendu à la lecture : l'écran doit le savoir **avant** de proposer le bouton, et présenter un bouton qui échoue vaut moins que l'annoncer.
+
 Les **besoins particuliers** (`student_need_tags`, `student_needs`, `students.needs_note`) sont le vocabulaire de l'enseignant, **livré vide** comme `professional_fields` : ne rien y semer. Ils s'affichent à l'appel, dans la grille de notation, dans la liste des élèves et dans les bilans **à l'écran** — et sur **aucun document imprimé**, jamais. Données de santé concernant des mineurs, décision explicite de l'auteur, tenue par le test de `commands/needs.rs` (voir « Tests »). Limite assumée : un élève appartient à une classe d'une année, donc le même enfant en 4ᵉ puis en 3ᵉ est deux lignes de `students` et ses étiquettes sont à reposer en septembre ; le vocabulaire, lui, est global.
 
 ## Frontend
 
 - **L'emploi du temps définit, l'accueil ouvre.** `pages/Timetable` règle la grille hebdomadaire, pose un rendez-vous daté, pose un cours ponctuel — et n'héberge aucun écran de séance : une carte y ouvre sa **définition**, jamais son **contenu**. L'appel, le cahier de texte et les deux gestes qui font naître l'occurrence d'un cours de chaque semaine (`OccurrenceDialog` → `createSeanceFromSlot`, avec ou sans `cancelled`) vivent à l'accueil, qui montre le jour même et les suivants, ou dans la fiche de classe, qui liste toutes les séances. L'onglet « Journée » de l'emploi du temps a été supprimé pour cette raison : il redisait l'accueil, et deux écrans qui modifient la même séance finissent par ne pas en dire la même chose. `WeekGrid` n'a donc **pas** de `onOpenSeance` — ne pas le remettre. **Une seule exception, assumée** : le compte rendu d'un rendez-vous s'ouvre depuis la grille, parce qu'**aucun autre écran ne liste les rendez-vous**. Nommer une classe ne les y fait pas entrer — la fiche de classe liste ses séances et ses évaluations, pas ses rendez-vous —, un rendez-vous peut n'en nommer aucune, et l'accueil ne montre que six journées ouvrées : sans cette porte, un rendez-vous posé dans trois semaines ne serait ni corrigeable ni supprimable.
+- **La progression s'écrit dans la fiche de classe, l'emploi du temps la montre.** Même règle, et même origine : l'onglet « Progression » de `SessionDetail` est le **seul** endroit où une progression se modifie ; l'onglet « Année » de `pages/Timetable` (`YearGrid`, adressable par `?vue=annee`, « Semaine » par défaut) ne fait que lire, et le nom de la classe y est un lien vers l'endroit où elle s'écrit. Ce que la vue annuelle apporte et que la fiche de classe ne peut pas donner : la **comparaison** — la semaine où trois classes font la même chose, celle où rien n'est prévu, les trous du calendrier. Peindre d'ici demanderait en plus de choisir un pinceau parmi les activités de quatre classes à la fois, ce qui n'a pas de sens.
+- **Les deux frises partagent leur géométrie et leur vocabulaire.** Les colonnes et les trois en-têtes (Trimestre / Mois / Semaine) viennent de `src/components/FriseEntetes.tsx` (`ColonnesDeFrise`, `EntetesDeFrise`, `LARGEUR_SEMAINE`, `formatDateDeFrise`) ; le découpage des traits et les mots, de `src/lib/progression.ts` (`casesDeVoie`, `tranchesParMois` / `tranchesParTrimestre` / `tranchesParMotif`, `MOTS_DE_VOIE`, `MOTS_DE_SEMAINE`, `etatDeLaSemaine`, `motifDeLaSemaine`). C'est la raison qui fait déjà partager `journee.ts` et `geometry.ts` entre `WeekGrid` et `DaysCalendar` : deux implémentations divergeraient au premier détail, et la vue annoncerait une semaine que la frise ne montre pas. `LARGEUR_SEMAINE` est connue du code parce qu'un intitulé posé sur plusieurs semaines est écrit **une seule fois**, dans la première case, et débordé sur les suivantes — un `colSpan` aurait donné le même dessin mais une seule cible de clic pour huit semaines.
+- Le **PDF de progression** (`exportProgressionPDF`, `src/lib/pdf.ts`) est en **paysage** : quarante-cinq semaines sur une feuille portrait donnent des colonnes de quatre millimètres, où le numéro de semaine ne tient plus. Il dit deux fois la même année — la frise, puis le tableau des étapes —, et c'est le **numéro** de l'activité qui relie les deux ; la couleur ne fait que l'appuyer, parce qu'une progression finit punaisée au mur après un passage par un photocopieur en noir et blanc. Sa frise est dessinée au `rect` et non par `autoTable` (un `colSpan` par trait aurait interdit d'écrire le numéro dans la première case seulement), et ses teintes viennent de `fondDeActivite` / `filetDeActivite` / `encreDeActivite`, conversion OKLCH→sRVB des constantes mêmes de `teinte-carte teinte-appui`. Un **seul objet** en paramètre (`ProgressionPdfInput`) : six paramètres positionnels de même type se seraient inversés au premier appel, et une classe échangée avec une autre imprime une progression fausse sous le bon nom.
 - Les aides qui disent **ce qu'une journée contient** sont dans `pages/Timetable/journee.ts` (`buildRows`, `motifDeFermeture`, `motifDuCreneau`, `timeLabel`, `slotTitle`, `studentName`, `cibleDuRendezVous`) et la géométrie des calendriers dans `pages/Timetable/geometry.ts`. Les deux calendriers — `WeekGrid` et `DaysCalendar` — les partagent : deux implémentations divergeraient au premier créneau à quinzaine, et l'accueil annoncerait un cours que l'emploi du temps ne montre pas.
 - Erreurs : `api.ts` lève `ApiError` (message français du backend), `components/DataState.tsx` teste l'erreur **avant** l'état vide. Aucun `catch` qui ne fait que `console.error`.
 - Dates : `new Date().toLocaleDateString("sv-SE")` pour le jour courant. **Jamais** `toISOString().split("T")[0]` — en UTC, une séance créée le 1er décembre à 00h30 est datée du 30 novembre, donc classée au mauvais trimestre.
@@ -212,9 +243,17 @@ Les deux règles sont désormais **modifiables dans Réglages** — c'est tout c
 
 Ce qui **n'existe pas du tout** et reste à concevoir avec lui si le besoin vient : pondération des trimestres / moyenne annuelle, coefficients d'évaluation, et toute notion de dispense (absente du schéma). À l'inverse, le filtre de `home.rs` (`EVALUATIONS_PASSEES`) sur les compétences encore rattachées **n'est pas cette règle** et reste inconditionnel : il empêche une évaluation d'être « complète à 112 % », ce qui vaut sous les deux politiques.
 
+### Décisions arrêtées le 2026-11-07 — la progression annuelle
+
+Les quatre premières sont **de lui**, posées avant d'écrire le palier 019. Les quatre suivantes sont de moi, annoncées dans le plan qu'il a approuvé : elles se rouvrent s'il le dit, mais pas sans lui.
+
+**De lui.** (1) Les compétences, connaissances et priorités se rattachent à l'**étape**, l'échelon entre l'année et l'activité — pas à l'année, pas à l'activité. (2) **Une progression par classe**, sans entité « groupe » : « Gr 2 » est un libellé imprimé. (3) Les couleurs sont assignées **par l'application, par position** — donc par `rang`, jamais choisies à la main ni tirées d'un hachage. (4) Les compétences sont en **texte libre** et ne citent pas le référentiel `competencies` : il écrit des phrases.
+
+**De moi, par défaut assumé.** (5) Les colonnes sont les **vraies semaines** du calendrier, pas quatre par mois comme son classeur. (6) Les vacances sont **lues** du calendrier officiel, pas peintes. (7) Les **domaines** sont livrés vides, comme `professional_fields`. (8) La vue annuelle de l'emploi du temps **montre et ne modifie pas** ; tout s'écrit dans la fiche de classe. Le point 8 lui a été signalé pour objection — « si vous préférez tout peindre depuis l'emploi du temps, dites-le maintenant » — et il a approuvé sans objecter.
+
 ## Tests
 
-`cargo test --lib` : 171 tests, dont 24 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher), 9 sur l'ouverture chiffrée, 6 sur `journal.rs` (dont celui qui vérifie qu'un dossier impossible ne fait **rien** échouer — il est appelé depuis le crochet de panique) et 8 sur `db/holidays.rs` (dont celui qui vérifie qu'un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys`). Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
+`cargo test --lib` : 178 tests, dont 24 sur `keys.rs` (enveloppes, récupération, AAD, secrets qui refusent de s'afficher), 9 sur l'ouverture chiffrée, 6 sur `journal.rs` (dont celui qui vérifie qu'un dossier impossible ne fait **rien** échouer — il est appelé depuis le crochet de panique) et 8 sur `db/holidays.rs` (dont celui qui vérifie qu'un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys`). Parmi eux, 5 sur `commands/progressions.rs` : que le rang suive `(étape, activité)` et non l'ordre d'insertion, qu'une activité d'une autre classe soit refusée, qu'une plage se désigne par un lundi, que la frise n'ait que deux bandes, et que supprimer une étape ne laisse pas une plage orpheline. Le plus utile reste `sql_smoke` — il extrait les requêtes littérales des modules de commandes et les fait préparer par SQLite contre le schéma migré, ce qui attrape toute colonne renommée ou table oubliée. Son garde-fou exige un nombre minimal de requêtes : l'abaisser doit rester exceptionnel et temporaire.
 
 **`commands/needs.rs` porte un test qui relit du code source**, et non une base : il ouvre `commands/reports.rs`, `commands/reports/scoring.rs`, `commands/contracts.rs` et `src/lib/pdf.ts`, et échoue si l'un d'eux cite `student_need_tags`, `student_needs` ou `needs_note`. C'est la décision « jamais imprimé » rendue exécutable. Si un de ces fichiers est déplacé, **corriger le chemin dans le test — ne pas retirer la ligne de la liste.** Et `src/lib/pdf.ts` y figure délibérément : c'est lui qui dessine réellement les PDF, un garde-fou qui s'arrêterait à la frontière du Rust laisserait passer exactement l'erreur qu'il surveille.
 

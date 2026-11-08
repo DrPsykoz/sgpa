@@ -7,6 +7,22 @@ import {
 } from "jspdf-autotable";
 import { api } from "@/lib/api";
 import {
+	MOTS_DE_VOIE,
+	VOIES,
+	activitesParId,
+	casesDeVoie,
+	indexDesPlages,
+	nomDuMois,
+	tranchesParMois,
+	tranchesParMotif,
+	tranchesParTrimestre,
+} from "@/lib/progression";
+import {
+	encreDeActivite,
+	filetDeActivite,
+	fondDeActivite,
+} from "@/lib/teintes";
+import {
 	formatMark20,
 	AVERAGE_RULE_PHRASES,
 	labelDeNote,
@@ -19,8 +35,15 @@ import {
 	type ContractSheetInput,
 	type LevelCode,
 	type MasteryLevel,
+	type Progression,
+	type ProgressionActivite,
+	type ProgressionDomaine,
+	type ProgressionEtape,
+	type Session,
 	type SessionReport,
 	type StudentReport,
+	type YearCalendar,
+	type YearWeek,
 } from "@/types";
 
 const MARGIN_X = 15;
@@ -1392,6 +1415,552 @@ export async function exportEvaluationSheetsPDF(
 			? slug(students[0].full_name)
 			: slug(context.session_name);
 	const fileName = `Fiche-evaluation-${slug(title)}-${who}.pdf`;
+	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
+	return await api.saveExport(fileName, bytes, openAfter);
+}
+
+// ===========================================================================
+//  Progression annuelle
+// ===========================================================================
+
+/** Hauteurs des bandes de la frise imprimée, en millimètres. */
+const FRISE_H_ENTETE = 4.4;
+const FRISE_H_SEMAINE = 3.8;
+const FRISE_H_VOIE = 6;
+/** Largeur de la colonne des intitulés de ligne de la frise. */
+const FRISE_LEGENDE = 25;
+/** Fond des bandes d'en-tête, et son cran plus soutenu pour une semaine sans
+ *  cours. Deux gris et aucune couleur : la couleur de ce document est réservée
+ *  aux activités, sinon la frise ne se lit plus. */
+const FRISE_FOND: [number, number, number] = [238, 238, 238];
+const FRISE_FOND_FERME: [number, number, number] = [219, 219, 219];
+
+/**
+ * Tout ce dont le document a besoin, en un objet.
+ *
+ * Six paramètres positionnels, dont quatre objets, se seraient inversés au
+ * premier appel — et une classe échangée avec une autre imprime une
+ * progression fausse sous le bon nom.
+ */
+export interface ProgressionPdfInput {
+	progression: Progression;
+	session: Session;
+	/** Les semaines réelles de l'année, celles que l'écran affiche. Fournies et
+	 *  non relues ici : la frise imprimée doit être celle qu'on a vue. */
+	calendar: YearCalendar;
+	domaines: readonly ProgressionDomaine[];
+	schoolName: string;
+	openAfter?: boolean;
+}
+
+/**
+ * Tronque à la largeur disponible, en millimètres.
+ *
+ * Les colonnes de la frise font cinq millimètres : il n'y a pas la place d'un
+ * mot, et un texte qui dépasse se superposerait au voisin au lieu de se
+ * couper. jsPDF n'écrête rien de lui-même.
+ */
+function tronquerA(doc: jsPDF, texte: string, largeur: number): string {
+	if (largeur <= 0 || texte === "") return "";
+	if (doc.getTextWidth(texte) <= largeur) return texte;
+	let coupe = texte;
+	while (coupe !== "" && doc.getTextWidth(coupe + "…") > largeur) {
+		coupe = coupe.slice(0, -1);
+	}
+	return coupe === "" ? "" : `${coupe}…`;
+}
+
+/**
+ * Les semaines d'une activité, écrites comme on les lit : « S36 – S39, S45 ».
+ *
+ * Le tiret demi-cadratin, et non une flèche : les polices intégrées de jsPDF
+ * sont encodées en WinAnsi, qui ne contient pas « → ». L'export l'écrivait, et
+ * le caractère ressortait en « !’ » dans la colonne « Semaines » du document
+ * imprimé — vu sur une capture, pas sur un test. Tout ce qui part dans le PDF
+ * doit tenir dans WinAnsi : « — », « – », « … », « « » » y sont, les flèches et
+ * les espaces fines, non.
+ *
+ * Les deux bandes sont confondues : une activité posée la même semaine sur les
+ * deux ne la compte qu'une fois. Et le regroupement se fait sur l'INDEX dans
+ * l'année, jamais sur le numéro ISO — la semaine 1 de janvier suit la 53 de
+ * décembre, et un regroupement par numéro aurait coupé Noël en deux.
+ */
+function phraseDesSemaines(
+	activiteId: string,
+	progression: Progression,
+	weeks: readonly YearWeek[],
+	parLundi: ReadonlyMap<string, number>,
+): string {
+	const index = progression.plages
+		.filter((plage) => plage.activite_id === activiteId)
+		.map((plage) => parLundi.get(plage.week_monday))
+		.filter((i): i is number => i !== undefined)
+		.sort((a, b) => a - b)
+		.filter((valeur, rang, tous) => rang === 0 || valeur !== tous[rang - 1]);
+
+	const morceaux: string[] = [];
+	let debut = 0;
+	while (debut < index.length) {
+		let fin = debut;
+		while (fin + 1 < index.length && index[fin + 1] === index[fin] + 1) fin += 1;
+		const premiere = weeks[index[debut]].iso_week;
+		const derniere = weeks[index[fin]].iso_week;
+		morceaux.push(debut === fin ? `S${premiere}` : `S${premiere} – S${derniere}`);
+		debut = fin + 1;
+	}
+	return morceaux.join(", ");
+}
+
+/**
+ * La frise : les en-têtes groupés, le calendrier, les deux bandes.
+ *
+ * Dessinée au trait et non par `autoTable` : quarante-cinq colonnes de cinq
+ * millimètres, et un intitulé qui déborde sur les semaines suivantes, ne sont
+ * pas un tableau — un `colSpan` par trait aurait interdit d'écrire le numéro
+ * dans la première case seulement.
+ *
+ * Le découpage des traits vient de `casesDeVoie`, le même qu'à l'écran : la
+ * frise imprimée coupe ses traits là où l'écran les coupe.
+ *
+ * Renvoie l'ordonnée du bas de la frise.
+ */
+function dessinerFrise(
+	doc: jsPDF,
+	progression: Progression,
+	weeks: readonly YearWeek[],
+	x: number,
+	y: number,
+	largeur: number,
+): number {
+	const col = (largeur - FRISE_LEGENDE) / weeks.length;
+	const xs = x + FRISE_LEGENDE;
+	const parId = activitesParId(progression);
+	const plages = indexDesPlages(progression);
+
+	doc.setLineWidth(0.1);
+	doc.setDrawColor(...GRID);
+
+	/** L'intitulé de la ligne, à gauche, sur fond gris. */
+	const legende = (texte: string, ligneY: number, hauteur: number) => {
+		doc.setDrawColor(...GRID);
+		doc.setLineWidth(0.1);
+		doc.setFillColor(...FRISE_FOND);
+		doc.rect(x, ligneY, FRISE_LEGENDE, hauteur, "FD");
+		doc.setFontSize(6);
+		doc.setFont("helvetica", "normal");
+		doc.setTextColor(...GREY);
+		doc.text(
+			tronquerA(doc, texte, FRISE_LEGENDE - 2),
+			x + 1.2,
+			ligneY + hauteur / 2,
+			{ baseline: "middle" },
+		);
+	};
+
+	/** Une bande d'en-tête groupée : un rectangle par tranche de colonnes. */
+	const bande = (
+		titre: string,
+		ligneY: number,
+		hauteur: number,
+		tranches: readonly { debut: number; taille: number; texte: string }[],
+	) => {
+		legende(titre, ligneY, hauteur);
+		tranches.forEach((tranche) => {
+			const largeurTranche = tranche.taille * col;
+			const gauche = xs + tranche.debut * col;
+			if (tranche.texte === "") doc.setFillColor(255, 255, 255);
+			else doc.setFillColor(...FRISE_FOND);
+			doc.rect(gauche, ligneY, largeurTranche, hauteur, "FD");
+			if (tranche.texte === "") return;
+			doc.setFontSize(6);
+			doc.setFont("helvetica", "bold");
+			doc.setTextColor(...INK);
+			doc.text(
+				tronquerA(doc, tranche.texte, largeurTranche - 1),
+				gauche + largeurTranche / 2,
+				ligneY + hauteur / 2,
+				{ align: "center", baseline: "middle" },
+			);
+		});
+	};
+
+	let ligneY = y;
+
+	bande(
+		"Trimestre",
+		ligneY,
+		FRISE_H_ENTETE,
+		tranchesParTrimestre(weeks).map((tranche) => ({
+			debut: tranche.debut,
+			taille: tranche.taille,
+			texte: `Trimestre ${tranche.cle}`,
+		})),
+	);
+	ligneY += FRISE_H_ENTETE;
+
+	bande(
+		"Mois",
+		ligneY,
+		FRISE_H_ENTETE,
+		tranchesParMois(weeks).map((tranche) => ({
+			debut: tranche.debut,
+			taille: tranche.taille,
+			texte: nomDuMois(tranche.cle),
+		})),
+	);
+	ligneY += FRISE_H_ENTETE;
+
+	// Les numéros de semaine, un par colonne. Une semaine sans cours est d'un
+	// gris plus soutenu : c'est le seul signe qui survive à une photocopie en
+	// noir et blanc.
+	legende("Semaine", ligneY, FRISE_H_SEMAINE);
+	weeks.forEach((week, index) => {
+		const gauche = xs + index * col;
+		const fond = week.school_days === 0 ? FRISE_FOND_FERME : FRISE_FOND;
+		doc.setFillColor(...fond);
+		doc.rect(gauche, ligneY, col, FRISE_H_SEMAINE, "FD");
+		doc.setFontSize(5);
+		doc.setFont("helvetica", "normal");
+		doc.setTextColor(...INK);
+		doc.text(
+			String(week.iso_week),
+			gauche + col / 2,
+			ligneY + FRISE_H_SEMAINE / 2,
+			{ align: "center", baseline: "middle" },
+		);
+	});
+	ligneY += FRISE_H_SEMAINE;
+
+	// Le calendrier, écrit une fois par période : « Vacances de Noël » sur deux
+	// colonnes se lit, le même mot répété deux fois ne se lit plus.
+	bande(
+		"Calendrier",
+		ligneY,
+		FRISE_H_ENTETE,
+		tranchesParMotif(weeks).map((tranche) => ({
+			debut: tranche.debut,
+			taille: tranche.taille,
+			texte: tranche.motif,
+		})),
+	);
+	ligneY += FRISE_H_ENTETE;
+
+	VOIES.forEach((voie) => {
+		const cases = casesDeVoie(weeks, plages, voie);
+		legende(MOTS_DE_VOIE[voie], ligneY, FRISE_H_VOIE);
+
+		// Le quadrillage d'abord, les traits par-dessus : un trait de huit
+		// semaines est UN rectangle, et les filets intérieurs ne doivent pas le
+		// traverser.
+		weeks.forEach((week, index) => {
+			const gauche = xs + index * col;
+			if (week.school_days === 0) doc.setFillColor(...FRISE_FOND);
+			else doc.setFillColor(255, 255, 255);
+			doc.rect(gauche, ligneY, col, FRISE_H_VOIE, "FD");
+		});
+
+		cases.forEach((caseDeFrise, index) => {
+			if (!caseDeFrise.debutDeTrait || caseDeFrise.activiteId === null) return;
+			const activite = parId.get(caseDeFrise.activiteId);
+			if (activite === undefined) return;
+			const gauche = xs + index * col;
+			const largeurTrait = caseDeFrise.longueur * col;
+			doc.setFillColor(...fondDeActivite(activite.rang));
+			doc.setDrawColor(...filetDeActivite(activite.rang));
+			doc.setLineWidth(0.3);
+			doc.rect(gauche, ligneY, largeurTrait, FRISE_H_VOIE, "FD");
+
+			// Le NUMÉRO d'abord, l'intitulé seulement s'il reste de la place : le
+			// numéro renvoie au tableau du dessous, et c'est lui qui fait tenir le
+			// document photocopié en noir et blanc, où les teintes se ressemblent
+			// toutes.
+			const numero = String(activite.rang + 1);
+			doc.setFontSize(6);
+			doc.setFont("helvetica", "bold");
+			doc.setTextColor(...encreDeActivite(activite.rang));
+			const place = largeurTrait - 1.6;
+			const complet = `${numero} ${activite.libelle}`;
+			const texte =
+				doc.getTextWidth(complet) <= place
+					? complet
+					: tronquerA(doc, numero, place);
+			if (texte !== "") {
+				doc.text(texte, gauche + 0.8, ligneY + FRISE_H_VOIE / 2, {
+					baseline: "middle",
+				});
+			}
+		});
+
+		ligneY += FRISE_H_VOIE;
+	});
+
+	doc.setLineWidth(0.1);
+	doc.setDrawColor(...GRID);
+	return ligneY;
+}
+
+/** Une ligne du tableau : une activité, et l'étape qui la porte. Une étape sans
+ *  activité garde sa ligne — ses compétences valent d'être lues même si rien
+ *  n'est encore posé en face. */
+interface LigneDeProgression {
+	etape: ProgressionEtape;
+	activite: ProgressionActivite | null;
+}
+
+/**
+ * Produit la progression annuelle d'une classe, l'enregistre dans
+ * `<clé>/exports/` et renvoie son chemin complet.
+ *
+ * **Paysage**, et c'est la frise qui l'impose : quarante-cinq semaines sur une
+ * feuille portrait donnent des colonnes de quatre millimètres, où le numéro de
+ * semaine ne tient plus.
+ *
+ * Le document dit deux fois la même année — la frise en haut, le tableau en bas
+ * —, et le **numéro** d'une activité est ce qui relie les deux. La couleur
+ * l'appuie et ne porte rien seule : une progression finit punaisée au mur après
+ * un passage par un photocopieur en noir et blanc.
+ *
+ * Volontairement pas de `doc.save()`, pour la même raison que les bilans : le
+ * téléchargement navigateur déposait les documents dans le dossier
+ * Téléchargements du poste hôte. Et `openAfter` est faux par défaut — ouvrir le
+ * PDF inscrit son chemin dans les documents récents du lecteur du poste.
+ */
+export async function exportProgressionPDF({
+	progression,
+	session,
+	calendar,
+	domaines,
+	schoolName,
+	openAfter = false,
+}: ProgressionPdfInput): Promise<string> {
+	const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+	const pageWidth = doc.internal.pageSize.getWidth();
+	const pageHeight = doc.internal.pageSize.getHeight();
+	const contentWidth = pageWidth - MARGIN_X * 2;
+	const centerX = pageWidth / 2;
+
+	const yearLabel = schoolYearLabel(session.year_start);
+	const levelLabel = LEVEL_LABELS[session.level_code] ?? session.level_code;
+	const titre =
+		progression.titre.trim() === ""
+			? "Progression annuelle"
+			: progression.titre.trim();
+
+	doc.setProperties({
+		title: `${titre} — ${session.name} — ${yearLabel}`,
+		subject: "Progression annuelle",
+		creator: "SGPA",
+		author: schoolName || "SGPA",
+	});
+
+	let y = MARGIN_TOP;
+
+	if (schoolName) {
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(9);
+		doc.setTextColor(...GREY);
+		doc.text(schoolName, MARGIN_X, y);
+		y += 5;
+	}
+
+	// L'intitulé de groupe se pose à DROITE du titre, sur la même ligne : c'est
+	// un libellé — « Gr 2 » —, pas un sous-titre, et une ligne à lui seul
+	// laisserait croire à une entité du modèle.
+	doc.setFont("helvetica", "bold");
+	doc.setFontSize(16);
+	doc.setTextColor(...INK);
+	doc.text(titre, MARGIN_X, y + 1);
+	if (progression.intitule_groupe.trim() !== "") {
+		doc.setFontSize(13);
+		doc.text(progression.intitule_groupe.trim(), pageWidth - MARGIN_X, y + 1, {
+			align: "right",
+		});
+	}
+	y += 7;
+
+	doc.setFont("helvetica", "normal");
+	doc.setFontSize(11);
+	doc.setTextColor(...INK);
+	doc.text(
+		`${session.name} — ${levelLabel} — année scolaire ${yearLabel}`,
+		MARGIN_X,
+		y,
+	);
+	y += 6;
+
+	if (progression.devise.trim() !== "") {
+		doc.setFont("helvetica", "italic");
+		doc.setFontSize(10);
+		doc.setTextColor(...GREY);
+		doc.text(progression.devise.trim(), MARGIN_X, y);
+		y += 6;
+	}
+
+	doc.setDrawColor(...RULE);
+	doc.setLineWidth(0.3);
+	doc.line(MARGIN_X, y, pageWidth - MARGIN_X, y);
+	y += 6;
+
+	// ---- La frise ----
+	if (calendar.weeks.length > 0) {
+		y =
+			dessinerFrise(
+				doc,
+				progression,
+				calendar.weeks,
+				MARGIN_X,
+				y,
+				contentWidth,
+			) + 8;
+	} else {
+		doc.setFont("helvetica", "italic");
+		doc.setFontSize(10);
+		doc.setTextColor(...GREY);
+		doc.text("Aucune semaine à afficher pour cette année scolaire.", MARGIN_X, y);
+		y += 8;
+	}
+
+	// ---- Le tableau ----
+	const nomDeDomaine = new Map(
+		domaines.map((domaine) => [domaine.id, domaine.name] as const),
+	);
+	const parLundi = new Map(
+		calendar.weeks.map((week, index) => [week.monday, index] as const),
+	);
+
+	const lignes: LigneDeProgression[] = progression.etapes.flatMap(
+		(etape): LigneDeProgression[] =>
+			etape.activites.length === 0
+				? [{ etape, activite: null }]
+				: etape.activites.map((activite) => ({ etape, activite })),
+	);
+
+	if (lignes.length === 0) {
+		doc.setFont("helvetica", "italic");
+		doc.setFontSize(10);
+		doc.setTextColor(...GREY);
+		doc.text("Aucune étape n'est encore définie pour cette année.", MARGIN_X, y);
+	} else {
+		// Une cellule d'étape couvre ses activités. La clé est l'IDENTIFIANT et
+		// non le libellé : deux étapes nommées pareil restent deux étapes.
+		const spans = mergeSpans(
+			lignes.length,
+			(index) => `etape:${lignes[index].etape.id}`,
+		);
+
+		const body: RowInput[] = lignes.map((ligne, index) => {
+			const cells: CellInput[] = [];
+			if (spans[index] > 0) {
+				const span = spans[index];
+				cells.push({
+					content: ligne.etape.libelle,
+					rowSpan: span,
+					styles: { fontStyle: "bold" },
+				});
+				cells.push({ content: ligne.etape.competences, rowSpan: span });
+				cells.push({ content: ligne.etape.connaissances, rowSpan: span });
+				cells.push({ content: ligne.etape.priorites, rowSpan: span });
+			}
+
+			const activite = ligne.activite;
+			if (activite === null) {
+				cells.push("", "", "", "");
+				return cells;
+			}
+			// La pastille du numéro porte la teinte de l'activité : la même couleur
+			// que son trait sur la frise, prise au même endroit.
+			cells.push({
+				content: String(activite.rang + 1),
+				styles: {
+					fillColor: fondDeActivite(activite.rang),
+					textColor: encreDeActivite(activite.rang),
+					fontStyle: "bold",
+				},
+			});
+			cells.push(activite.libelle);
+			cells.push(
+				activite.domaine_id === null
+					? ""
+					: (nomDeDomaine.get(activite.domaine_id) ?? ""),
+			);
+			cells.push(
+				phraseDesSemaines(activite.id, progression, calendar.weeks, parLundi),
+			);
+			return cells;
+		});
+
+		// Largeurs, en millimètres, pour les 267 mm utiles d'une A4 paysage. Les
+		// trois colonnes de texte libre de l'étape en prennent la moitié : ce sont
+		// elles qui portent les phrases.
+		const largeurs = [28, 44, 44, 34, 7, 46, 30, 34];
+
+		autoTable(doc, {
+			startY: y,
+			margin: { left: MARGIN_X, right: MARGIN_X, bottom: MARGIN_BOTTOM },
+			head: [
+				[
+					"Étape",
+					"Compétences",
+					"Connaissances",
+					"Priorités",
+					"N°",
+					"Activité",
+					"Domaine",
+					"Semaines",
+				],
+			],
+			body,
+			theme: "grid",
+			styles: {
+				fontSize: 8,
+				cellPadding: 1.4,
+				overflow: "linebreak",
+				textColor: INK,
+				lineColor: GRID,
+				lineWidth: 0.1,
+				valign: "middle",
+			},
+			// Pas de bandeau noir : la même convention que la fiche contrat, du gras
+			// centré sur fond clair, dans la même grille que le reste.
+			headStyles: {
+				fillColor: [238, 238, 238],
+				textColor: INK,
+				fontStyle: "bold",
+				fontSize: 8,
+				halign: "center",
+				valign: "middle",
+			},
+			columnStyles: {
+				0: { cellWidth: largeurs[0] },
+				1: { cellWidth: largeurs[1] },
+				2: { cellWidth: largeurs[2] },
+				3: { cellWidth: largeurs[3] },
+				4: { cellWidth: largeurs[4], halign: "center" },
+				5: { cellWidth: largeurs[5] },
+				6: { cellWidth: largeurs[6] },
+				7: { cellWidth: largeurs[7], halign: "center" },
+			},
+		});
+	}
+
+	// ---- Pied de page ----
+	// En dernier seulement : le nombre total de pages n'est connu qu'ici.
+	const pageCount = doc.getNumberOfPages();
+	const editedOn = new Date().toLocaleDateString("fr-FR");
+	for (let page = 1; page <= pageCount; page += 1) {
+		doc.setPage(page);
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(8);
+		doc.setTextColor(...GREY);
+		doc.text(
+			`Édité le ${editedOn} — page ${page}/${pageCount}`,
+			centerX,
+			pageHeight - 8,
+			{ align: "center" },
+		);
+	}
+
+	const fileName = `Progression-${slug(session.name)}-${yearLabel}.pdf`;
 	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
 	return await api.saveExport(fileName, bytes, openAfter);
 }

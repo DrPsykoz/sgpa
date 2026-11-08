@@ -28,6 +28,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("lock", include_str!("commands/lock.rs")),
     ("maintenance", include_str!("commands/maintenance.rs")),
     ("needs", include_str!("commands/needs.rs")),
+    ("progressions", include_str!("commands/progressions.rs")),
     ("referential", include_str!("commands/referential.rs")),
     ("reports", include_str!("commands/reports.rs")),
     ("seances", include_str!("commands/seances.rs")),
@@ -168,14 +169,14 @@ fn toutes_les_requetes_sql_sont_valides_contre_le_schema() {
     // Garde-fou : si l'extraction cesse de fonctionner (refactor, chaînes
     // construites autrement), le test passerait en ne vérifiant rien.
     //
-    // Le seuil reste sous le compte réel — 131 au palier 005, dont une vingtaine
+    // Le seuil reste sous le compte réel — 250 au palier 019, dont une vingtaine
     // apportées par `timetable.rs` et une quinzaine par `absences.rs` et les
     // tests de `reports.rs`. Il ne se relève qu'avec un module de plus, et ne
     // s'abaisse qu'exceptionnellement : `lock.rs` est passé de six requêtes à
     // trois quand le mot de passe, son indice et la phrase de récupération ont
     // quitté la base pour `data/sgpa.keys`, qui n'est pas du SQL.
     assert!(
-        checked >= 118,
+        checked >= 225,
         "seulement {checked} requêtes analysées — l'extraction ne trouve plus le SQL du projet"
     );
 

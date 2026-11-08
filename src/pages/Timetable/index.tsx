@@ -6,15 +6,23 @@ import {
   useState,
   type ReactElement,
 } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import { AgendaEntryEditor } from "@/components/AgendaEntryEditor";
 import { DataState } from "@/components/DataState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { NewPlanningDialog } from "@/pages/Timetable/NewPlanningDialog";
 import { SlotDialog } from "@/pages/Timetable/SlotDialog";
 import { WeekGrid } from "@/pages/Timetable/WeekGrid";
+import { YearGrid } from "@/pages/Timetable/YearGrid";
 import { api } from "@/lib/api";
 import { tableDesTeintes } from "@/lib/teintes";
 import { schoolYearLabel } from "@/types";
@@ -180,6 +188,18 @@ export default function Timetable(): ReactElement {
    * l'année que l'en-tête ne nomme pas.
    */
   const anneeEcran = week?.year_start ?? null;
+
+  /**
+   * La vue regardée, dans l'adresse plutôt que dans un état local.
+   *
+   * « Semaine » par défaut : c'est elle qu'on ouvre pour régler l'emploi du
+   * temps. « Année » devient ainsi adressable — `?vue=annee` —, ce qui permet
+   * d'y renvoyer depuis ailleurs sans dupliquer la frise. Rien à nettoyer au
+   * passage, contrairement au relais `?ouvrir=` de la fiche de classe : ce
+   * paramètre décrit ce qu'on regarde, pas un geste à jouer une fois.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const vue = searchParams.get("vue") === "annee" ? "annee" : "semaine";
 
   // ---- Lectures ----
 
@@ -479,114 +499,167 @@ export default function Timetable(): ReactElement {
         </p>
       )}
 
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* ±7 jours : c'est le backend qui ramène ensuite n'importe quel jour
-              au lundi de sa semaine ISO. Ces flèches ne sont que des lectures —
-              elles n'écrivent rien, pas même un trimestre. */}
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Semaine précédente"
-            onClick={() => setDate(shiftDate(date, -7))}
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
-          <Button
-            variant="outline"
-            disabled={estCetteSemaine}
-            onClick={() => setDate(today())}
-          >
-            Cette semaine
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Semaine suivante"
-            onClick={() => setDate(shiftDate(date, 7))}
-          >
-            <ChevronRight className="h-5 w-5" />
-          </Button>
-          <Input
-            type="date"
-            aria-label="Aller à une semaine"
-            className="w-auto"
-            value={date}
-            onChange={(event) => {
-              if (event.target.value) setDate(event.target.value);
-            }}
-          />
-        </div>
+      <Tabs
+        value={vue}
+        onValueChange={(valeur) => {
+          setSearchParams(
+            valeur === "annee" ? { vue: "annee" } : {},
+            { replace: true },
+          );
+        }}
+      >
+        <TabsList className="mb-6">
+          <TabsTrigger value="semaine">Semaine</TabsTrigger>
+          {/* La vue annuelle ne modifie rien — voir `YearGrid`. */}
+          <TabsTrigger value="annee">Année</TabsTrigger>
+        </TabsList>
 
-        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b pb-3">
-          <h2 className="text-2xl font-bold tracking-tight">
-            {week
-              ? libelleSemaine(week.monday, dimanche ?? week.monday)
-              : longDate(date)}
-          </h2>
-          {week && (
-            <div className="flex items-center gap-3 text-base text-muted-foreground">
-              <span>Année scolaire {schoolYearLabel(week.year_start)}</span>
-              {/* Le numéro de semaine ne s'affiche que si un créneau de l'année
-                  porte une parité : tant que la quinzaine ne sert pas, le mot
-                  « semaine » n'apparaît nulle part. */}
-              {week.show_parity && (
-                <span>
-                  semaine {week.iso_week} ·{" "}
-                  {week.week_parity === "paires" ? "paire" : "impaire"}
-                </span>
+        <TabsContent value="semaine" className="mt-0">
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* ±7 jours : c'est le backend qui ramène ensuite n'importe quel jour
+                  au lundi de sa semaine ISO. Ces flèches ne sont que des lectures —
+                  elles n'écrivent rien, pas même un trimestre. */}
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Semaine précédente"
+                onClick={() => setDate(shiftDate(date, -7))}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="outline"
+                disabled={estCetteSemaine}
+                onClick={() => setDate(today())}
+              >
+                Cette semaine
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Semaine suivante"
+                onClick={() => setDate(shiftDate(date, 7))}
+              >
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+              <Input
+                type="date"
+                aria-label="Aller à une semaine"
+                className="w-auto"
+                value={date}
+                onChange={(event) => {
+                  if (event.target.value) setDate(event.target.value);
+                }}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-baseline justify-between gap-3 border-b pb-3">
+              <h2 className="text-2xl font-bold tracking-tight">
+                {week
+                  ? libelleSemaine(week.monday, dimanche ?? week.monday)
+                  : longDate(date)}
+              </h2>
+              {week && (
+                <div className="flex items-center gap-3 text-base text-muted-foreground">
+                  <span>Année scolaire {schoolYearLabel(week.year_start)}</span>
+                  {/* Le numéro de semaine ne s'affiche que si un créneau de l'année
+                      porte une parité : tant que la quinzaine ne sert pas, le mot
+                      « semaine » n'apparaît nulle part. */}
+                  {week.show_parity && (
+                    <span>
+                      semaine {week.iso_week} ·{" "}
+                      {week.week_parity === "paires" ? "paire" : "impaire"}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
 
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          Cet écran sert à <strong>définir</strong> l'emploi du temps. Les cartes
-          de cours sont l'emploi du temps type : les modifier vaut pour toutes
-          les semaines. Un fond d'un cran plus soutenu signale une séance qui
-          existe déjà à cette date. Cliquez ou glissez dans une bande vide pour
-          ajouter quelque chose à cet horaire — le même choix qu'avec le bouton
-          « Ajouter… ». Une seule des six formes proposées crée une séance,
-          « Cours ponctuel ». Un clic sur une carte ouvre sa définition, sans
-          rien créer : le cours de chaque semaine sur sa modification, un
-          rendez-vous daté — visite de stage comprise — sur son compte rendu.
-          L'appel et le cahier de texte, eux, se tiennent{" "}
-          <strong>depuis l'accueil</strong>, qui montre le jour même et les
-          suivants, ou depuis la fiche de la classe.
-        </p>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Cet écran sert à <strong>définir</strong> l'emploi du temps. Les cartes
+              de cours sont l'emploi du temps type : les modifier vaut pour toutes
+              les semaines. Un fond d'un cran plus soutenu signale une séance qui
+              existe déjà à cette date. Cliquez ou glissez dans une bande vide pour
+              ajouter quelque chose à cet horaire — le même choix qu'avec le bouton
+              « Ajouter… ». Une seule des six formes proposées crée une séance,
+              « Cours ponctuel ». Un clic sur une carte ouvre sa définition, sans
+              rien créer : le cours de chaque semaine sur sa modification, un
+              rendez-vous daté — visite de stage comprise — sur son compte rendu.
+              L'appel et le cahier de texte, eux, se tiennent{" "}
+              <strong>depuis l'accueil</strong>, qui montre le jour même et les
+              suivants, ou depuis la fiche de la classe.
+            </p>
 
-        <DataState
-          // Le squelette ne revient pas à chaque flèche : tant qu'une semaine
-          // est affichée, la suivante se charge sous elle.
-          loading={week === null && weekLoading}
-          error={weekError}
-          onRetry={() => {
-            void chargerSemaine();
-          }}
-        >
-          {week !== null && (
-            // L'année de la grille est celle de la SEMAINE regardée, la même
-            // que l'en-tête ci-dessus et que les créneaux chargés : le pied
-            // de grille ne peut plus contredire le titre.
-            <WeekGrid
-              yearStart={week.year_start}
-              slots={slots}
-              week={week}
-              onSelectSlot={ouvrirEditionCreneau}
-              // La seule carte qui ouvre autre chose qu'un créneau : un
-              // rendez-vous daté n'a pas d'autre écran que son compte rendu.
-              // Aucune séance ne s'ouvre d'ici — `onOpenSeance` n'existe plus.
-              onOpenEntry={ouvrirEntree}
-              onCreateSlot={ouvrirCreationCreneau}
-              // Chaque classe sa teinte, assignée par position dans l'année
-              // — voir `lib/teintes.ts`. La table est dérivée des classes que
-              // cet écran charge déjà : aucun état global, et la même couleur
-              // qu'à l'accueil, qui la dérive des mêmes classes.
-              teintes={teintes}
-            />
-          )}
-        </DataState>
-      </div>
+            <DataState
+              // Le squelette ne revient pas à chaque flèche : tant qu'une semaine
+              // est affichée, la suivante se charge sous elle.
+              loading={week === null && weekLoading}
+              error={weekError}
+              onRetry={() => {
+                void chargerSemaine();
+              }}
+            >
+              {week !== null && (
+                // L'année de la grille est celle de la SEMAINE regardée, la même
+                // que l'en-tête ci-dessus et que les créneaux chargés : le pied
+                // de grille ne peut plus contredire le titre.
+                <WeekGrid
+                  yearStart={week.year_start}
+                  slots={slots}
+                  week={week}
+                  onSelectSlot={ouvrirEditionCreneau}
+                  // La seule carte qui ouvre autre chose qu'un créneau : un
+                  // rendez-vous daté n'a pas d'autre écran que son compte rendu.
+                  // Aucune séance ne s'ouvre d'ici — `onOpenSeance` n'existe plus.
+                  onOpenEntry={ouvrirEntree}
+                  onCreateSlot={ouvrirCreationCreneau}
+                  // Chaque classe sa teinte, assignée par position dans l'année
+                  // — voir `lib/teintes.ts`. La table est dérivée des classes que
+                  // cet écran charge déjà : aucun état global, et la même couleur
+                  // qu'à l'accueil, qui la dérive des mêmes classes.
+                  teintes={teintes}
+                />
+              )}
+            </DataState>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="annee" className="mt-0">
+          <div className="space-y-5">
+            <div className="border-b pb-3">
+              <h2 className="text-2xl font-bold tracking-tight">
+                Progression de l'année
+              </h2>
+            </div>
+
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              L'année entière, une ligne par classe, en vraies semaines. Cette
+              vue <strong>montre</strong> : la progression d'une classe s'écrit
+              dans sa fiche, onglet « Progression », et le nom de la classe y
+              mène. Ce qu'on voit ici et nulle part ailleurs, c'est la
+              comparaison — la semaine où trois classes font la même chose,
+              celle où rien n'est prévu, et les trous du calendrier.
+            </p>
+
+            {anneeEcran === null ? (
+              <p className="rounded-lg border border-dashed px-6 py-8 text-center text-sm text-muted-foreground">
+                L'année scolaire se déduit de la semaine regardée, qui n'est pas
+                encore chargée.
+              </p>
+            ) : (
+              <YearGrid
+                // La même année que l'onglet « Semaine » et que les créneaux
+                // déjà chargés : les deux vues ne peuvent pas parler de deux
+                // années scolaires différentes.
+                yearStart={anneeEcran}
+                sessions={sessions}
+                teintes={teintes}
+              />
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Le créneau modifié n'est plus dans la liste (supprimé, ou liste
           rechargée sur une autre année) : le dialogue se retire au lieu de se

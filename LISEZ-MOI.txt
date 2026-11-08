@@ -254,6 +254,58 @@ Une séance qui porte au moins une pièce jointe sort aussi de la liste toute
 seule : la photo du tableau EST le compte rendu.
 
 
+LA PROGRESSION DE L'ANNÉE
+-------------------------
+
+Fiche de la classe, onglet « Progression ». C'est la mise au propre de votre
+plan d'année : ce que vous explorez, et la semaine où ça tombe.
+
+Vous définissez d'abord des ÉTAPES. Une étape porte son intitulé, ses
+compétences, ses connaissances et ses priorités — en texte libre, vos phrases
+et pas des codes. Dans chaque étape, vous posez des ACTIVITÉS : ce que vous
+faites concrètement. Chacune peut relever d'un DOMAINE.
+
+Ensuite vous les posez sur la frise. Vous choisissez une activité comme
+pinceau, et vous glissez la souris sur une bande : les semaines se peignent.
+Il y a DEUX BANDES, l'une au-dessus de l'autre — la seconde sert à ce qui
+court à côté, un projet long, un groupe qui fait autre chose.
+
+LES COLONNES SONT LES VRAIES SEMAINES DE L'ANNÉE, pas quatre par mois.
+L'année 2026-2027 en compte quarante-cinq, dont plusieurs ne sont pas
+entières. Les vacances et les jours fériés sont lus du calendrier officiel,
+vous n'avez rien à peindre pour eux ; les semaines de stage d'une classe s'y
+voient aussi. Une semaine fermée reste pâle MAIS RESTE PEIGNABLE : le
+calendrier bouge, et ce n'est pas à l'application de vous dire où planifier.
+
+LES DOMAINES SONT VIDES À LA LIVRAISON, exprès. Ce sont vos mots, pas ceux de
+l'application. Bouton « Domaines » pour les créer. Ils sont partagés entre
+toutes vos classes : un domaine exploré en 4ᵉ et en 3ᵉ est le même. SGPA
+refuse de supprimer un domaine encore employé par une activité, et vous dit
+combien en dépendent.
+
+LES COULEURS, VOUS NE LES CHOISISSEZ PAS. SGPA les attribue dans l'ordre de
+vos étapes puis de vos activités, de façon à ce que deux activités voisines
+ne se ressemblent pas. Déplacer une activité d'une étape à l'autre change donc
+sa couleur ; les semaines où elle est posée, elles, ne bougent pas.
+
+UNE SEULE PROGRESSION PAR CLASSE. Si vous imprimez « Gr 2 » en tête du
+document, c'est un libellé — bouton « En-tête du document », avec le titre et
+votre devise. Ce n'est pas un second groupe dans l'application.
+
+VOIR TOUTES VOS CLASSES D'UN COUP D'ŒIL : Emploi du temps → onglet « Année ».
+Une ligne par classe, l'année entière. Cet écran MONTRE et ne modifie rien —
+vous y voyez la semaine où trois classes font la même chose, celle où rien
+n'est prévu, et les trous du calendrier. Le nom d'une classe est un lien qui
+ramène à l'endroit où sa progression s'écrit.
+
+LE DOCUMENT : bouton « Exporter en PDF », en bas de l'onglet « Progression ».
+Une feuille A4 EN PAYSAGE — quarante-cinq semaines ne tiennent pas en
+portrait. La frise en haut, le tableau de vos étapes en bas, et un NUMÉRO sur
+chaque activité pour relier les deux. Ce numéro est là pour que le document
+reste lisible photocopié en noir et blanc, où toutes les teintes se
+ressemblent. Le PDF part dans exports\ , sur la clé.
+
+
 COMMENT ON NOTE
 ---------------
 

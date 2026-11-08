@@ -220,11 +220,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         for (c, (cid, _)) in comps.iter().enumerate() {
-            let niveau = 1 + ((e * 3 + c * 2) % 5) as i32;
+            // Une note sur 20, depuis le palier 018 : la colonne `level` n'existe
+            // plus. Les cinq valeurs 4 · 8 · 12 · 16 · 20 sont les hauts des cinq
+            // tranches de maîtrise, donc le jeu de démonstration montre les cinq
+            // libellés — c'est exactement la conversion qu'a faite le palier.
+            let note = (1 + ((e * 3 + c * 2) % 5) as i32) * 4;
             tx.execute(
-                "INSERT INTO grades (evaluation_id, competency_id, student_id, level)
+                "INSERT INTO grades (evaluation_id, competency_id, student_id, mark)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![eval, cid, eid, niveau],
+                params![eval, cid, eid, note],
             )?;
         }
     }

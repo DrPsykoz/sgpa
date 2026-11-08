@@ -10,7 +10,7 @@ mod state;
 
 use commands::{
     absences, attachments, contracts, diagnostics, evaluations, home, lock, maintenance, needs,
-    referential, reports, seances, sessions, students, timetable, trimesters,
+    progressions, referential, reports, seances, sessions, students, timetable, trimesters,
 };
 use state::AppState;
 
@@ -195,6 +195,7 @@ pub fn run() {
             timetable::get_available_academies,
             timetable::get_day_schedule,
             timetable::get_week_schedule,
+            timetable::get_year_calendar,
             timetable::get_timetable_slots,
             timetable::create_timetable_slot,
             timetable::update_timetable_slot,
@@ -215,6 +216,25 @@ pub fn run() {
             trimesters::get_trimester_bounds,
             trimesters::preview_trimester_recompute,
             trimesters::update_trimester_bounds,
+            // Progression annuelle d'une classe
+            progressions::get_progression_domaines,
+            progressions::create_progression_domaine,
+            progressions::rename_progression_domaine,
+            progressions::delete_progression_domaine,
+            progressions::get_progression,
+            progressions::create_progression,
+            progressions::update_progression_meta,
+            progressions::create_progression_etape,
+            progressions::update_progression_etape,
+            progressions::delete_progression_etape,
+            progressions::reorder_progression_etapes,
+            progressions::create_progression_activite,
+            progressions::update_progression_activite,
+            progressions::delete_progression_activite,
+            progressions::reorder_progression_activites,
+            progressions::set_progression_activite_etape,
+            progressions::set_progression_plages,
+            progressions::clear_progression_plages,
             // Fiches contrat
             contracts::get_contract_sheet,
             contracts::suggest_contract_sheet,

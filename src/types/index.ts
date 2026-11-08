@@ -533,6 +533,59 @@ export interface WeekSchedule {
 	days: DaySchedule[];
 }
 
+/** Une semaine de l'année scolaire, telle que la vue annuelle la montre. */
+export interface YearWeek {
+	monday: string;
+	iso_week: number;
+	/** Mois auquel la semaine appartient : celui qui contient son **jeudi**.
+	 *
+	 *  C'est une partition — chaque semaine va dans un mois et un seul —, donc la
+	 *  frise n'a ni colonne dédoublée ni semaine orpheline. Ne pas regrouper par
+	 *  `monday.slice(5, 7)` : la semaine du 30 novembre est une semaine de
+	 *  décembre, et deux règles de découpage dans la même page afficheraient une
+	 *  semaine dans un mois et son trimestre dans l'autre. */
+	month: number;
+	/** Année civile du jeudi : décembre et janvier ne sont pas la même colonne. */
+	year: number;
+	/** Trimestre de la semaine, calculé par le backend depuis ce même jeudi. Le
+	 *  front ne recalcule jamais un trimestre. */
+	trimester: number;
+	week_parity: "paires" | "impaires";
+	/** Pourquoi on ne fait pas cours cette semaine-là. Vide = semaine ordinaire.
+	 *
+	 *  Un motif n'y figure qu'une fois, même s'il couvre les cinq jours : la
+	 *  colonne écrit « Vacances de Noël », pas cinq fois le même mot. */
+	closures: DayClosure[];
+	/** Jours ouvrés restants, de 0 à 5.
+	 *
+	 *  **C'est le nombre que le document d'origine n'avait pas.** Ses quarante
+	 *  colonnes supposaient quatre semaines par mois ; l'année 2026-2027 en compte
+	 *  quarante-cinq, dont plusieurs ne sont pas entières. Une semaine à zéro est
+	 *  une semaine où rien ne se place. */
+	school_days: number;
+	/** Classes dont la classe ENTIÈRE est hors cours cette semaine — un stage.
+	 *  Jamais une période nominative : la classe est là, un élève manque. */
+	sessions_away: SessionAway[];
+}
+
+/** L'année scolaire entière, semaine par semaine.
+ *
+ *  **Cette vue montre et ne modifie rien.** La progression d'une classe s'écrit
+ *  dans sa fiche, et nulle part ailleurs : deux écrans qui modifient la même
+ *  chose finissent par ne pas en dire la même chose, et c'est exactement ce qui
+ *  a fait supprimer l'onglet « Journée » de l'emploi du temps. */
+export interface YearCalendar {
+	year_start: number;
+	/** Les bornes de trimestre de l'année, rendues AVEC les semaines et non
+	 *  relues par un second appel : la frise dessine ses trois trimestres à partir
+	 *  des mêmes bornes qui ont classé chaque semaine, donc la limite dessinée
+	 *  tombe forcément là où le trimestre change. */
+	bounds: TrimesterBounds;
+	show_parity: boolean;
+	calendar_until: string | null;
+	weeks: YearWeek[];
+}
+
 // ---- Présences ----
 export type AttendanceStatus =
 	| "non_fait"
@@ -1037,4 +1090,92 @@ export interface HomeOverview {
 	 *  zéro affirme que l'application a regardé, un groupe absent laisse croire
 	 *  qu'elle ne l'a pas fait. */
 	groups: ReminderGroup[];
+}
+
+// ---- Progression annuelle ----
+
+/** Un domaine à explorer dans l'année — « Réaliser le clos », « Recyclage de
+ *  palettes ».
+ *
+ *  **Livré vide**, comme les champs professionnels et les étiquettes de besoins :
+ *  c'est le vocabulaire de l'enseignant, avec ses mots et son orthographe. Ne
+ *  rien y semer. Global et non rattaché à une année : le même domaine revient
+ *  d'une classe à l'autre et d'un septembre au suivant. */
+export interface ProgressionDomaine {
+	id: string;
+	name: string;
+	position: number;
+	/** Combien d'activités s'y rattachent, toutes classes confondues.
+	 *
+	 *  Rendu par la lecture parce que l'écran en a besoin AVANT de proposer la
+	 *  suppression : le backend refuse de supprimer un domaine employé, et
+	 *  présenter un bouton qui échoue vaut moins que l'annoncer. */
+	activity_count: number;
+}
+
+/** Une activité : ce qu'on fait, rattaché à une étape et à un domaine. */
+export interface ProgressionActivite {
+	id: string;
+	etape_id: string;
+	/** Domaine, facultatif : une activité peut n'en relever d'aucun tant que
+	 *  l'enseignant n'a pas tranché. */
+	domaine_id: string | null;
+	position: number;
+	libelle: string;
+	/** Rang de l'activité dans l'ANNÉE, calculé par le backend en parcourant les
+	 *  étapes puis les activités de chacune.
+	 *
+	 *  **C'est lui, et rien d'autre, qui donne sa couleur à l'activité**
+	 *  (`styleTeinteActivite`). Calculé une fois côté Rust pour que l'écran et le
+	 *  PDF ne puissent pas colorier différemment la même activité. Ne pas le
+	 *  recalculer ici à partir de l'index d'un `map` : un filtre d'affichage
+	 *  changerait les couleurs sans rien changer à l'année. */
+	rang: number;
+}
+
+/** Une étape de l'année : l'échelon entre l'année et l'activité.
+ *
+ *  Elle porte les compétences, connaissances et priorités — en **texte libre**,
+ *  et non des identifiants du référentiel : ce sont les mots de l'enseignant,
+ *  pas des cases à cocher. */
+export interface ProgressionEtape {
+	id: string;
+	position: number;
+	libelle: string;
+	competences: string;
+	connaissances: string;
+	priorites: string;
+	/** Ses activités, dans l'ordre. L'étape détient les activités, **pas les
+	 *  semaines** : une activité peut revenir en janvier sans que l'étape se
+	 *  dédouble. */
+	activites: ProgressionActivite[];
+}
+
+/** Une case de la frise : telle activité, telle semaine, telle bande.
+ *
+ *  La semaine se désigne par son **lundi**, une date, jamais par un numéro ISO —
+ *  un numéro n'a pas d'année et la semaine 1 de 2027 suit la 53 de 2026. */
+export interface ProgressionPlage {
+	week_monday: string;
+	/** La bande : 0 ou 1, et rien d'autre. La frise n'en a que deux. */
+	voie: 0 | 1;
+	activite_id: string;
+}
+
+/** La progression annuelle d'une classe. **Une seule par classe.** */
+export interface Progression {
+	id: string;
+	session_id: string;
+	titre: string;
+	/** L'intitulé de groupe imprimé en tête du document — « Gr 2 ».
+	 *
+	 *  Un **libellé**, pas une entité : il n'existe pas d'objet « groupe » dans le
+	 *  modèle, et rien ne s'y rattache. */
+	intitule_groupe: string;
+	devise: string;
+	etapes: ProgressionEtape[];
+	/** Toutes les cases posées, à plat. L'écran les indexe par `(lundi, voie)` ;
+	 *  les garder à plat évite une structure creuse de quarante-cinq semaines dont
+	 *  la plupart sont vides. */
+	plages: ProgressionPlage[];
 }

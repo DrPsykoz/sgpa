@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 18;
+pub const SCHEMA_VERSION: i32 = 19;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -96,6 +96,11 @@ const STEPS: &[(i32, &str, &str)] = &[
         18,
         "la note sur 20 remplace le niveau de maîtrise, qui en devient la lecture",
         include_str!("sql/018_note_sur_20.sql"),
+    ),
+    (
+        19,
+        "la progression annuelle d'une classe",
+        include_str!("sql/019_progression.sql"),
     ),
 ];
 
@@ -432,10 +437,12 @@ mod tests {
     /// palier 003, plus `timetable_slots`, `agenda_entries`, `absence_periods`,
     /// `stage_placements`, `school_holidays`, `savoir_groups`, `savoirs`,
     /// `contract_sheet_savoirs`, `contract_sheet_requirements`,
-    /// `seance_attachments`, `student_need_tags`, `student_needs` et
-    /// `agenda_entry_attachments`. Un palier qui ajoute une table change cette
-    /// ligne, et une seule.
-    const TABLES_ATTENDUES: i64 = 31;
+    /// `seance_attachments`, `student_need_tags`, `student_needs`,
+    /// `agenda_entry_attachments`, et les cinq tables de la progression
+    /// annuelle — `progression_domaines`, `progressions`,
+    /// `progression_etapes`, `progression_activites`, `progression_plages`.
+    /// Un palier qui ajoute une table change cette ligne, et une seule.
+    const TABLES_ATTENDUES: i64 = 36;
 
     /// Applique les paliers un par un **sans** passer par `run`, pour fabriquer
     /// une base telle qu'elle existe chez l'enseignant *avant* la mise à jour :
@@ -1460,6 +1467,197 @@ SELECT st.id,
             tables, TABLES_ATTENDUES,
             "018 reconstruit `grades`, il n'en laisse pas deux"
         );
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 019 pose la progression annuelle sans toucher à ce qui existe.
+    ///
+    /// Cinq tables neuves et aucune colonne ajoutée ailleurs : le risque n'est
+    /// donc pas la perte de données, c'est que les garde-fous du modèle soient
+    /// déclarés sans être vivants. Une contrainte qu'on croit posée est pire
+    /// qu'une contrainte absente — on cesse de vérifier côté commande. Ce test
+    /// les éprouve une par une, sur une base peuplée comme celle de
+    /// l'enseignant :
+    ///
+    ///   * **une classe n'a qu'une progression** (`session_id` UNIQUE) ;
+    ///   * **deux activités ne partagent pas une semaine sur une voie**
+    ///     (la clé primaire des plages), et il n'y a que deux voies ;
+    ///   * **un domaine employé ne se supprime pas** (RESTRICT), alors qu'un
+    ///     domaine libre, oui ;
+    ///   * **supprimer une étape emporte ses activités ET leurs plages.**
+    ///     C'est la cascade en deux sauts : `progression_plages` pend à
+    ///     l'activité, qui pend à l'étape. Une plage orpheline ne se verrait
+    ///     sur aucun écran — la frise lit par progression et par semaine, donc
+    ///     elle afficherait une bande dont l'activité n'existe plus.
+    ///   * **supprimer la classe emporte tout**, jusqu'aux plages, mais laisse
+    ///     le vocabulaire : les domaines sont globaux et survivent à l'année.
+    #[test]
+    fn une_base_v18_peuplee_traverse_le_palier_019_intacte() {
+        let dir = temp_dir("v18-progression");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 18);
+
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026),
+                         ('s2', '4ème B', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO seances (id, session_id, title, date, trimester)
+                  VALUES ('sc1', 's1', 'Atelier', '2026-09-14', 1);",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // Ce qui existait est intact : le palier n'a reconstruit aucune table.
+        let eleves: i64 = conn
+            .query_row("SELECT COUNT(*) FROM students", [], |r| r.get(0))
+            .unwrap();
+        let seances: i64 = conn
+            .query_row("SELECT COUNT(*) FROM seances", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!((eleves, seances), (1, 1));
+
+        // Le vocabulaire arrive VIDE. Un semis « pour rendre service » aurait
+        // imposé à l'enseignant les domaines et l'orthographe d'un autre.
+        let domaines: i64 = conn
+            .query_row("SELECT COUNT(*) FROM progression_domaines", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(domaines, 0, "les domaines sont le vocabulaire de l'auteur");
+
+        conn.execute_batch(
+            "INSERT INTO progression_domaines (id, name, position)
+                  VALUES ('d1', 'Réaliser le clos', 1),
+                         ('d2', 'Recyclage palettes', 2);
+             INSERT INTO progressions (id, session_id, intitule_groupe)
+                  VALUES ('p1', 's1', 'Gr 2');
+             INSERT INTO progression_etapes (id, progression_id, position, competences)
+                  VALUES ('et1', 'p1', 1, 'Prendre conscience des dangers');
+             INSERT INTO progression_activites (id, etape_id, domaine_id, position, libelle)
+                  VALUES ('a1', 'et1', 'd1', 1, 'Trier le matériel'),
+                         ('a2', 'et1', NULL, 2, 'Démontage palettes');
+             INSERT INTO progression_plages (progression_id, week_monday, voie, activite_id)
+                  VALUES ('p1', '2026-09-07', 0, 'a1'),
+                         ('p1', '2026-09-14', 0, 'a1'),
+                         ('p1', '2026-09-14', 1, 'a2'),
+                         ('p1', '2027-01-25', 0, 'a1');",
+        )
+        .unwrap();
+
+        // Une activité qui revient : UNE ligne, plusieurs plages. La semaine du
+        // 25 janvier reprend `a1` sans la dédoubler.
+        let plages_de_a1: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM progression_plages WHERE activite_id = 'a1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(plages_de_a1, 3);
+
+        // Une classe, une progression.
+        let doublon = conn.execute(
+            "INSERT INTO progressions (id, session_id) VALUES ('p2', 's1')",
+            [],
+        );
+        assert!(doublon.is_err(), "une classe n'a qu'une progression");
+
+        // Deux activités la même semaine sur la même voie : irreprésentable.
+        let collision = conn.execute(
+            "INSERT INTO progression_plages (progression_id, week_monday, voie, activite_id)
+                  VALUES ('p1', '2026-09-14', 0, 'a2')",
+            [],
+        );
+        assert!(
+            collision.is_err(),
+            "la clé primaire des plages interdit deux activités sur une voie"
+        );
+
+        // Et il n'y a que deux voies : la troisième rangée du document de
+        // l'auteur ne portait aucune information, elle n'entre pas dans le
+        // modèle.
+        let troisieme = conn.execute(
+            "INSERT INTO progression_plages (progression_id, week_monday, voie, activite_id)
+                  VALUES ('p1', '2026-09-14', 2, 'a2')",
+            [],
+        );
+        assert!(troisieme.is_err(), "deux voies, pas trois");
+
+        // Un lundi mal formé est refusé à l'écriture, pas découvert à la
+        // lecture par une frise qui n'affiche rien.
+        let date_floue = conn.execute(
+            "INSERT INTO progression_plages (progression_id, week_monday, voie, activite_id)
+                  VALUES ('p1', 'septembre', 0, 'a2')",
+            [],
+        );
+        assert!(date_floue.is_err(), "le lundi est une date, pas un libellé");
+
+        // Le domaine employé résiste ; le domaine libre s'en va.
+        let employe = conn.execute("DELETE FROM progression_domaines WHERE id = 'd1'", []);
+        assert!(
+            employe.is_err(),
+            "RESTRICT : un domaine employé ne disparaît pas sous les activités"
+        );
+        conn.execute("DELETE FROM progression_domaines WHERE id = 'd2'", [])
+            .unwrap();
+
+        // La cascade en deux sauts : l'étape emporte ses activités, qui
+        // emportent leurs plages.
+        conn.execute("DELETE FROM progression_etapes WHERE id = 'et1'", [])
+            .unwrap();
+        let (activites, plages): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM progression_activites),
+                        (SELECT COUNT(*) FROM progression_plages)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (activites, plages),
+            (0, 0),
+            "une plage orpheline ne se verrait sur aucun écran"
+        );
+
+        // Supprimer la classe emporte sa progression, et laisse le vocabulaire.
+        conn.execute("DELETE FROM sessions WHERE id = 's1'", [])
+            .unwrap();
+        let (progressions, domaines): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM progressions),
+                        (SELECT COUNT(*) FROM progression_domaines)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(progressions, 0);
+        assert_eq!(domaines, 1, "le vocabulaire survit à l'année scolaire");
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "019 ajoute cinq tables");
 
         let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();

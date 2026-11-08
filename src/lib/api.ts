@@ -27,6 +27,9 @@ import type {
 	NeedTag,
 	NodeKind,
 	ProfessionalField,
+	Progression,
+	ProgressionDomaine,
+	ProgressionEtape,
 	RecomputePreview,
 	RecomputeResult,
 	Seance,
@@ -40,6 +43,7 @@ import type {
 	TimetableSlotInput,
 	TrimesterBounds,
 	WeekSchedule,
+	YearCalendar,
 } from "@/types";
 
 /**
@@ -474,6 +478,17 @@ export const api = {
 	getWeekSchedule: (monday: string) =>
 		call<WeekSchedule>("get_week_schedule", { monday }),
 
+	/** L'année scolaire entière, semaine par semaine — la frise annuelle.
+	 *
+	 *  Les semaines sont les **vraies** : quarante-cinq pour 2026-2027, dont
+	 *  plusieurs amputées par un férié et plusieurs vides. Les bornes viennent des
+	 *  trimestres réglés, pas d'un septembre-juillet écrit dans le code.
+	 *
+	 *  **Aucune écriture ne se branche derrière cette lecture** : la vue annuelle
+	 *  montre, la fiche de classe modifie. */
+	getYearCalendar: (yearStart: number) =>
+		call<YearCalendar>("get_year_calendar", { yearStart }),
+
 	/** Tous les créneaux d'une année, tous les jours, sans filtre de parité :
 	 *  la grille telle qu'on la règle, pas telle qu'on la vit un jour donné. */
 	getTimetableSlots: (yearStart: number) =>
@@ -729,6 +744,154 @@ export const api = {
 			studentId,
 			trimester,
 			teacherComment,
+		}),
+
+	// ---- Progression annuelle ----
+
+	/** Le vocabulaire de l'enseignant, dans son ordre. **Livré vide.** */
+	getProgressionDomaines: () =>
+		call<ProgressionDomaine[]>("get_progression_domaines"),
+
+	createProgressionDomaine: (name: string) =>
+		call<ProgressionDomaine>("create_progression_domaine", { name }),
+
+	renameProgressionDomaine: (id: string, name: string) =>
+		call<void>("rename_progression_domaine", { id, name }),
+
+	/** **Refuse** si le domaine est encore employé, en disant par combien
+	 *  d'activités. Un domaine supprimé sous ses activités les laisserait sans
+	 *  couleur ni colonne — mieux vaut un refus nommé qu'un détachement muet. */
+	deleteProgressionDomaine: (id: string) =>
+		call<void>("delete_progression_domaine", { id }),
+
+	/** La progression de la classe, ou `null` si elle n'en a pas encore.
+	 *
+	 *  `null` n'est pas une erreur : c'est l'état d'une classe dont l'année n'est
+	 *  pas encore plannifiée, et cette lecture n'en crée aucune — c'est à l'écran
+	 *  de proposer `createProgression`. */
+	getProgression: (sessionId: string) =>
+		call<Progression | null>("get_progression", { sessionId }),
+
+	/** Une seule progression par classe : un second appel échoue. */
+	createProgression: (sessionId: string) =>
+		call<Progression>("create_progression", { sessionId }),
+
+	/** L'en-tête imprimé : titre, intitulé de groupe, devise. N'écrit ni étape ni
+	 *  activité ni plage. */
+	updateProgressionMeta: (
+		id: string,
+		titre: string,
+		intituleGroupe: string,
+		devise: string,
+	) =>
+		call<void>("update_progression_meta", {
+			id,
+			titre,
+			intituleGroupe,
+			devise,
+		}),
+
+	createProgressionEtape: (progressionId: string, libelle: string) =>
+		call<ProgressionEtape>("create_progression_etape", {
+			progressionId,
+			libelle,
+		}),
+
+	/** Les quatre champs du formulaire d'une étape, ensemble.
+	 *
+	 *  Ce n'est pas la règle « deux écritures sont deux commandes » qui plie : ces
+	 *  quatre colonnes sont les quatre champs d'un seul formulaire, saisi d'un
+	 *  bloc par un seul écran. La règle vise deux écrans qui écrivent chacun la
+	 *  moitié d'une ligne sans avoir rafraîchi l'autre — il n'y en a qu'un ici. */
+	updateProgressionEtape: (
+		id: string,
+		libelle: string,
+		competences: string,
+		connaissances: string,
+		priorites: string,
+	) =>
+		call<void>("update_progression_etape", {
+			id,
+			libelle,
+			competences,
+			connaissances,
+			priorites,
+		}),
+
+	/** Emporte ses activités **et leurs plages** : la base tient la cascade, pas
+	 *  l'écran. */
+	deleteProgressionEtape: (id: string) =>
+		call<void>("delete_progression_etape", { id }),
+
+	/** L'ordre des étapes est l'ordre de l'année : le changer **recolorie** les
+	 *  activités, dont le rang en dépend. Relire la progression après. */
+	reorderProgressionEtapes: (progressionId: string, orderedIds: string[]) =>
+		call<void>("reorder_progression_etapes", { progressionId, orderedIds }),
+
+	/** Ne rend rien, exprès : ajouter une activité change le rang de toutes celles
+	 *  qui suivent, donc leur couleur. L'écran relit la progression entière. */
+	createProgressionActivite: (
+		etapeId: string,
+		libelle: string,
+		domaineId: string | null,
+	) =>
+		call<void>("create_progression_activite", {
+			etapeId,
+			libelle,
+			domaineId,
+		}),
+
+	updateProgressionActivite: (
+		id: string,
+		libelle: string,
+		domaineId: string | null,
+	) =>
+		call<void>("update_progression_activite", { id, libelle, domaineId }),
+
+	/** Emporte ses plages : une case de frise sans activité ne s'afficherait
+	 *  nulle part et ne se retirerait donc jamais. */
+	deleteProgressionActivite: (id: string) =>
+		call<void>("delete_progression_activite", { id }),
+
+	reorderProgressionActivites: (etapeId: string, orderedIds: string[]) =>
+		call<void>("reorder_progression_activites", { etapeId, orderedIds }),
+
+	/** Déplace une activité d'une étape à l'autre. **Refuse** une étape d'une
+	 *  autre progression : le couple contradictoire n'est pas rectifié en
+	 *  silence, parce qu'une rectification muette masquerait le défaut d'écran qui
+	 *  l'a produit. */
+	setProgressionActiviteEtape: (id: string, etapeId: string) =>
+		call<void>("set_progression_activite_etape", { id, etapeId }),
+
+	/** Pose une activité sur PLUSIEURS semaines d'un coup, sur une bande.
+	 *
+	 *  Au pluriel et en une transaction : peindre huit semaines à la souris est un
+	 *  seul geste, et huit appels auraient laissé une frise à moitié peinte en cas
+	 *  d'échec au cinquième. Chaque semaine se désigne par son **lundi** — une
+	 *  autre date est refusée, pas arrondie. */
+	setProgressionPlages: (
+		progressionId: string,
+		weekMondays: string[],
+		voie: 0 | 1,
+		activiteId: string,
+	) =>
+		call<void>("set_progression_plages", {
+			progressionId,
+			weekMondays,
+			voie,
+			activiteId,
+		}),
+
+	/** Efface ces semaines sur cette bande, quelle qu'y soit l'activité. */
+	clearProgressionPlages: (
+		progressionId: string,
+		weekMondays: string[],
+		voie: 0 | 1,
+	) =>
+		call<void>("clear_progression_plages", {
+			progressionId,
+			weekMondays,
+			voie,
 		}),
 
 	// ---- Maintenance ----
