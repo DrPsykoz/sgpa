@@ -636,8 +636,20 @@ function Carte({
 	const libelle = libelleHoraire(bornes.debut, bornes.fin) || "heure à caler";
 	const etat = etatDe(row);
 
+	// `w-full` n'est PAS décoratif : sans lui, la carte rendue en `<button>`
+	// — une séance pas encore créée, un rendez-vous — déborde sur la colonne
+	// du jour suivant. Un bouton est un contrôle de formulaire : son
+	// `width: auto` reste un *fit-content* même en `display: block`, donc sa
+	// largeur devient le `max-content` de son contenu — et comme chaque ligne
+	// du corps porte `truncate` (donc `white-space: nowrap`), ce `max-content`
+	// est le titre ENTIER sur une ligne. `overflow-hidden` n'y peut rien : il
+	// n'y a aucun débordement *dans* le bouton, c'est le bouton qui est trop
+	// large, et `truncate` ne s'arme jamais. Les pistes de la grille sont en
+	// `minmax(0, 1fr)`, ce qui empêche la colonne de s'élargir mais pas la
+	// carte de peindre par-dessus la voisine. Le jumeau `CarteLibre` de
+	// `WeekGrid` porte déjà ce `w-full` ; c'est ici qu'il manquait.
 	const classes = cn(
-		"block overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight",
+		"block w-full overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight",
 		pleineHauteur && "h-full",
 		apparenceDe(row),
 		(href || action) &&
@@ -660,15 +672,19 @@ function Carte({
 			</span>
 			{sous && <span className="block truncate opacity-80">{sous}</span>}
 			{horaire && <span className="block truncate opacity-80">{libelle}</span>}
+			{/* `min-w-0` des deux côtés : `text-overflow` est inopérant sur un
+			    conteneur flex, et un enfant de flex garde `min-width: auto`,
+			    donc refuse de rétrécir. Sans eux la coupe est franche, sans les
+			    trois points qui disent qu'il manque du texte. */}
 			{etat && (
-				<span className="flex items-center gap-1 truncate opacity-90">
+				<span className="flex min-w-0 items-center gap-1 opacity-90">
 					{etat.reclame && (
 						<span
 							aria-hidden
 							className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
 						/>
 					)}
-					<span className="truncate">{etat.texte}</span>
+					<span className="min-w-0 truncate">{etat.texte}</span>
 				</span>
 			)}
 		</>

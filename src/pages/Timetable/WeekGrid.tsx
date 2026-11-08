@@ -1040,7 +1040,7 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
             les signes d'état partagent donc la ligne de la quinzaine plutôt
             que d'en ajouter une cinquième qui serait rognée. */}
         <span className="flex items-baseline justify-between gap-1 text-muted-foreground">
-          <span className="truncate">
+          <span className="min-w-0 truncate">
             {libelleHoraire(slot.start_time, slot.end_time)}
             {slot.room && ` · ${slot.room}`}
           </span>
@@ -1048,7 +1048,7 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
         </span>
         {quinzaine && (
           <span className="flex items-baseline justify-between gap-1 font-medium text-muted-foreground">
-            <span className="truncate">{quinzaine}</span>
+            <span className="min-w-0 truncate">{quinzaine}</span>
             {seance && <Signes seance={seance} />}
           </span>
         )}
