@@ -5,7 +5,6 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import { Eraser } from "lucide-react";
 
 import {
   Select,
@@ -41,10 +40,15 @@ import type { Progression, YearWeek } from "@/types";
  *  frise, lue deux fois. */
 const LARGEUR_LEGENDE = 124;
 
-/** Le pinceau « gomme ». Sentinelle locale : elle ne quitte pas ce fichier. */
-const GOMME = "gomme";
+/** Ce que fait le geste en cours, décidé par le bouton de la souris et non
+ *  plus par une entrée « gomme » du sélecteur. Sentinelle locale : elle ne
+ *  quitte pas ce fichier, et le backend n'en sait rien — il a ses deux
+ *  commandes, `set_progression_plages` et `clear_progression_plages`, depuis le
+ *  palier 019. */
+type Mode = "poser" | "effacer";
 
 interface Trace {
+  mode: Mode;
   voie: 0 | 1;
   debut: number;
   fin: number;
@@ -120,7 +124,29 @@ function phrasePeriode(periode: Periode): string {
  *
  * Le geste est le glissement : on enfonce sur la première semaine, on relâche
  * sur la dernière, et **une seule** commande écrit la bande entière. Huit appels
- * auraient laissé une frise à moitié peinte en cas d'échec au cinquième.
+ * auraient laissé une frise à moitié peinte en cas d'échec au cinquième. Le
+ * relâchement s'écoute sur la fenêtre, et `blur`, `Échap` et `pointercancel`
+ * **abandonnent** le tracé sans rien écrire : sans eux, un Alt-Tab en plein
+ * glissement laissait le tracé accroché au curseur, et le premier relâchement
+ * suivant — n'importe où sur la page — peignait une bande que personne n'avait
+ * voulue. Même doctrine que les bandes de `WeekGrid`, et même liste d'écouteurs.
+ *
+ * **Le bouton de la souris décide du geste**, demandé le 2026-11-09 : clic
+ * gauche pose l'activité choisie, clic droit l'efface. Le pinceau « gomme »
+ * était une entrée du sélecteur, et effacer deux semaines au milieu d'une année
+ * peinte demandait trois gestes — changer de pinceau, gommer, retrouver son
+ * activité dans une liste groupée par étape. Il n'est pas retiré sans
+ * remplaçant : le clic droit à la souris, **`Suppr` ou `Retour arrière` au
+ * clavier**, les cases restant atteignables par tabulation. Un geste de souris
+ * sans équivalent au clavier aurait rendu la moitié de la frise inatteignable
+ * sans souris, et c'est la raison même qui fait vivre « Un autre cours à cet
+ * horaire » dans `SlotDialog`.
+ *
+ * **Les deux gestes ont la même portée**, et c'est délibéré : une case cliquée
+ * est une semaine, un glissement est une bande. Le clic droit n'efface donc
+ * **pas** le trait entier sous le curseur — sur un trait de vingt semaines, un
+ * clic aurait emporté la moitié d'une année sans rien demander, et la frise n'a
+ * pas d'annulation.
  */
 export function FriseProgression({
   progression,
@@ -128,13 +154,33 @@ export function FriseProgression({
   sessionId,
   onChanged,
 }: FriseProgressionProps): ReactElement {
-  const [pinceau, setPinceau] = useState<string>(GOMME);
   const [trace, setTrace] = useState<Trace | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const plages = useMemo(() => indexDesPlages(progression), [progression]);
   const parId = useMemo(() => activitesParId(progression), [progression]);
+
+  /** Les étapes qui ont au moins une activité : une étape vide n'a rien à
+   *  offrir au sélecteur, et son intitulé seul y passerait pour un choix. */
+  const etapesPeignables = useMemo(
+    () => progression.etapes.filter((etape) => etape.activites.length > 0),
+    [progression],
+  );
+  const premiereActivite = etapesPeignables[0]?.activites[0]?.id ?? "";
+
+  const [pinceau, setPinceau] = useState<string>(premiereActivite);
+
+  // Le pinceau est un **identifiant**, pas une activité figée (règle 1) : il
+  // peut disparaître sous nos pieds, l'éditeur juste au-dessus pouvant
+  // supprimer l'activité ou l'étape qui la portait. On retombe alors sur la
+  // première activité — un identifiant mort aurait fait échouer l'écriture avec
+  // un message de clé étrangère au lieu d'une phrase en français.
+  useEffect(() => {
+    if (pinceau !== "" && parId.has(pinceau)) return;
+    if (pinceau === premiereActivite) return;
+    setPinceau(premiereActivite);
+  }, [pinceau, parId, premiereActivite]);
 
   /** Les traits de chaque bande, calculés une fois : le découpage est
    *  partagé avec la vue annuelle, qui lit la même frise sans la peindre. */
@@ -164,21 +210,37 @@ export function FriseProgression({
   // dernière.
   const traceRef = useRef<Trace | null>(null);
   const terminerRef = useRef<() => void>(() => {});
+  /** Vrai entre l'enfoncement du bouton droit et le `contextmenu` qui le suit.
+   *  Voir l'écouteur `menu` plus bas : il ne supprime le menu du système que
+   *  pour un clic droit qui nous était destiné. */
+  const clicDroitRef = useRef(false);
 
   const poserTrace = (suivante: Trace | null) => {
     traceRef.current = suivante;
     setTrace(suivante);
   };
 
-  const peindre = async (voie: 0 | 1, debut: number, fin: number) => {
+  const peindre = async (
+    mode: Mode,
+    voie: 0 | 1,
+    debut: number,
+    fin: number,
+  ) => {
     const premier = Math.min(debut, fin);
     const dernier = Math.max(debut, fin);
     const lundis = weeks.slice(premier, dernier + 1).map((w) => w.monday);
     if (lundis.length === 0) return;
+    if (mode === "poser" && pinceau === "") {
+      setError(
+        "Choisissez d'abord une activité : la frise place ce qui a été défini " +
+          "au-dessus, elle ne l'invente pas.",
+      );
+      return;
+    }
     setPending(true);
     setError(null);
     try {
-      if (pinceau === GOMME) {
+      if (mode === "effacer") {
         await api.clearProgressionPlages(progression.id, lundis, voie);
       } else {
         await api.setProgressionPlages(progression.id, lundis, voie, pinceau);
@@ -195,7 +257,7 @@ export function FriseProgression({
     const encours = traceRef.current;
     if (encours === null) return;
     poserTrace(null);
-    void peindre(encours.voie, encours.debut, encours.fin);
+    void peindre(encours.mode, encours.voie, encours.debut, encours.fin);
   };
 
   useEffect(() => {
@@ -204,15 +266,47 @@ export function FriseProgression({
 
   useEffect(() => {
     const relache = () => terminerRef.current();
+
+    // Abandonner, c'est oublier le tracé **sans écrire**. `pointercancel`
+    // couvre le doigt que le navigateur reprend pour défiler ; `blur`, l'Alt-Tab
+    // en plein glissement ; `Échap`, le repentir.
+    const abandon = () => {
+      if (traceRef.current === null) return;
+      traceRef.current = null;
+      setTrace(null);
+    };
+    const touche = (event: KeyboardEvent) => {
+      if (event.key === "Escape") abandon();
+    };
+
+    // Le menu contextuel de WebView2 n'a rien à faire par-dessus la frise : ici
+    // le clic droit est un geste de l'application. Il n'est supprimé que pour
+    // ce geste-là — ailleurs dans la page, le clic droit reste celui du
+    // système. Sous Windows l'événement arrive **après** `pointerup`, donc la
+    // trace est déjà consommée quand il passe : c'est un drapeau posé à
+    // l'enfoncement qui dit « ce clic droit était pour nous », et il se rend au
+    // premier enfoncement suivant.
+    const menu = (event: MouseEvent) => {
+      if (!clicDroitRef.current) return;
+      clicDroitRef.current = false;
+      event.preventDefault();
+    };
+
     window.addEventListener("pointerup", relache);
-    window.addEventListener("pointercancel", relache);
+    window.addEventListener("pointercancel", abandon);
+    window.addEventListener("blur", abandon);
+    window.addEventListener("keydown", touche);
+    window.addEventListener("contextmenu", menu);
     return () => {
       window.removeEventListener("pointerup", relache);
-      window.removeEventListener("pointercancel", relache);
+      window.removeEventListener("pointercancel", abandon);
+      window.removeEventListener("blur", abandon);
+      window.removeEventListener("keydown", touche);
+      window.removeEventListener("contextmenu", menu);
     };
   }, []);
 
-  const activitePeinte = pinceau === GOMME ? null : (parId.get(pinceau) ?? null);
+  const activitePeinte = pinceau === "" ? null : (parId.get(pinceau) ?? null);
 
   if (weeks.length === 0) {
     return (
@@ -226,43 +320,59 @@ export function FriseProgression({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Pinceau</span>
-          <Select value={pinceau} onValueChange={setPinceau}>
-            <SelectTrigger className="w-72">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={GOMME}>Gomme — vider les semaines</SelectItem>
-              {progression.etapes.map((etape) => (
-                <SelectGroup key={etape.id}>
-                  <SelectLabel>{etape.libelle}</SelectLabel>
-                  {etape.activites.map((activite) => (
-                    <SelectItem key={activite.id} value={activite.id}>
-                      {activite.libelle}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {premiereActivite === "" ? (
+        <p className="text-sm text-muted-foreground">
+          Aucune activité à poser. Créez-en une dans « Étapes et activités »,
+          juste au-dessus : la frise place ce qui y est défini, elle ne l'invente
+          pas.
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">Activité</span>
+            <Select value={pinceau} onValueChange={setPinceau}>
+              <SelectTrigger className="w-72">
+                <SelectValue placeholder="Choisissez une activité" />
+              </SelectTrigger>
+              <SelectContent>
+                {etapesPeignables.map((etape) => (
+                  <SelectGroup key={etape.id}>
+                    <SelectLabel>{etape.libelle}</SelectLabel>
+                    {etape.activites.map((activite) => (
+                      <SelectItem key={activite.id} value={activite.id}>
+                        {activite.libelle}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        {activitePeinte === null ? (
-          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Eraser className="h-4 w-4" />
-            Glissez sur une bande pour vider ces semaines.
-          </span>
-        ) : (
-          <span
-            style={styleTeinteActivite(activitePeinte.rang)}
-            className="teinte-carte teinte-appui rounded-md border px-2.5 py-1 text-sm"
-          >
-            {activitePeinte.libelle}
-          </span>
-        )}
-      </div>
+          {activitePeinte !== null && (
+            <span
+              style={styleTeinteActivite(activitePeinte.rang)}
+              className="teinte-carte teinte-appui rounded-md border px-2.5 py-1 text-sm"
+            >
+              {activitePeinte.libelle}
+            </span>
+          )}
+
+          {/* Les mots du geste vivent ici, à portée de la main qui le fait, et
+              nulle part ailleurs : le pavé de la section au-dessus a cessé de
+              les redire, deux rédactions du même geste divergeant au premier
+              bouton ajouté. */}
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Clic gauche</span> pose
+            cette activité,{" "}
+            <span className="font-medium text-foreground">clic droit</span>{" "}
+            efface. Glissez pour couvrir plusieurs semaines d'un coup. Au
+            clavier : <span className="font-medium text-foreground">Entrée</span>{" "}
+            pose, <span className="font-medium text-foreground">Suppr</span>{" "}
+            efface.
+          </p>
+        </div>
+      )}
 
       {error && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive">
@@ -336,13 +446,23 @@ export function FriseProgression({
                           `Semaine ${week.iso_week} — lundi ${formatDateDeFrise(week.monday)}`,
                           activite === null
                             ? "Libre"
-                            : `Activité : ${activite.libelle}`,
+                            : `Activité : ${activite.libelle} — clic droit pour l'effacer`,
                           ...raisons,
                         ].join("\n")}
                         className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         onPointerDown={(event) => {
+                          // Le bouton du milieu colle la sélection sous X11 et
+                          // ouvre un onglet ailleurs : il n'a pas de geste ici,
+                          // et en inventer un serait une surprise.
+                          if (event.button !== 0 && event.button !== 2) return;
                           event.preventDefault();
-                          poserTrace({ voie, debut: index, fin: index });
+                          clicDroitRef.current = event.button === 2;
+                          poserTrace({
+                            mode: event.button === 2 ? "effacer" : "poser",
+                            voie,
+                            debut: index,
+                            fin: index,
+                          });
                         }}
                         onPointerEnter={() => {
                           const encours = traceRef.current;
@@ -350,9 +470,21 @@ export function FriseProgression({
                           poserTrace({ ...encours, fin: index });
                         }}
                         onKeyDown={(event) => {
-                          if (event.key !== "Enter" && event.key !== " ") return;
-                          event.preventDefault();
-                          void peindre(voie, index, index);
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            void peindre("poser", voie, index, index);
+                            return;
+                          }
+                          // Le remplaçant clavier du clic droit. Les deux
+                          // touches, parce que « Suppr » manque à certains
+                          // portables.
+                          if (
+                            event.key === "Delete" ||
+                            event.key === "Backspace"
+                          ) {
+                            event.preventDefault();
+                            void peindre("effacer", voie, index, index);
+                          }
                         }}
                       />
 
@@ -368,7 +500,14 @@ export function FriseProgression({
                       )}
 
                       {dansLaTrace && (
-                        <div className="pointer-events-none absolute inset-0 z-20 bg-primary/25" />
+                        <div
+                          className={cn(
+                            "pointer-events-none absolute inset-0 z-20",
+                            trace?.mode === "effacer"
+                              ? "bg-destructive/20"
+                              : "bg-primary/25",
+                          )}
+                        />
                       )}
                     </td>
                   );

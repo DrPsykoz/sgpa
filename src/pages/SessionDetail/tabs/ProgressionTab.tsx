@@ -248,7 +248,7 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
                   <div>
                     <h3 className="text-sm font-semibold">Frise de l'année</h3>
                     <p className="text-xs text-muted-foreground">
-                      Choisissez un pinceau, puis glissez sur une bande. Les
+                      On place ici ce qui a été défini au-dessus. Les
                       colonnes sont les vraies semaines : les vacances et les
                       stages y sont pâles, et restent peignables — le calendrier
                       bouge, et l'application ne vous dicte pas où planifier.
