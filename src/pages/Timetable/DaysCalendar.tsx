@@ -14,9 +14,10 @@
  * elles, ne répondent jamais : on n'ajoute pas un cours depuis l'accueil, on
  * l'ajoute depuis l'emploi du temps.
  *
- * Rien n'est relu de la journée pour autant : `buildRows` et `motifDuCreneau`
- * viennent de `journee.ts`, la géométrie de `geometry.ts`. Une seule règle,
- * deux rendus — la grille de la semaine, et ce calendrier.
+ * Rien n'est relu de la journée pour autant : `buildRows`, `motifDeFermeture`
+ * et `absenceDuCreneau` viennent de `journee.ts`, la géométrie de
+ * `geometry.ts`. Une seule règle, deux rendus — la grille de la semaine, et ce
+ * calendrier.
  *
  * Ce composant ne met aucune date en forme et ne connaît aucune route : les
  * en-têtes, les bandeaux et les liens arrivent en props. Deux implémentations
@@ -37,9 +38,12 @@ import {
 
 import { Link } from "react-router-dom";
 
+import { PastilleDeCategorie } from "@/components/PastilleCategorie";
 import {
+	absenceDuCreneau,
 	buildRows,
-	motifDuCreneau,
+	motifDeFermeture,
+	motsDeAbsence,
 	slotTitle,
 	cibleDuRendezVous,
 	type Row,
@@ -63,7 +67,7 @@ import {
 } from "@/lib/contenu";
 import { styleTeinte, type TableTeintes } from "@/lib/teintes";
 import { cn } from "@/lib/utils";
-import type { DaySchedule } from "@/types";
+import type { DaySchedule, SessionAway } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Ce qu'une carte dit
@@ -111,6 +115,14 @@ function classeDuCreneau(row: Row): string | null | undefined {
 	return undefined;
 }
 
+/** La période qui met cette ligne hors cours, ou `null`.
+ *
+ *  Seul un créneau peut l'être : une séance datée et un rendez-vous sont des
+ *  faits, et un rattrapage posé pendant un stage reste un rattrapage. */
+function absenceDe(day: DaySchedule, row: Row): SessionAway | null {
+	return absenceDuCreneau(day, classeDuCreneau(row) ?? null);
+}
+
 /**
  * L'apparence de la carte.
  *
@@ -154,6 +166,13 @@ function texteDe(row: Row): { titre: string; sous: string | null } {
 		case "entree":
 			return { titre: row.entry.title, sous: cibleDuRendezVous(row.entry) };
 	}
+}
+
+/** La catégorie de la carte, `""` quand elle n'en a pas — et seul un
+ *  rendez-vous peut en porter une : un créneau et une séance sont des cours,
+ *  leur nature est dans leur intitulé. */
+function categorieDe(row: Row): string {
+	return row.kind === "entree" ? row.entry.category : "";
 }
 
 /** La séance barrée d'un trait : annulée. */
@@ -316,14 +335,20 @@ export function DaysCalendar({
 	emphaseAujourdhui = 1.45,
 	className,
 }: DaysCalendarProps): ReactElement {
-	// Un créneau masqué n'est pas dessiné : c'est un MODÈLE, il n'existe pas, et
-	// le bandeau de la journée dit déjà pourquoi personne ne fait cours. Même
-	// doctrine que la grille de la semaine.
+	// Un créneau d'un JOUR fermé n'est pas dessiné : c'est un MODÈLE, il n'existe
+	// pas, et le bandeau de la journée dit déjà pourquoi personne ne fait cours.
+	// Même doctrine que la grille de la semaine.
+	//
+	// Une classe hors cours, elle, GARDE ses cartes depuis le palier 020 —
+	// estompées, inertes, le motif écrit dessus (`absenceDe`). Une colonne vidée
+	// ne disait pas si l'emploi du temps était seulement saisi, et l'effet que le
+	// palier 006 cherchait tient autrement : la carte n'ouvre plus rien, donc
+	// elle ne propose plus de créer la séance d'un cours qui n'a pas eu lieu.
 	const jours: JourPlace[] = days.map((day, index) => {
-		const lignes = buildRows(day).filter((row) => {
-			const classe = classeDuCreneau(row);
-			return classe === undefined || motifDuCreneau(day, classe) === null;
-		});
+		const ferme = motifDeFermeture(day) !== null;
+		const lignes = buildRows(day).filter(
+			(row) => classeDuCreneau(row) === undefined || !ferme,
+		);
 
 		const candidats: Candidat<Row>[] = [];
 		const horsHoraire: Row[] = [];
@@ -452,6 +477,7 @@ export function DaysCalendar({
 								row={row}
 								href={hrefOf(row, jour.day)}
 								action={actionDe?.(row, jour.day) ?? null}
+								absence={absenceDe(jour.day, row)}
 								teintes={teintes}
 								horaire
 							/>
@@ -484,6 +510,7 @@ export function DaysCalendar({
 						colonne={jour.colonne}
 						href={hrefOf(place.contenu, jour.day)}
 						action={actionDe?.(place.contenu, jour.day) ?? null}
+						absence={absenceDe(jour.day, place.contenu)}
 						teintes={teintes}
 						ligneDebut={ligneDe(place.debut)}
 						// Un contenu de moins de 5 minutes retomberait sur la même ligne de
@@ -567,6 +594,7 @@ function CartePlacee({
 	colonne,
 	href,
 	action,
+	absence,
 	teintes,
 	ligneDebut,
 	ligneFin,
@@ -575,6 +603,7 @@ function CartePlacee({
 	colonne: number;
 	href: string | null;
 	action: (() => void) | null;
+	absence: SessionAway | null;
 	teintes?: TableTeintes;
 	ligneDebut: number;
 	ligneFin: number;
@@ -600,6 +629,7 @@ function CartePlacee({
 				row={contenu}
 				href={href}
 				action={action}
+				absence={absence}
 				teintes={teintes}
 				pleineHauteur
 			/>
@@ -620,6 +650,7 @@ function Carte({
 	row,
 	href,
 	action = null,
+	absence = null,
 	teintes,
 	pleineHauteur = false,
 	horaire = false,
@@ -627,14 +658,30 @@ function Carte({
 	row: Row;
 	href: string | null;
 	action?: (() => void) | null;
+	/** La période qui met la classe hors cours, ou `null`. Quand elle est là,
+	 *  elle emporte TOUT : la carte s'estompe, écrit le motif à la place de son
+	 *  état, et n'ouvre plus rien. */
+	absence?: SessionAway | null;
 	teintes?: TableTeintes;
 	pleineHauteur?: boolean;
 	horaire?: boolean;
 }): ReactElement {
 	const { titre, sous } = texteDe(row);
+	const categorie = categorieDe(row);
 	const bornes = bornesDe(row);
 	const libelle = libelleHoraire(bornes.debut, bornes.fin) || "heure à caler";
-	const etat = etatDe(row);
+	// Le motif PASSE DEVANT l'état de la séance : « appel 0/12 » sur un cours qui
+	// n'a pas eu lieu réclamerait un appel que personne ne doit faire — c'est
+	// exactement ce que le palier 006 a corrigé, et la carte le dit maintenant
+	// au lieu de disparaître.
+	const etat =
+		absence === null
+			? etatDe(row)
+			: { texte: motsDeAbsence(absence).carte, reclame: false };
+	// Une carte estompée qui ouvrirait quelque chose mentirait deux fois : rien
+	// à ouvrir pour un cours qui ne s'est pas tenu, et surtout rien à créer.
+	const mene = absence === null ? href : null;
+	const geste = absence === null ? action : null;
 
 	// `w-full` n'est PAS décoratif : sans lui, la carte rendue en `<button>`
 	// — une séance pas encore créée, un rendez-vous — déborde sur la colonne
@@ -652,7 +699,12 @@ function Carte({
 		"block w-full overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight",
 		pleineHauteur && "h-full",
 		apparenceDe(row),
-		(href || action) &&
+		// `opacity-40` = ce cours ne se tient pas, et c'est le même signe que sur
+		// la grille de la semaine : un même estompage veut dire la même chose sur
+		// les deux rendus. Pas de hachure ni de second dessin — c'est le motif
+		// écrit sur la carte qui dit pourquoi.
+		absence !== null && "opacity-40",
+		(mene || geste) &&
 			"transition-shadow hover:shadow-carte focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 	);
 
@@ -670,6 +722,10 @@ function Carte({
 			>
 				{titre}
 			</span>
+			{/* Sous l'intitulé, donc avant tout ce qui serait rogné : sur une carte
+			    d'une heure — 48 px — c'est l'horaire qui saute, et la position de la
+			    carte le dit déjà. */}
+			<PastilleDeCategorie category={categorie} />
 			{sous && <span className="block truncate opacity-80">{sous}</span>}
 			{horaire && <span className="block truncate opacity-80">{libelle}</span>}
 			{/* `min-w-0` des deux côtés : `text-overflow` est inopérant sur un
@@ -690,7 +746,13 @@ function Carte({
 		</>
 	);
 
-	const infobulle = `${titre} — ${libelle}${etat ? `\n${etat.texte}` : ""}`;
+	// La catégorie accolée à l'intitulé, et non sur une ligne à elle : rognée
+	// dans la pastille, c'est ici qu'elle se lit en entier.
+	const entete = categorie ? `${titre} — ${categorie}` : titre;
+	const infobulle =
+		absence === null
+			? `${entete} — ${libelle}${etat ? `\n${etat.texte}` : ""}`
+			: `${entete} — ${libelle}\n${motsDeAbsence(absence).infobulle}`;
 
 	// Un lien quand la carte MÈNE quelque part : elle doit alors s'ouvrir au clic
 	// du milieu comme au clavier, ce qu'un `<button>` ne sait pas faire.
@@ -699,20 +761,21 @@ function Carte({
 	// pas encore. Un lien y serait un mensonge : il n'y a pas d'adresse derrière,
 	// et « ouvrir dans un nouvel onglet » n'ouvrirait rien.
 	//
-	// Un `<div>` inerte quand elle ne fait ni l'un ni l'autre, et c'est le cas
-	// d'une occupation : un créneau sans classe est un modèle, il n'existe pas.
-	if (href) {
+	// Un `<div>` inerte quand elle ne fait ni l'un ni l'autre : une occupation —
+	// un créneau sans classe est un modèle, il n'existe pas — et, depuis le
+	// palier 020, un cours dont la classe est hors cours.
+	if (mene) {
 		return (
-			<Link to={href} className={classes} style={style} title={infobulle}>
+			<Link to={mene} className={classes} style={style} title={infobulle}>
 				{corps}
 			</Link>
 		);
 	}
-	if (action) {
+	if (geste) {
 		return (
 			<button
 				type="button"
-				onClick={action}
+				onClick={geste}
 				className={classes}
 				style={style}
 				title={infobulle}

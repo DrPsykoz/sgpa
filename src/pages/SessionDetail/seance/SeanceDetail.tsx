@@ -51,6 +51,10 @@ import { NeedsLoadError, useNeeds } from "@/hooks/useNeeds";
 import { api } from "@/lib/api";
 import { useZoneDepot } from "@/hooks/useZoneDepot";
 import { aDuContenu } from "@/lib/contenu";
+// Le même libellé d'horaire que les deux calendriers et l'accueil : « 8h – 9h »
+// s'écrit à un seul endroit, sinon la fiche de la séance et la carte qui y mène
+// finissent par ne pas afficher la même heure. `Home.tsx` puise déjà là.
+import { timeLabel } from "@/pages/Timetable/journee";
 import { cn } from "@/lib/utils";
 import { CANCEL_REASON_SUGGESTIONS } from "@/types";
 import type {
@@ -184,11 +188,28 @@ export function SeanceDetail({
   // l'onglet « Élèves », pas pendant qu'on fait l'appel.
   const { tags: needTags, parEleve: besoins } = useNeeds();
 
-  // ---- Bloc « informations » : titre, date, trimestre, annulation ----
-  // Ces quatre champs ne partent QUE par api.updateSeanceMeta.
+  /**
+   * Une séance **sans créneau** : un cours ponctuel, un remplacement, une
+   * séance ajoutée à la main depuis l'emploi du temps.
+   *
+   * C'est la seule dont l'horaire s'édite ici, et c'est la raison même de cette
+   * distinction : une séance née d'un créneau tient son heure du modèle
+   * hebdomadaire, qui se corrige dans l'emploi du temps et pour toutes les
+   * semaines à la fois. La corriger occurrence par occurrence ferait deux
+   * vérités pour la même heure — c'est « l'emploi du temps définit » appliqué à
+   * une colonne. Un cours ponctuel, lui, n'a aucun modèle derrière lui : sans
+   * ce champ, un horaire saisi de travers restait faux pour toujours, et c'est
+   * exactement ce que l'enseignant a signalé.
+   */
+  const ponctuelle = seance.slot_id === null;
+
+  // ---- Bloc « informations » : titre, date, horaire, trimestre, annulation ----
+  // Ces champs ne partent QUE par api.updateSeanceMeta.
   const [metaOpen, setMetaOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState(seance.title);
   const [dateDraft, setDateDraft] = useState(seance.date);
+  const [startDraft, setStartDraft] = useState(seance.start_time);
+  const [endDraft, setEndDraft] = useState(seance.end_time);
   const [choiceDraft, setChoiceDraft] = useState<TrimesterChoice>(
     choiceOf(seance),
   );
@@ -201,6 +222,11 @@ export function SeanceDetail({
     metaOpen &&
     (titleDraft !== seance.title ||
       dateDraft !== seance.date ||
+      // L'horaire ne compte comme modification que là où il est saisissable :
+      // sur une séance de créneau, les deux brouillons existent mais aucun
+      // champ ne les touche, et les comparer n'aurait jamais rien rendu de vrai.
+      (ponctuelle &&
+        (startDraft !== seance.start_time || endDraft !== seance.end_time)) ||
       choiceDraft !== choiceOf(seance) ||
       cancelledDraft !== seance.cancelled ||
       // Le motif compte comme modification même s'il est le seul à bouger :
@@ -292,6 +318,8 @@ export function SeanceDetail({
   const persistMeta = async (values: {
     title: string;
     date: string;
+    startTime: string;
+    endTime: string;
     choice: TrimesterChoice;
     cancelled: boolean;
     cancelReason: string;
@@ -312,12 +340,13 @@ export function SeanceDetail({
         seance.id,
         title,
         values.date,
-        // L'horaire n'est pas éditable ici : il vient du créneau d'emploi du
-        // temps et appartient au dossier historique de la séance. On le fait
-        // transiter inchangé — l'écraser par une chaîne vide effacerait l'heure
-        // d'un cours au simple renommage.
-        seance.start_time,
-        seance.end_time,
+        // Sur une séance de créneau, l'horaire transite **inchangé** : il
+        // appartient au modèle hebdomadaire, et l'écraser par une chaîne vide
+        // effacerait l'heure d'un cours au simple renommage. Sur un cours
+        // ponctuel, c'est le brouillon qui part — l'ordre des deux heures et le
+        // format sont vérifiés en Rust, seule implémentation de la règle.
+        ponctuelle ? values.startTime : seance.start_time,
+        ponctuelle ? values.endTime : seance.end_time,
         values.choice === "auto" ? null : Number(values.choice),
         values.cancelled,
         // Le backend le vide lui-même si `cancelled` est faux : on ne duplique
@@ -338,6 +367,8 @@ export function SeanceDetail({
   const openMeta = () => {
     setTitleDraft(seance.title);
     setDateDraft(seance.date);
+    setStartDraft(seance.start_time);
+    setEndDraft(seance.end_time);
     setChoiceDraft(choiceOf(seance));
     setCancelledDraft(seance.cancelled);
     setReasonDraft(seance.cancel_reason);
@@ -348,6 +379,8 @@ export function SeanceDetail({
   const cancelMeta = () => {
     setTitleDraft(seance.title);
     setDateDraft(seance.date);
+    setStartDraft(seance.start_time);
+    setEndDraft(seance.end_time);
     setChoiceDraft(choiceOf(seance));
     setCancelledDraft(seance.cancelled);
     setReasonDraft(seance.cancel_reason);
@@ -365,6 +398,11 @@ export function SeanceDetail({
     const saved = await persistMeta({
       title: seance.title,
       date: seance.date,
+      // L'horaire transite inchangé, pour la raison qui fait transiter le
+      // motif : un reclassement de trimestre ne touche pas aux heures, et
+      // omettre les deux champs les enverrait vides sur un cours ponctuel.
+      startTime: seance.start_time,
+      endTime: seance.end_time,
       choice,
       cancelled: seance.cancelled,
       // La puce de trimestre ne touche QU'au trimestre : on fait transiter le
@@ -542,6 +580,8 @@ export function SeanceDetail({
             </div>
             <p className="text-sm text-muted-foreground">
               {formatLongDate(seance.date)}
+              {timeLabel(seance.start_time, seance.end_time) &&
+                ` · ${timeLabel(seance.start_time, seance.end_time)}`}
             </p>
           </div>
         </div>
@@ -593,9 +633,9 @@ export function SeanceDetail({
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Informations de la séance</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Ce bloc n'enregistre que le titre, la date, le trimestre et
-              l'annulation. Le cahier de texte a son propre bouton et n'est pas
-              touché ici.
+              Ce bloc n'enregistre que le titre, la date,{" "}
+              {ponctuelle ? "l'horaire, " : ""}le trimestre et l'annulation. Le
+              cahier de texte a son propre bouton et n'est pas touché ici.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -617,6 +657,46 @@ export function SeanceDetail({
                   onChange={(e) => setDateDraft(e.target.value)}
                 />
               </div>
+              {ponctuelle ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="seance-debut">Heure de début</Label>
+                    <Input
+                      id="seance-debut"
+                      type="time"
+                      value={startDraft}
+                      onChange={(e) => setStartDraft(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="seance-fin">Heure de fin</Label>
+                    <Input
+                      id="seance-fin"
+                      type="time"
+                      value={endDraft}
+                      onChange={(e) => setEndDraft(e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                /* Dire où l'heure se change vaut mieux que présenter un champ
+                   grisé : le champ grisé laisse croire qu'elle ne se change
+                   nulle part. */
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Horaire</Label>
+                  <p className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                    <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {timeLabel(seance.start_time, seance.end_time) ||
+                        "Sans horaire"}{" "}
+                      — cette séance vient d'un créneau de l'emploi du temps.
+                      Son heure s'y modifie, et pour toutes les semaines à la
+                      fois.
+                    </span>
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="seance-trimester">Trimestre</Label>
                 <Select
@@ -707,6 +787,8 @@ export function SeanceDetail({
                   persistMeta({
                     title: titleDraft,
                     date: dateDraft,
+                    startTime: startDraft,
+                    endTime: endDraft,
                     choice: choiceDraft,
                     cancelled: cancelledDraft,
                     cancelReason: reasonDraft,

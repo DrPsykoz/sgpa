@@ -76,7 +76,12 @@ import {
 } from "@/components/ui/card";
 import { CancelReasonDialog } from "@/pages/Timetable/CancelReasonDialog";
 import { DaysCalendar } from "@/pages/Timetable/DaysCalendar";
-import { motifDeFermeture, type Row } from "@/pages/Timetable/journee";
+import {
+  adresseDeLaSeance,
+  motifDeFermeture,
+  motsDeAbsence,
+  type Row,
+} from "@/pages/Timetable/journee";
 import { api } from "@/lib/api";
 import { styleTeinte, tableDesTeintes } from "@/lib/teintes";
 import { cn } from "@/lib/utils";
@@ -311,11 +316,12 @@ function reminderHref(
 function rowHref(row: Row): string | null {
   switch (row.kind) {
     case "cours":
-      return row.seance
-        ? `/classes/${row.seance.session_id}?onglet=seances&ouvrir=${row.seance.id}`
-        : null;
+      // L'adresse vient de `journee.ts` et non d'un gabarit écrit ici : la
+      // grille de la semaine mène au même endroit depuis que le cours ponctuel
+      // y est cliquable, et deux rédactions auraient divergé.
+      return row.seance ? adresseDeLaSeance(row.seance) : null;
     case "seance":
-      return `/classes/${row.seance.session_id}?onglet=seances&ouvrir=${row.seance.id}`;
+      return adresseDeLaSeance(row.seance);
     case "entree":
       // Le compte rendu s'ouvre ici même. Il n'a pas d'autre écran : aucune
       // fiche de classe ne liste les rendez-vous, même ceux qui la nomment.
@@ -412,9 +418,18 @@ function DayBanners({ day }: { day: DaySchedule }): ReactElement | null {
   return (
     <>
       {day.sessions_away.map((classe) => (
+        // Les mots viennent de `journee.ts`, comme ceux des cartes : un
+        // professeur absent ne se dit pas « 3ème A — Formation », la classe
+        // était là. Une période « l'appel se fait quand même » garde ce bandeau
+        // alors que ses cartes ne changent pas : c'est le seul endroit qui la
+        // nomme, et une sortie scolaire mérite d'être annoncée.
         <Bandeau
           key={classe.session_id}
-          texte={`${classe.session_name} — ${classe.reason}`}
+          texte={
+            classe.attendance_expected
+              ? `${classe.session_name} — ${classe.reason} (l'appel se fait)`
+              : motsDeAbsence(classe).bandeau
+          }
         />
       ))}
     </>

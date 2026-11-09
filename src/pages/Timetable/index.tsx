@@ -20,7 +20,9 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { NewPlanningDialog } from "@/pages/Timetable/NewPlanningDialog";
+import type { TypePlanning } from "@/pages/Timetable/NewPlanningDialog";
 import { SlotDialog } from "@/pages/Timetable/SlotDialog";
+import type { AutreCreneauAuMemeHoraire } from "@/pages/Timetable/SlotDialog";
 import { WeekGrid } from "@/pages/Timetable/WeekGrid";
 import { YearGrid } from "@/pages/Timetable/YearGrid";
 import { api } from "@/lib/api";
@@ -33,6 +35,7 @@ import type {
   Session,
   TimetableSlot,
   TimetableSlotInput,
+  WeekParity,
   WeekSchedule,
 } from "@/types";
 
@@ -46,6 +49,12 @@ interface AjoutPrefill {
   startTime: string;
   endTime: string;
   date: string;
+  /** Périodicité et forme imposées : elles ne viennent que de « Un autre cours
+   *  à cet horaire », qui sait déjà les deux. Absentes partout ailleurs — un
+   *  clic dans une bande vide ne dit ni l'une ni l'autre, et c'est le sélecteur
+   *  de forme qui pose la question. */
+  parity?: WeekParity;
+  type?: TypePlanning;
 }
 
 /** Date du jour en heure locale. `toISOString()` daterait une journée ouverte
@@ -428,6 +437,44 @@ export default function Timetable(): ReactElement {
     [anneeEcran, rafraichirTout],
   );
 
+  /**
+   * « Un autre cours à cet horaire », depuis le dialogue de modification.
+   *
+   * Deux créneaux sur la même bande sont **légitimes** : c'est la quinzaine, et
+   * la base les accepte depuis le palier 004 — `week_parity` existe, et
+   * `timetable_slots` n'a aucune contrainte d'unicité sur (jour, heure). Ce qui
+   * manquait est une **porte** : la bande est couverte par la carte du créneau
+   * en place, donc tout clic y ouvre sa modification, et rien ne proposait d'en
+   * ajouter un second.
+   *
+   * `setSlotEnEditionId(null)` n'est pas une précaution d'écran. Sans lui, la
+   * création qui suit passerait par `enregistrerCreneau`, qui consulte cet
+   * identifiant et **écraserait** le créneau qu'on vient de quitter au lieu
+   * d'en ajouter un : c'est la raison d'être de `creerCreneau`, et elle ne vaut
+   * que si l'hôte oublie vraiment ce qu'il éditait.
+   */
+  const ouvrirAjoutAuMemeHoraire = useCallback(
+    (modele: AutreCreneauAuMemeHoraire) => {
+      setActionError(null);
+      setSlotDialogOpen(false);
+      setSlotEnEditionId(null);
+      setAjoutPrefill({
+        weekday: modele.weekday,
+        startTime: modele.startTime,
+        endTime: modele.endTime,
+        // Sans objet pour un créneau hebdomadaire, mais `AjoutPrefill` la porte
+        // pour les formes datées : le jour de la semaine affichée qui tombe ce
+        // jour-là, à défaut la journée regardée.
+        date:
+          week?.days.find((j) => j.weekday === modele.weekday)?.date ?? date,
+        parity: modele.week_parity,
+        type: "cours",
+      });
+      setAjoutOpen(true);
+    },
+    [week, date],
+  );
+
   const supprimerCreneau = useCallback(
     async (slot: TimetableSlot) => {
       await api.deleteTimetableSlot(slot.id);
@@ -576,19 +623,27 @@ export default function Timetable(): ReactElement {
               )}
             </div>
 
+            {/* Trois phrases, et c'est une limite voulue : ce qui vit au-dessus
+                d'une grille se lit une fois, à la première visite, et un pavé de
+                quatorze lignes ne se lit pas du tout — il pousse en plus la grille
+                hors de l'écran à chaque semaine ouverte. Ne restent donc que les
+                trois choses qu'aucun autre signe ne dit : à quoi sert l'écran, le
+                partage clic/glissé, et où se tient l'appel.
+
+                Ce qui en sort n'est pas perdu, il est dit là où il sert : les six
+                formes sont nommées et décrites par `NewPlanningDialog` au moment
+                du choix, et la destination d'une carte par son propre `title=`,
+                sous le pointeur qui s'apprête à cliquer. */}
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Cet écran sert à <strong>définir</strong> l'emploi du temps. Les cartes
-              de cours sont l'emploi du temps type : les modifier vaut pour toutes
-              les semaines. Un fond d'un cran plus soutenu signale une séance qui
-              existe déjà à cette date. Cliquez ou glissez dans une bande vide pour
-              ajouter quelque chose à cet horaire — le même choix qu'avec le bouton
-              « Ajouter… ». Une seule des six formes proposées crée une séance,
-              « Cours ponctuel ». Un clic sur une carte ouvre sa définition, sans
-              rien créer : le cours de chaque semaine sur sa modification, un
-              rendez-vous daté — visite de stage comprise — sur son compte rendu.
-              L'appel et le cahier de texte, eux, se tiennent{" "}
-              <strong>depuis l'accueil</strong>, qui montre le jour même et les
-              suivants, ou depuis la fiche de la classe.
+              Cet écran sert à <strong>définir</strong> l'emploi du temps : une
+              carte de cours est l'emploi du temps type, et la modifier vaut pour
+              toutes les semaines — un fond plus soutenu signale qu'une séance
+              existe déjà à cette date.{" "}
+              <strong>Le clic ouvre une carte, le glissé ajoute à côté</strong> :
+              c'est ainsi qu'on pose deux cours au même horaire, l'un en semaines
+              paires, l'autre en impaires. L'appel et le cahier de texte se
+              tiennent <strong>depuis l'accueil</strong> ou depuis la fiche de la
+              classe.
             </p>
 
             <DataState
@@ -678,6 +733,11 @@ export default function Timetable(): ReactElement {
             slots={slots}
             onSubmit={enregistrerCreneau}
             onDelete={supprimerCreneau}
+            // La porte vers un second créneau sur la même bande — semaines
+            // paires d'un côté, impaires de l'autre. Elle n'est offerte qu'ici,
+            // en modification : c'est le seul endroit où la case est déjà
+            // occupée, donc le seul où la question se pose.
+            onAddAnother={ouvrirAjoutAuMemeHoraire}
           />
         )}
 
@@ -714,6 +774,11 @@ export default function Timetable(): ReactElement {
         defaultDate={ajoutPrefill?.date || date}
         defaultStartTime={ajoutPrefill?.startTime}
         defaultEndTime={ajoutPrefill?.endTime}
+        // Les deux seuls préréglages qui sautent une question : ils ne sont
+        // posés que par « Un autre cours à cet horaire », et le préréglage ne
+        // survit pas à la fermeture (voir `onOpenChange` ci-dessus).
+        defaultType={ajoutPrefill?.type}
+        defaultParity={ajoutPrefill?.parity}
         onCreateSlot={creerCreneau}
         onCreatedEntry={apresCreationEntree}
         onCreatedSeance={apresCreationCoursPonctuel}

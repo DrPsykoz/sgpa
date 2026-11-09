@@ -18,6 +18,7 @@ import type {
   Session,
   TimetableSlot,
   TimetableSlotInput,
+  WeekParity,
 } from "@/types";
 
 /**
@@ -154,6 +155,18 @@ export interface NewPlanningDialogProps {
    *  parent ne doit pas faire transiter ce chemin par l'identifiant du créneau
    *  qu'il éditait juste avant. */
   onCreateSlot: (input: TimetableSlotInput) => Promise<void>;
+  /** Forme imposée à l'ouverture : le sélecteur est alors sauté, et le
+   *  formulaire correspondant s'ouvre directement.
+   *
+   *  Un seul geste s'en sert, « Un autre cours à cet horaire » : la forme y est
+   *  déjà connue — un cours —, et faire rechoisir « Cours » dans une liste de
+   *  six serait un détour. Partout ailleurs, c'est bien le sélecteur qui
+   *  s'ouvre : lui seul dit ce qui compte dans l'assiduité et ce qui n'y entre
+   *  pas. */
+  defaultType?: TypePlanning;
+  /** Périodicité préremplie de la forme « Cours ». Elle vient du même geste, et
+   *  vaut le complément de celle du créneau déjà en place. */
+  defaultParity?: WeekParity;
   onCreatedEntry: (entry: AgendaEntry) => void | Promise<void>;
   /** Appelé après la création d'un cours ponctuel — **la seule séance que ce
    *  module engendre**. L'hôte recharge ses écrans et l'ouvre. */
@@ -189,10 +202,24 @@ export function NewPlanningDialog({
   defaultStartTime,
   defaultEndTime,
   onCreateSlot,
+  defaultType,
+  defaultParity,
   onCreatedEntry,
   onCreatedSeance,
 }: NewPlanningDialogProps): ReactElement {
-  const [type, setType] = useState<TypePlanning | null>(null);
+  const [typeChoisi, setTypeChoisi] = useState<TypePlanning | null>(null);
+
+  /**
+   * La forme à l'écran : celle que l'enseignant vient de choisir, ou celle que
+   * l'hôte impose à l'ouverture.
+   *
+   * **Dérivée**, et non recopiée dans l'état par un effet : un effet ne pose sa
+   * valeur qu'après le premier rendu, et le sélecteur de forme paraîtrait le
+   * temps d'une image alors que la forme est déjà connue. Conséquence assumée :
+   * quand l'hôte en impose une, il n'y a pas de retour au sélecteur — le geste
+   * qui s'en sert ne propose qu'une chose, et « Annuler » referme tout.
+   */
+  const type = typeChoisi ?? defaultType ?? null;
 
   /** Fermeture, d'où qu'elle vienne : le type retombe à `null`, sinon rouvrir
    *  « Ajouter… » afficherait le formulaire précédent au lieu du sélecteur de
@@ -200,7 +227,7 @@ export function NewPlanningDialog({
    *  précisément ce qui est arrivé à la version « les cinq boutons ». */
   const fermer = (ouvert: boolean) => {
     if (ouvert) return;
-    setType(null);
+    setTypeChoisi(null);
     onOpenChange(false);
   };
 
@@ -235,7 +262,7 @@ export function NewPlanningDialog({
       variant="outline"
       disabled={desactive}
       className="h-auto w-full flex-col items-start gap-1 whitespace-normal px-4 py-3 text-left"
-      onClick={() => setType(choix.type)}
+      onClick={() => setTypeChoisi(choix.type)}
     >
       <span className="text-sm font-semibold">{choix.titre}</span>
       <span className="text-xs font-normal text-muted-foreground">
@@ -340,6 +367,7 @@ export function NewPlanningDialog({
           defaultWeekday={defaultWeekday}
           defaultStartTime={defaultStartTime}
           defaultEndTime={defaultEndTime}
+          defaultParity={defaultParity}
           onSubmit={type === "cours" ? onCreateSlot : creerSansClasse}
         />
       )}

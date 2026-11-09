@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import type { AgendaEntry, Session } from "@/types";
-import { schoolYearLabel } from "@/types";
+import { MAX_ENTRY_CATEGORY_CHARS, schoolYearLabel } from "@/types";
 
 /** Ce qu'il faut savoir d'un élève pour le désigner : `Student` s'y conforme. */
 export interface AgendaEntryTarget {
@@ -46,7 +46,9 @@ export interface AgendaEntryDialogProps {
   /** Horaire pré-rempli. `""` = heure à caler, et c'est une saisie valide. */
   defaultStartTime?: string;
   defaultEndTime?: string;
-  /** Intitulé pré-rempli. Le titre porte la catégorie : il n'y a pas de type. */
+  /** Intitulé pré-rempli. La catégorie, elle, n'est jamais pré-remplie : un
+   *  rendez-vous posé depuis la grille n'en a pas, et la deviner reviendrait à
+   *  la choisir pour l'enseignant. */
   defaultTitle?: string;
   /** Élève imposé (ouverture depuis sa fiche) : la cible n'est alors ni
    *  choisie ni affichée en liste, et la classe n'est pas demandée — le backend
@@ -69,7 +71,10 @@ interface StudentOption {
 const NO_SESSION = "__aucune__";
 const NO_STUDENT = "__aucun__";
 
-/** Intitulés proposés : le titre EST la catégorie, il n'y a pas de taxonomie. */
+/** Intitulés proposés. Ce sont des **intitulés**, pas des catégories : la
+ *  catégorie se saisit à côté, en texte libre, et rien ne la propose — une
+ *  liste fermée aurait fait d'elle une taxonomie, et c'est précisément ce que
+ *  l'enseignant n'a pas demandé. */
 const TITLE_SUGGESTIONS = [
   "Conseil de classe",
   "Réunion parents-professeurs",
@@ -123,6 +128,7 @@ export function AgendaEntryDialog({
   onCreated,
 }: AgendaEntryDialogProps): ReactElement {
   const [title, setTitle] = useState(defaultTitle);
+  const [category, setCategory] = useState("");
   const [date, setDate] = useState(defaultDate ?? today());
   const [startTime, setStartTime] = useState(defaultStartTime);
   const [endTime, setEndTime] = useState(defaultEndTime);
@@ -148,6 +154,7 @@ export function AgendaEntryDialog({
   useEffect(() => {
     if (!open) return;
     setTitle(defaultTitle);
+    setCategory("");
     setDate(defaultDate ?? today());
     setStartTime(defaultStartTime);
     setEndTime(defaultEndTime);
@@ -227,6 +234,7 @@ export function AgendaEntryDialog({
         startTime,
         endTime,
         title,
+        category,
         // Élève imposé : `null` dit « la classe de l'élève », que le backend
         // relit lui-même. C'est la seule réponse juste, le dialogue ne
         // connaissant alors pas la classe.
@@ -304,6 +312,28 @@ export function AgendaEntryDialog({
                 </Button>
               ))}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="entree-nouvelle-categorie">
+              Catégorie{" "}
+              <span className="font-normal text-muted-foreground">
+                (facultative)
+              </span>
+            </Label>
+            <Input
+              id="entree-nouvelle-categorie"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              onKeyDown={submitOnEnter}
+              placeholder="Ex. : alerte à la bombe"
+              maxLength={MAX_ENTRY_CATEGORY_CHARS}
+            />
+            <p className="text-xs text-muted-foreground">
+              Deux mots qui s'affichent en pastille sur les calendriers, à côté
+              de l'intitulé. Le refus en cas de dépassement vient du backend :
+              ce plafond de saisie ne fait que l'éviter.
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">

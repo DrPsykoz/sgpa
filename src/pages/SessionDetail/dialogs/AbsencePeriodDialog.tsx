@@ -4,7 +4,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
 } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, UserX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +61,20 @@ export interface AbsencePeriodDialogProps {
  * qui elle vise. Le cahier de texte, l'appel et le bilan du reste de la classe
  * sont intacts — c'est ce que dit le sous-titre, et c'est ce qui distingue une
  * période d'une séance annulée.
+ *
+ * **Sauf « l'appel se fait quand même » (palier 020)**, et c'est tout l'objet
+ * de la case : une sortie scolaire, un séjour, une matinée au CDI sont des
+ * périodes où la classe est ailleurs et bien présente. La période les nomme
+ * alors sans rien retirer du calcul — le sous-titre change avec la case, parce
+ * qu'il dit le contraire selon qu'elle est cochée ou non.
+ *
+ * **Une absence du professeur ne se saisit pas ici** : elle naît dans
+ * `TeacherAbsenceDialog`, qui écrit ses drapeaux en dur sur plusieurs classes à
+ * la fois. Ce dialogue sait néanmoins en **modifier** une — le motif et les
+ * dates —, et il retire alors les deux champs que le backend refuserait : la
+ * cible, parce qu'un professeur n'est pas absent pour un élève, et la case,
+ * parce que personne n'a fait l'appel. Annoncer ce qui n'est pas modifiable
+ * vaut mieux que présenter un champ dont l'enregistrement échoue.
  */
 export function AbsencePeriodDialog({
   open,
@@ -74,6 +88,7 @@ export function AbsencePeriodDialog({
   const [endTouched, setEndTouched] = useState(false);
   const [reason, setReason] = useState("");
   const [target, setTarget] = useState(TOUTE_LA_CLASSE);
+  const [appelFait, setAppelFait] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,6 +101,7 @@ export function AbsencePeriodDialog({
     setEndTouched(period !== null);
     setReason(period?.reason ?? "");
     setTarget(period?.student_id ?? TOUTE_LA_CLASSE);
+    setAppelFait(period?.attendance_expected ?? false);
     setError(null);
     setPending(false);
   }, [open, period]);
@@ -126,10 +142,14 @@ export function AbsencePeriodDialog({
     setError(null);
     try {
       await onSubmit({
-        student_id: target === TOUTE_LA_CLASSE ? null : target,
+        student_id:
+          profAbsent || target === TOUTE_LA_CLASSE ? null : target,
         reason: motif,
         start_date: startDate,
         end_date: endDate,
+        // Jamais `appelFait` sur une absence du professeur : le backend le
+        // refuse, et le réécrire tel quel laisse la ligne telle qu'elle est.
+        attendance_expected: profAbsent ? false : appelFait,
       });
       onOpenChange(false);
     } catch (err) {
@@ -138,6 +158,10 @@ export function AbsencePeriodDialog({
       setPending(false);
     }
   };
+
+  // Relu sur la période et non recopié dans un état : c'est le backend qui
+  // décide de ce drapeau, et aucun geste de ce dialogue ne le change.
+  const profAbsent = period?.teacher_absent ?? false;
 
   const submitOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -151,12 +175,39 @@ export function AbsencePeriodDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {period ? "Modifier la période" : "Nouvelle période d'absence"}
+            {profAbsent
+              ? "Modifier l'absence du professeur"
+              : period
+                ? "Modifier la période"
+                : "Nouvelle période d'absence"}
           </DialogTitle>
+          {/* Trois sous-titres pour trois effets opposés, et non un seul texte
+              prudent : celui-ci est la seule phrase qui dise ce que la période
+              fait aux bilans, et une phrase vraie dans un cas sur trois est
+              pire que pas de phrase. */}
           <DialogDescription>
-            Les séances de la classe comprises dans ces dates cessent de compter
-            dans l'assiduité de qui la période vise. Aucune séance n'est créée ni
-            supprimée : le cours a eu lieu, et il compte toujours pour les autres.
+            {profAbsent ? (
+              <>
+                Vous n'étiez pas là : les séances de ces dates sortent du
+                dénominateur d'assiduité de toute la classe. Le motif et les
+                dates se corrigent ici ; le reste est figé, une absence du
+                professeur ne visant ni un élève ni un appel.
+              </>
+            ) : appelFait ? (
+              <>
+                L'appel se fait quand même, et il compte : cette période ne
+                retire rien du calcul. Elle nomme seulement ce que la classe
+                faisait ces jours-là — une sortie, un séjour, une matinée au
+                CDI.
+              </>
+            ) : (
+              <>
+                Les séances de la classe comprises dans ces dates cessent de
+                compter dans l'assiduité de qui la période vise. Aucune séance
+                n'est créée ni supprimée : le cours a eu lieu, et il compte
+                toujours pour les autres.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -197,26 +248,64 @@ export function AbsencePeriodDialog({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="absence-target">Concerne</Label>
-            <Select value={target} onValueChange={setTarget}>
-              <SelectTrigger id="absence-target">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={TOUTE_LA_CLASSE}>Toute la classe</SelectItem>
-                {students.map((student) => (
-                  <SelectItem key={student.id} value={student.id}>
-                    {fullName(student.last_name, student.first_name)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              « Toute la classe » pour un stage collectif ; un élève pour une
-              hospitalisation ou un stage qui ne concerne que lui.
+          {profAbsent ? (
+            <p className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              <UserX className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Absence du professeur : elle concerne toute la classe, et
+                l'appel ne s'y fait pas. Pour noter l'absence d'un élève sur ces
+                mêmes dates, ajoutez une période à part.
+              </span>
             </p>
-          </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="absence-target">Concerne</Label>
+                <Select value={target} onValueChange={setTarget}>
+                  <SelectTrigger id="absence-target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={TOUTE_LA_CLASSE}>
+                      Toute la classe
+                    </SelectItem>
+                    {students.map((student) => (
+                      <SelectItem key={student.id} value={student.id}>
+                        {fullName(student.last_name, student.first_name)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  « Toute la classe » pour un stage collectif ; un élève pour
+                  une hospitalisation ou un stage qui ne concerne que lui.
+                </p>
+              </div>
+
+              {/* La case, et non un sélecteur à deux entrées : « avec appel »
+                  est le cas rare, et un sélecteur aurait obligé à choisir à
+                  chaque saisie entre deux mots qui se ressemblent. Décochée
+                  par défaut, elle reproduit exactement le comportement d'avant
+                  le palier 020. */}
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={appelFait}
+                    onChange={(event) => setAppelFait(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 cursor-pointer rounded border-input accent-primary"
+                  />
+                  <span>L'appel se fait quand même</span>
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  À cocher quand la classe est ailleurs mais bien avec vous :
+                  sortie scolaire, séjour, demi-journée au CDI. Les séances de
+                  ces dates restent alors dans le calcul d'assiduité, et l'appel
+                  est à faire comme d'habitude.
+                </p>
+              </div>
+            </>
+          )}
 
           {error && (
             <p className="flex items-start gap-2 whitespace-pre-line rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">

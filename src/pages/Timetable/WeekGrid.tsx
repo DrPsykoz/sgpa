@@ -5,17 +5,28 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from "react";
 
+import { Link } from "react-router-dom";
+
 import { TriangleAlert } from "lucide-react";
 
+import { PastilleDeCategorie } from "@/components/PastilleCategorie";
+
 import {
+  absenceDuCreneau,
+  absencesGroupees,
+  adresseDeLaSeance,
   cibleDuRendezVous,
   motifDeFermeture as fermetureDuJour,
-  motifDuCreneau,
+  motsDeAbsence,
+  motsDeLegende,
+  motsDesAbsences,
   studentName,
+  type AbsenceDeSemaine,
 } from "@/pages/Timetable/journee";
 import {
   amplitudeDe,
@@ -47,6 +58,7 @@ import type {
   AgendaEntrySummary,
   DaySchedule,
   DaySeance,
+  SessionAway,
   TimetableSlot,
   WeekSchedule,
 } from "@/types";
@@ -82,13 +94,6 @@ function quantieme(iso: string): string {
  */
 function motifDeFermeture(journee: DaySchedule | null): string | null {
   return journee === null ? null : fermetureDuJour(journee);
-}
-
-function creneauMasque(
-  journee: DaySchedule | null,
-  sessionId: string | null,
-): boolean {
-  return journee !== null && motifDuCreneau(journee, sessionId) !== null;
 }
 
 /** « 27/05/2029 ». */
@@ -132,6 +137,12 @@ type Contenu =
       slot: TimetableSlot;
       seance: DaySeance | null;
       horsSemaine: boolean;
+      /** La période qui met la classe hors cours ce jour-là, ou `null`.
+       *
+       *  Portée par le contenu et non relue au rendu : la carte s'estompe,
+       *  écrit le motif et le porte dans son `title=`, soit trois endroits qui
+       *  doivent lire le même enregistrement. */
+      absence: SessionAway | null;
     }
   | { nature: "seanceLibre"; seance: DaySeance }
   | { nature: "entree"; entry: AgendaEntrySummary };
@@ -212,10 +223,12 @@ export interface WeekGridProps {
    *  rendu. Absent : la carte reste inerte.
    *
    *  **Il n'y a pas de pendant pour la séance datée, et c'est voulu.** Une
-   *  séance s'ouvre depuis l'accueil ou depuis sa fiche de classe ; la grille
-   *  sert à définir l'emploi du temps, pas à tenir un appel. Un rendez-vous,
-   *  lui, n'est listé par aucun autre écran — pas même par la fiche de la
-   *  classe qu'il nomme. */
+   *  séance ne se modifie pas d'ici : la grille sert à définir l'emploi du
+   *  temps, pas à tenir un appel. Le cours ponctuel y est un **lien** vers sa
+   *  fiche de classe (`adresseDe`), ce qui ne demande aucun rappel à l'hôte —
+   *  et c'est bien pour cela que c'est un lien : rien de nouveau ne s'ouvre
+   *  dans cet écran. Un rendez-vous, lui, n'est listé par aucun autre écran —
+   *  pas même par la fiche de la classe qu'il nomme. */
   onOpenEntry?: (entry: AgendaEntrySummary) => void;
   /** Clic ou glissé sur une bande vide, jour ISO et horaire préremplis. */
   /**
@@ -258,12 +271,15 @@ export interface WeekGridProps {
  * compte donc au dénominateur d'assiduité du bilan remis aux familles. Aucune
  * boucle, aucune semaine entière d'un coup.
  *
- * **Une carte n'écrit rien non plus : elle ouvre.** Le modèle hebdomadaire
- * ouvre son dialogue de créneau, dont la portée est toutes les semaines ; le
- * rendez-vous daté ouvre son compte rendu. La séance datée, elle, n'ouvre rien
- * ici : **une carte ouvre sa définition, jamais son contenu** — l'appel et le
- * cahier de texte se tiennent depuis l'accueil ou depuis la fiche de classe.
- * Aucune création au passage, dans aucun des cas.
+ * **Une carte n'écrit rien non plus : elle ouvre, ou elle mène.** Le modèle
+ * hebdomadaire ouvre son dialogue de créneau, dont la portée est toutes les
+ * semaines ; le rendez-vous daté ouvre son compte rendu. La séance datée sans
+ * créneau — le cours ponctuel — n'ouvre toujours rien **ici**, mais elle
+ * **mène** à l'écran qui la modifie, celui de sa classe : elle était inerte, et
+ * une carte inerte se lit « ce cours n'est pas modifiable », ce que
+ * l'enseignant a signalé mot pour mot. Mener n'est pas héberger : il n'y a
+ * toujours qu'un seul écran de séance, et c'est ce que la règle interdisait de
+ * dédoubler. Aucune création au passage, dans aucun des cas.
  */
 export function WeekGrid({
   yearStart,
@@ -314,6 +330,8 @@ export function WeekGrid({
             week.show_parity &&
             slot.week_parity !== "toutes" &&
             slot.week_parity !== week.week_parity,
+          absence:
+            journee === null ? null : absenceDuCreneau(journee, slot.session_id),
         };
         if (estPlacable(slot.start_time, slot.end_time)) {
           candidats.push({
@@ -519,8 +537,20 @@ export function WeekGrid({
     };
   }, [enTrace, debut, fin, majTrace, onCreateSlot]);
 
-  const commencerTrace = (
-    event: ReactPointerEvent<HTMLButtonElement>,
+  /**
+   * Le cœur du tracé, commun aux deux surfaces qui peuvent l'amorcer : une
+   * bande vide du fond, et une carte déjà posée.
+   *
+   * `capture` est l'élément qui retient le pointeur — celui qu'on a pressé —,
+   * `bande` celui dont on relit la géométrie à chaque déplacement. Les deux se
+   * confondent sur le fond ; ils diffèrent quand le geste part d'une carte, et
+   * c'est tout l'objet de la séparation : la carte peut couvrir quatre heures,
+   * son bord haut ne dit donc pas où l'on a pressé.
+   */
+  const amorcerTrace = (
+    event: ReactPointerEvent<HTMLElement>,
+    capture: HTMLElement,
+    bande: HTMLElement,
     jour: number,
     colonne: number,
     minutes: number,
@@ -533,23 +563,106 @@ export function WeekGrid({
     ignorerProchainClic.current = false;
     // Capture du pointeur : sans elle, relâcher hors de la fenêtre ne renvoie
     // aucun `pointerup` et l'aperçu resterait accroché au curseur. Le `click`
-    // qui suit est redirigé vers cette bande — c'est exactement le cas que
+    // qui suit est redirigé vers cet élément — c'est exactement le cas que
     // `ignorerProchainClic` couvre.
     try {
-      event.currentTarget.setPointerCapture(event.pointerId);
+      capture.setPointerCapture(event.pointerId);
     } catch {
       // Pointeur déjà relâché : le tracé se suivra quand même par `window`.
     }
-    bandeRef.current = event.currentTarget;
+    bandeRef.current = bande;
     majTrace({
       jour,
       colonne,
       date,
       // Le bord haut de la bande, pas le pixel pressé : voir `Trace.ancreY`.
-      ancreY: event.currentTarget.getBoundingClientRect().top,
+      ancreY: bande.getBoundingClientRect().top,
       ancreDebut: minutes,
       courantDebut: minutes,
     });
+  };
+
+  /** Amorce depuis une bande vide du fond : la bande pressée est l'ancre. */
+  const commencerTrace = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    jour: number,
+    colonne: number,
+    minutes: number,
+    date: string,
+  ) => {
+    amorcerTrace(
+      event,
+      event.currentTarget,
+      event.currentTarget,
+      jour,
+      colonne,
+      minutes,
+      date,
+    );
+  };
+
+  /**
+   * Amorce depuis une carte DÉJÀ POSÉE, et c'est ce qui rend possible le second
+   * cours au même horaire sans passer par le dialogue.
+   *
+   * Une carte couvre sa bande : le `pointerdown` ne descend jamais jusqu'au
+   * fond, et c'est pour cela que la case occupée renvoyait tous ses gestes vers
+   * la modification du créneau existant. On retrouve donc la bande **sous le
+   * curseur** — `elementsFromPoint` les rend empilées, la carte d'abord, la
+   * bande ensuite — et le tracé reprend là, à l'identique : même géométrie,
+   * même aperçu, même sélection inclusive.
+   *
+   * Le partage des gestes est celui du calendrier : **le clic ouvre, le glissé
+   * ajoute.** Sans mouvement, `relacher` ne crée rien et le `click` qui suit
+   * ouvre la carte comme avant — rien n'est retiré à qui ne glisse pas.
+   *
+   * Aucune bande sous le curseur (rangée « hors horaire », jour fermé où le
+   * fond n'est plus cliquable) : on ne fait rien, et le clic garde son sens.
+   */
+  const commencerTraceSurCarte = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    const bande = document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .find(
+        (element): element is HTMLElement =>
+          element instanceof HTMLElement && element.dataset.bande !== undefined,
+      );
+    if (bande === undefined) return;
+    const jour = Number(bande.dataset.jour);
+    const colonne = Number(bande.dataset.colonne);
+    const minutes = Number(bande.dataset.minutes);
+    // Trois nombres relus d'attributs : un `NaN` poserait un créneau à une
+    // heure impossible plutôt que de ne rien faire.
+    if (
+      !Number.isFinite(jour) ||
+      !Number.isFinite(colonne) ||
+      !Number.isFinite(minutes)
+    ) {
+      return;
+    }
+    amorcerTrace(
+      event,
+      event.currentTarget,
+      bande,
+      jour,
+      colonne,
+      minutes,
+      bande.dataset.date ?? "",
+    );
+  };
+
+  /**
+   * Le clic qui suit un glissé, à avaler. Rendu `true` quand il faut l'ignorer.
+   *
+   * `detail === 0` : le clic vient d'Entrée ou d'Espace. Il ne peut pas être la
+   * queue d'un glissé, et ne doit donc jamais être avalé — sinon un drapeau
+   * resté en l'air rendrait le clavier muet. Le drapeau se remet à zéro à
+   * chaque passage, d'où qu'on vienne : c'est ce qui le rend auto-réparant.
+   */
+  const consommerClic = (event: ReactMouseEvent): boolean => {
+    const avaler = ignorerProchainClic.current && event.detail > 0;
+    ignorerProchainClic.current = false;
+    return avaler;
   };
 
   const selection = useMemo(() => {
@@ -574,6 +687,11 @@ export function WeekGrid({
       return date !== undefined && date > reculDeSixMois(calendrierJusquAu);
     });
 
+  // Les absences de la SEMAINE, une fois par période et non une fois par
+  // journée couverte : le backend les rend journée par journée, donc un stage
+  // d'une semaine arrive cinq fois.
+  const absences = useMemo(() => absencesGroupees(week.days), [week.days]);
+
   const style: CSSProperties = {
     gridTemplateColumns: `3.25rem repeat(${jours.length}, minmax(7rem, 1fr))`,
     gridTemplateRows: `auto auto repeat(${lignes}, ${HAUTEUR_PAS}px)`,
@@ -589,7 +707,7 @@ export function WeekGrid({
             const journee = journeeParJour.get(jour) ?? null;
             const estCeJour = journee !== null && journee.date === jourCourant;
             const fermeture = motifDeFermeture(journee);
-            const classesAbsentes = journee?.sessions_away ?? [];
+            const absences = journee === null ? null : motsDesAbsences(journee);
             return (
               <div
                 key={`jour-${jour}`}
@@ -613,16 +731,17 @@ export function WeekGrid({
                     {fermeture}
                   </span>
                 )}
-                {!fermeture && classesAbsentes.length > 0 && (
+                {/* Le résumé de la journée reste, même depuis que les cartes
+                    portent leur motif : une classe peut être hors cours un jour
+                    où elle n'a aucun créneau, et une période « l'appel se fait
+                    quand même » ne change aucune carte. Sans cette ligne, elles
+                    ne seraient nulle part. */}
+                {!fermeture && absences !== null && (
                   <span
                     className="mt-0.5 block truncate text-[10px] font-normal leading-tight text-muted-foreground"
-                    title={classesAbsentes
-                      .map((c) => `${c.session_name} — ${c.reason}`)
-                      .join(" · ")}
+                    title={absences.detail}
                   >
-                    {classesAbsentes.length === 1
-                      ? `${classesAbsentes[0].session_name} absente`
-                      : `${classesAbsentes.length} classes absentes`}
+                    {absences.ligne}
                   </span>
                 )}
               </div>
@@ -685,21 +804,23 @@ export function WeekGrid({
               avant la visite de stage qu'on voulait ouvrir. */}
           {jours.map((jour, index) =>
             (placesParJour.get(jour) ?? [])
-              // Un créneau dont la classe n'est pas là, ou dont le jour est
-              // fermé, n'est pas dessiné. C'est le SEUL objet qu'on retire, et
-              // il le supporte : un créneau est un modèle, il n'existe pas.
-              // L'en-tête de la colonne dit pourquoi — sans quoi une case
-              // disparue passerait pour un créneau perdu.
+              // Un créneau dont le JOUR est fermé n'est pas dessiné : l'en-tête
+              // de la colonne dit « Vacances de la Toussaint » une fois, et
+              // vingt-quatre cartes estompées le rediraient vingt-quatre fois.
+              // C'est le SEUL objet qu'on retire, et il le supporte : un créneau
+              // est un modèle, il n'existe pas.
               //
-              // Effet de bord voulu : on ne peut plus créer une séance par
-              // inadvertance un jour de vacances, puisque la carte n'est pas là.
+              // La classe hors cours, elle, GARDE sa carte depuis le palier 020
+              // — estompée, le motif écrit dessus. C'est la question posée par
+              // « améliorer le visuel quand la classe est absente » : une
+              // colonne nue ne disait pas si l'emploi du temps était saisi, et
+              // le petit mot gris de l'en-tête était tout ce qui en restait.
+              // Rien ne se crée pour autant depuis cet écran : une carte y
+              // ouvre sa définition, jamais son contenu.
               .filter(
                 (place) =>
                   place.contenu.nature !== "creneau" ||
-                  !creneauMasque(
-                    journeeParJour.get(jour) ?? null,
-                    place.contenu.slot.session_id,
-                  ),
+                  motifDeFermeture(journeeParJour.get(jour) ?? null) === null,
               )
               .map((place) => (
               <Carte
@@ -713,6 +834,10 @@ export function WeekGrid({
                 teintes={teintes}
                 onSelect={onSelectSlot}
                 onOpenEntry={onOpenEntry}
+                // Les deux vont ensemble : sans l'avaleur, le glissé créerait
+                // la plage ET ouvrirait la carte de départ par-dessus.
+                onDebutTrace={onCreateSlot ? commencerTraceSurCarte : undefined}
+                clicAAvaler={onCreateSlot ? consommerClic : undefined}
               />
             )),
           )}
@@ -780,17 +905,22 @@ export function WeekGrid({
                   // un créneau à un lecteur d'écran serait lui annoncer le
                   // mauvais formulaire.
                   aria-label={`Ajouter le ${nomJour} à ${heureDebut}`}
+                  // La bande se décrit pour qu'on la retrouve SOUS une carte :
+                  // `commencerTraceSurCarte` n'a que des coordonnées écran, et
+                  // il lui faut le jour, la colonne, la minute et la date de ce
+                  // qu'il a trouvé. Des attributs et non une carte d'index
+                  // parallèle : la source est l'élément lui-même, donc elle ne
+                  // peut pas se désynchroniser de ce qui est dessiné.
+                  data-bande=""
+                  data-jour={jour}
+                  data-colonne={index + 2}
+                  data-minutes={t}
+                  data-date={dateDuJour}
                   onPointerDown={(event) =>
                     commencerTrace(event, jour, index + 2, t, dateDuJour)
                   }
                   onClick={(event) => {
-                    // `detail === 0` : le clic vient d'Entrée ou d'Espace. Il
-                    // ne peut pas être la queue d'un glissé, et ne doit donc
-                    // jamais être avalé — sinon un drapeau resté en l'air
-                    // rendrait le clavier muet.
-                    const avaler = ignorerProchainClic.current && event.detail > 0;
-                    ignorerProchainClic.current = false;
-                    if (avaler) return;
+                    if (consommerClic(event)) return;
                     onCreateSlot(jour, heureDebut, heureFin, dateDuJour);
                   }}
                 />
@@ -816,6 +946,8 @@ export function WeekGrid({
           )}
         </div>
       </div>
+
+      <LegendeDesAbsences absences={absences} teintes={teintes} />
 
       {/* LA LIGNE D'HORIZON, et elle est obligatoire.
           Passé la dernière date couverte, la fonctionnalité ne s'éteint pas :
@@ -880,8 +1012,14 @@ function sessionDe(contenu: Contenu): string | null {
  * Les quatre états de carte, aucun signe nouveau : filet pâle = cours prévu et
  * rien d'écrit, filet tireté = occupation sans classe, **filet franc et fond
  * d'un cran plus soutenu = une séance existe à cette date**, `opacity-40` =
- * créneau de quinzaine qui ne tombe pas cette semaine — estompé, jamais
- * masqué : une case disparue passerait pour un créneau perdu.
+ * **ce cours ne se tient pas cette semaine-là** — estompé, jamais masqué : une
+ * case disparue passerait pour un créneau perdu.
+ *
+ * Ce dernier état a deux causes et un seul dessin, et c'est voulu : le créneau
+ * de quinzaine qui ne tombe pas cette semaine, et la classe hors cours — stage,
+ * ou professeur absent. Un second dessin aurait demandé une légende ; la carte,
+ * elle, écrit le motif en toutes lettres à la place de la mention de quinzaine
+ * (`CorpsCarte`), donc le même estompage ne peut pas se lire de deux façons.
  *
  * Le troisième état était une barre épaisse le long du bord gauche. Elle
  * disait juste, mais c'était un ornement posé à côté de la carte, là où la
@@ -904,7 +1042,7 @@ function apparenceDe(contenu: Contenu): string {
         contenu.slot.session_id
           ? cn("teinte-carte", contenu.seance && "teinte-appui")
           : "border-dashed border-border bg-muted text-muted-foreground",
-        contenu.horsSemaine && "opacity-40",
+        (contenu.horsSemaine || contenu.absence !== null) && "opacity-40",
       );
     case "seanceLibre":
       return "teinte-carte teinte-appui";
@@ -948,7 +1086,7 @@ function titreDe(contenu: Contenu): string {
   const lignes: string[] = [];
 
   if (contenu.nature === "creneau") {
-    const { slot, seance, horsSemaine } = contenu;
+    const { slot, seance, horsSemaine, absence } = contenu;
     lignes.push(
       [slot.label.trim(), slot.session_name].filter((part) => part).join(" — ") ||
         "Créneau sans intitulé",
@@ -963,6 +1101,10 @@ function titreDe(contenu: Contenu): string {
         .join(" · "),
     );
     if (horsSemaine) lignes.push("Ce créneau ne tombe pas cette semaine-là.");
+    // Avant l'état de la séance, et non à sa place : la séance peut très bien
+    // exister à cette date — elle a été préparée avant que le stage ne soit
+    // saisi —, et l'infobulle doit alors dire les deux.
+    if (absence !== null) lignes.push(motsDeAbsence(absence).infobulle);
     if (seance === null) {
       lignes.push(
         slot.session_id === null
@@ -984,7 +1126,9 @@ function titreDe(contenu: Contenu): string {
   }
 
   const { entry } = contenu;
-  lignes.push(entry.title);
+  lignes.push(
+    entry.category ? `${entry.title} — ${entry.category}` : entry.title,
+  );
   lignes.push(libelleHoraire(entry.start_time, entry.end_time));
   // L'infobulle a la place de dire les deux, là où la carte doit choisir :
   // « MARTIN Hugo » puis « 4ème A » sur deux lignes.
@@ -1021,8 +1165,14 @@ function Signes({ seance }: { seance: DaySeance }): ReactElement | null {
 
 function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
   if (contenu.nature === "creneau") {
-    const { slot, seance } = contenu;
-    const quinzaine = abregerQuinzaine(slot);
+    const { slot, seance, absence } = contenu;
+    // La mention de la dernière ligne. Le motif de l'absence PASSE DEVANT la
+    // quinzaine : les deux disent « ce cours ne se tient pas », et celui qui
+    // compte est le plus fort — savoir que le créneau tombe les semaines paires
+    // n'apprend rien un jour où la classe est en stage. Une cinquième ligne
+    // aurait été rognée : une carte d'une heure ne fait que 48 px.
+    const mention =
+      absence !== null ? motsDeAbsence(absence).carte : abregerQuinzaine(slot);
     return (
       <>
         <span
@@ -1037,18 +1187,18 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
           <span className="block truncate">{slot.session_name}</span>
         )}
         {/* Quatre lignes au plus : une carte d'une heure ne fait que 48 px, et
-            les signes d'état partagent donc la ligne de la quinzaine plutôt
-            que d'en ajouter une cinquième qui serait rognée. */}
+            les signes d'état partagent donc la ligne de la mention plutôt que
+            d'en ajouter une cinquième qui serait rognée. */}
         <span className="flex items-baseline justify-between gap-1 text-muted-foreground">
           <span className="min-w-0 truncate">
             {libelleHoraire(slot.start_time, slot.end_time)}
             {slot.room && ` · ${slot.room}`}
           </span>
-          {!quinzaine && seance && <Signes seance={seance} />}
+          {!mention && seance && <Signes seance={seance} />}
         </span>
-        {quinzaine && (
+        {mention && (
           <span className="flex items-baseline justify-between gap-1 font-medium text-muted-foreground">
-            <span className="min-w-0 truncate">{quinzaine}</span>
+            <span className="min-w-0 truncate">{mention}</span>
             {seance && <Signes seance={seance} />}
           </span>
         )}
@@ -1084,6 +1234,12 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
   return (
     <>
       <span className="block truncate font-medium">{entry.title}</span>
+      {/* Sous l'intitulé et au-dessus du reste : c'est la ligne de l'horaire
+          qui est rognée la première si la carte manque de hauteur, et c'est
+          la bonne victime — la position de la carte dans la grille dit déjà
+          l'heure, le `title=` la redit en mots, et une catégorie invisible ne
+          sert à rien. */}
+      <PastilleDeCategorie category={entry.category} />
       {cible && <span className="block truncate">{cible}</span>}
       <span className="block truncate opacity-80">
         {libelleHoraire(entry.start_time, entry.end_time) || "heure à caler"}
@@ -1109,11 +1265,13 @@ const CLASSES_CARTE =
  * compte rendu, parce qu'il n'a pas d'autre définition que ce texte et
  * qu'aucun autre écran ne le liste.
  *
- * La **séance datée** n'ouvre rien ici. Son appel et son cahier de texte sont
- * son contenu, pas sa définition, et ils ont deux écrans à eux : l'accueil,
- * qui montre le jour même et les suivants, et la fiche de sa classe, qui liste
- * toutes ses séances. Ne pas rouvrir cette porte : deux écrans qui modifient
- * la même séance finissent par ne pas en dire la même chose.
+ * La **séance datée** n'ouvre rien ici, et c'est toujours vrai : son appel et
+ * son cahier de texte sont son contenu, pas sa définition, et ils ont deux
+ * écrans à eux — l'accueil, qui montre le jour même et les suivants, et la
+ * fiche de sa classe, qui liste toutes ses séances. Ne pas rouvrir cette
+ * porte : deux écrans qui modifient la même séance finissent par ne pas en
+ * dire la même chose. Ce qu'elle fait depuis, c'est **y mener**
+ * (`adresseDe`), ce qui ne dédouble rien.
  *
  * Une séance rattachée à un créneau n'a de toute façon pas de carte à elle :
  * elle est dessinée en surcouche de son modèle (`nature: "creneau"`, champ
@@ -1141,6 +1299,32 @@ function ouvertureDe(
 }
 
 /**
+ * Où la carte **mène**, ou `null` quand elle ne mène nulle part.
+ *
+ * Le pendant d'`ouvertureDe`, et la même doctrine qu'à l'accueil : une carte
+ * qui conduit ailleurs est un **lien** et non un bouton, pour que le clic du
+ * milieu, « ouvrir dans un nouvel onglet » et le clavier fassent ce qu'ils
+ * promettent. Quand les deux répondent, c'est l'adresse qui gagne.
+ *
+ * Seule la **séance datée sans créneau** — le cours ponctuel — en a une. Elle
+ * ne s'ouvre pas ici : elle mène à l'unique écran qui la modifie, celui de sa
+ * classe, exactement là où l'accueil mène déjà, et par la même rédaction
+ * d'adresse (`adresseDeLaSeance`). L'emploi du temps continue de ne rien
+ * héberger ; il dit désormais où est l'écran, ce qu'une carte inerte ne savait
+ * pas faire — « je ne peux pas cliquer dessus pour accéder à ses
+ * informations » est exactement ce qui a été signalé.
+ *
+ * Une séance née d'un créneau n'entre pas ici : la grille n'a qu'une carte pour
+ * ce cours, cette carte ouvre son modèle, et offrir deux destinations à la même
+ * carte ferait deviner laquelle. Son horaire se corrige d'ailleurs dans le
+ * modèle, et pour toutes les semaines à la fois.
+ */
+function adresseDe(contenu: Contenu): string | null {
+  if (contenu.nature !== "seanceLibre") return null;
+  return adresseDeLaSeance(contenu.seance);
+}
+
+/**
  * L'étiquette lue par un lecteur d'écran, qui dit **ce qui va s'ouvrir**.
  *
  * Le titre seul ne suffirait pas : trois cartes voisines peuvent porter le même
@@ -1160,7 +1344,7 @@ function libelleOuverture(contenu: Contenu): string {
   }
   if (contenu.nature === "seanceLibre") {
     const { seance } = contenu;
-    return `Ouvrir le cahier de texte de « ${seance.title} » — ${seance.session_name}`;
+    return `Ouvrir « ${seance.title} » — ${seance.session_name}, dans la fiche de sa classe`;
   }
   const { entry } = contenu;
   const cible = cibleDuRendezVous(entry);
@@ -1168,20 +1352,28 @@ function libelleOuverture(contenu: Contenu): string {
 }
 
 /**
- * Le `title=` de la carte, augmenté de ce que le clic va faire.
+ * Le `title=` de la carte, augmenté de ce que le clic va faire — ou, pour la
+ * seule carte qui ne clique pas, de l'endroit où elle se modifie.
  *
  * Le créneau n'en reçoit pas : ouvrir un créneau au clic est le geste que la
- * grille enseigne depuis le début. Les deux cartes datées, elles, cachent
- * chacune un écran qui ne se devine pas d'une carte de 7 rem.
+ * grille enseigne depuis le début. Le rendez-vous cache un écran qui ne se
+ * devine pas d'une carte de 7 rem.
+ *
+ * La séance datée ne s'ouvre **pas ici** et ne s'y ouvrira pas : « l'emploi du
+ * temps définit, l'accueil ouvre », et deux écrans qui modifient la même
+ * séance finissent par ne pas en dire la même chose. Mais une carte inerte et
+ * muette se lit « ce cours n'est pas modifiable » — c'est mot pour mot ce que
+ * l'enseignant a signalé du cours ponctuel. La phrase annonce donc où le clic
+ * mène : là où tout est déjà modifiable, horaire compris.
  */
 function titreDeLaCarte(contenu: Contenu, ouvrable: boolean): string {
   const texte = titreDe(contenu);
+  if (contenu.nature === "seanceLibre") {
+    return `${texte}\nCliquez pour ouvrir cette séance dans la fiche de sa classe.`;
+  }
   if (!ouvrable) return texte;
   if (contenu.nature === "entree") {
     return `${texte}\nCliquez pour ouvrir le compte rendu.`;
-  }
-  if (contenu.nature === "seanceLibre") {
-    return `${texte}\nCliquez pour ouvrir le cahier de texte.`;
   }
   return texte;
 }
@@ -1208,6 +1400,13 @@ interface CarteProps {
   teintes?: TableTeintes;
   onSelect?: (slot: TimetableSlot) => void;
   onOpenEntry?: (entry: AgendaEntrySummary) => void;
+  /** Amorce d'un tracé SUR la carte : c'est par là qu'on ajoute un second cours
+   *  à un horaire déjà occupé, la carte couvrant la bande du fond. Absent quand
+   *  la grille ne crée rien. */
+  onDebutTrace?: (event: ReactPointerEvent<HTMLElement>) => void;
+  /** Rend `true` quand le clic qui arrive est la queue d'un glissé : la carte
+   *  ne doit alors pas s'ouvrir. */
+  clicAAvaler?: (event: ReactMouseEvent) => boolean;
 }
 
 function Carte({
@@ -1218,6 +1417,8 @@ function Carte({
   teintes,
   onSelect,
   onOpenEntry,
+  onDebutTrace,
+  clicAAvaler,
 }: CarteProps): ReactElement {
   const { contenu, voie, voies } = place;
 
@@ -1244,20 +1445,69 @@ function Carte({
     ...styleTeinte(teintes, sessionDe(contenu)),
   };
 
-  const ouvrir = ouvertureDe(contenu, onSelect, onOpenEntry);
+  // L'adresse d'abord, le geste ensuite : les deux ne répondent jamais pour la
+  // même carte, mais l'ordre fixe la règle une fois pour toutes plutôt que de
+  // la laisser dépendre des branches.
+  const mene = adresseDe(contenu);
+  const ouvrir =
+    mene === null ? ouvertureDe(contenu, onSelect, onOpenEntry) : null;
+  const cliquable = mene !== null || ouvrir !== null;
   // `px-0.5 pt-px` : les 2 px latéraux et le 1 px du haut d'autrefois, au pixel
   // près — mais à l'intérieur de la surface sensible, pas à côté.
-  const enveloppe = cn("z-10 block px-0.5 pt-px", ouvrir && "cursor-pointer");
+  const enveloppe = cn("z-10 block px-0.5 pt-px", cliquable && "cursor-pointer");
   const classes = cn(
     CLASSES_CARTE,
     "h-full",
     apparenceDe(contenu),
-    ouvrir && SURVOL_CARTE,
+    cliquable && SURVOL_CARTE,
   );
 
+  // Un LIEN quand la carte mène ailleurs — le cours ponctuel, vers la fiche de
+  // sa classe. Un `<button>` qui naviguerait serait un mensonge : clic du
+  // milieu, « ouvrir dans un nouvel onglet » et copie de l'adresse n'auraient
+  // rien à prendre.
+  if (mene !== null) {
+    return (
+      <Link
+        to={mene}
+        className={enveloppe}
+        style={style}
+        title={titreDeLaCarte(contenu, true)}
+        aria-label={libelleOuverture(contenu)}
+        // Le navigateur sait glisser un lien tout seul : sans ce `false`, tirer
+        // sur la carte d'un cours ponctuel décollerait le fantôme de l'ancre et
+        // le tracé n'aurait jamais lieu — le seul horaire impossible à doubler
+        // serait celui-là, et pour une raison invisible.
+        draggable={false}
+        onPointerDown={onDebutTrace}
+        // Le clic mène, le glissé ajoute à côté. Quand le second a eu lieu, il
+        // ne suffit pas de ne rien faire du `click` que le navigateur émet
+        // encore : un lien part de lui-même, il faut le lui interdire — sans
+        // quoi le glissé poserait la plage ET quitterait l'emploi du temps.
+        onClick={(event) => {
+          if (clicAAvaler?.(event)) event.preventDefault();
+        }}
+      >
+        <div className={classes}>
+          <CorpsCarte contenu={contenu} />
+        </div>
+      </Link>
+    );
+  }
+
+  // La carte inerte couvre sa bande tout autant que les autres : elle reçoit
+  // donc la même amorce. Sans elle, un horaire occupé resterait impossible à
+  // doubler. Elle ne reste inerte que faute de rappel — une grille en lecture
+  // seule — ou pour une occupation sans classe, qui est un modèle et n'a rien
+  // derrière elle.
   if (ouvrir === null) {
     return (
-      <div className={enveloppe} style={style} title={titreDeLaCarte(contenu, false)}>
+      <div
+        className={enveloppe}
+        style={style}
+        title={titreDeLaCarte(contenu, false)}
+        onPointerDown={onDebutTrace}
+      >
         <div className={classes}>
           <CorpsCarte contenu={contenu} />
         </div>
@@ -1272,7 +1522,13 @@ function Carte({
       style={style}
       title={titreDeLaCarte(contenu, true)}
       aria-label={libelleOuverture(contenu)}
-      onClick={ouvrir}
+      onPointerDown={onDebutTrace}
+      // Le clic ouvre, le glissé ajoute : quand le second a eu lieu, le `click`
+      // que le navigateur émet encore sur la carte de départ est avalé.
+      onClick={(event) => {
+        if (clicAAvaler?.(event)) return;
+        ouvrir();
+      }}
     >
       <div className={classes}>
         <CorpsCarte contenu={contenu} />
@@ -1285,9 +1541,10 @@ function Carte({
  *
  *  C'est là que tombent la visite de stage dont l'heure reste à caler et le
  *  cours ponctuel saisi sans horaire. La visite s'y ouvre d'un clic — sa place
- *  dans la grille est précisément ce qu'on vient y définir ; le cours ponctuel,
- *  comme toute séance, reste inerte et s'ouvre depuis l'accueil ou depuis sa
- *  fiche de classe. */
+ *  dans la grille est précisément ce qu'on vient y définir ; le cours ponctuel
+ *  **mène** à sa fiche de classe, et c'est ici que ce lien sert le plus : une
+ *  séance sans horaire est justement celle dont l'heure reste à saisir, et
+ *  cette rangée était le seul endroit où elle apparaissait. */
 function CarteLibre({
   contenu,
   teintes,
@@ -1299,19 +1556,36 @@ function CarteLibre({
   onSelect?: (slot: TimetableSlot) => void;
   onOpenEntry?: (entry: AgendaEntrySummary) => void;
 }): ReactElement {
-  const ouvrir = ouvertureDe(contenu, onSelect, onOpenEntry);
+  const mene = adresseDe(contenu);
+  const ouvrir =
+    mene === null ? ouvertureDe(contenu, onSelect, onOpenEntry) : null;
+  const cliquable = mene !== null || ouvrir !== null;
   // Ici la teinte va sur la carte elle-même : la rangée « hors horaire » n'a
   // pas d'enveloppe de grille pour la porter.
   const style = styleTeinte(teintes, sessionDe(contenu));
   // `z-10` est inerte ici — la rangée « hors horaire » n'empile rien — mais la
-  // carte reste un vrai `<button>`, donc atteignable au clavier en tête de
-  // grille.
+  // carte reste un vrai `<button>` ou un vrai lien, donc atteignable au clavier
+  // en tête de grille.
   const classes = cn(
     CLASSES_CARTE,
     "block w-full",
     apparenceDe(contenu),
-    ouvrir && SURVOL_CARTE,
+    cliquable && SURVOL_CARTE,
   );
+
+  if (mene !== null) {
+    return (
+      <Link
+        to={mene}
+        className={classes}
+        style={style}
+        title={titreDeLaCarte(contenu, true)}
+        aria-label={libelleOuverture(contenu)}
+      >
+        <CorpsCarte contenu={contenu} />
+      </Link>
+    );
+  }
 
   if (ouvrir === null) {
     return (
@@ -1336,6 +1610,98 @@ function CarteLibre({
     >
       <CorpsCarte contenu={contenu} />
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// La légende des absences
+// ---------------------------------------------------------------------------
+
+/** « Lun 9 ». Le nom du jour se déduit de la date — et `getDay()` compte le
+ *  dimanche en 0 là où tout le reste de l'application numérote les jours de 1
+ *  à 7, comme l'ISO et comme `timetable_slots.weekday`. */
+function jourCourt(iso: string): string {
+  const js = new Date(`${iso}T00:00:00`).getDay();
+  return `${WEEKDAY_SHORT_LABELS[js === 0 ? 7 : js]} ${quantieme(iso)}`;
+}
+
+/** « Lun 9 », ou « Lun 9 → Ven 13 » quand la période couvre plusieurs jours de
+ *  la semaine affichée.
+ *
+ *  Les jours intermédiaires ne sont pas écrits : une période peut sauter un
+ *  jour — un mercredi sans cours —, et la légende dit la **portée**, pas le
+ *  calendrier. Ce sont les colonnes de la grille qui disent le détail, et c'est
+ *  précisément leur travail. */
+function libelleDesJours(jours: string[]): string {
+  const premier = jours[0];
+  const dernier = jours[jours.length - 1];
+  if (premier === undefined || dernier === undefined) return "";
+  if (premier === dernier) return jourCourt(premier);
+  return `${jourCourt(premier)} → ${jourCourt(dernier)}`;
+}
+
+/**
+ * Les stages et absences de la semaine, en clair et sous la grille.
+ *
+ * **Elle répare un manque signalé, elle n'ornemente pas.** L'en-tête d'une
+ * colonne fait six caractères : à deux classes hors cours le même jour il
+ * écrit « 2 classes hors cours », ce qui est vrai et inutilisable — ni
+ * laquelle, ni pourquoi, ni ce que l'assiduité en fait. Le détail existait,
+ * mais dans un `title=`, et une infobulle ne se découvre pas.
+ *
+ * **Sous la grille et non dedans.** Une colonne n'a pas la place d'une phrase,
+ * et la même période revient dans chaque journée qu'elle couvre : écrite dans
+ * les colonnes, elle le serait cinq fois.
+ *
+ * La pastille de classe reprend la **teinte et le filet de la carte** qu'elle
+ * explique — c'est ce qui en fait une légende plutôt qu'une seconde liste à
+ * rapprocher à l'œil. Elle n'écrit aucune couleur : `teinte-carte` et
+ * `styleTeinte` sont ceux de la grille.
+ *
+ * Les mots viennent de `journee.ts` (`motsDeLegende`), avec ceux des cartes :
+ * deux rédactions finiraient par ne pas dire la même chose de la même période.
+ */
+function LegendeDesAbsences({
+  absences,
+  teintes,
+}: {
+  absences: AbsenceDeSemaine[];
+  teintes?: TableTeintes;
+}): ReactElement | null {
+  // Aucune période, aucun bloc : une légende vide apprendrait qu'il existe des
+  // absences là où il n'y en a pas.
+  if (absences.length === 0) return null;
+
+  return (
+    <div className="rounded-md border bg-card px-3 py-2 text-xs">
+      <p className="font-medium">Stages et absences de la semaine</p>
+      <ul className="mt-1.5 space-y-1.5">
+        {absences.map(({ cle, away, jours }) => {
+          const mots = motsDeLegende(away);
+          return (
+            <li key={cle} className="flex flex-wrap items-baseline gap-x-2">
+              <span
+                className={cn(CLASSES_CARTE, "shrink-0 teinte-carte font-medium")}
+                style={styleTeinte(teintes, away.session_id)}
+              >
+                {away.session_name}
+              </span>
+              <span className="font-medium">{mots.quoi}</span>
+              <span className="text-muted-foreground">
+                {libelleDesJours(jours)}
+              </span>
+              {/* `basis-full` : l'effet sur l'assiduité passe à la ligne. C'est
+                  la phrase la plus longue et la moins scannée des trois — la
+                  garder sur la même ligne repousserait les dates hors de vue
+                  dès qu'une classe a un nom un peu long. */}
+              <span className="basis-full text-muted-foreground">
+                {mots.effet}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

@@ -5,7 +5,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
 } from "react";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle, CopyPlus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -97,6 +97,57 @@ function horairesConnus(slots: TimetableSlot[]): HoraireConnu[] {
     .sort(parOrdreDeJournee);
 }
 
+/** Une case de grille : un jour, deux heures. Le minimum pour demander
+ *  « cette heure est-elle déjà prise ? ». */
+interface CaseDeGrille {
+  weekday: number;
+  start_time: string;
+  end_time: string;
+}
+
+/**
+ * Deux cases du même jour dont les heures se chevauchent.
+ *
+ * Le chevauchement et non l'égalité : un 8h–9h et un 8h30–10h occupent bel et
+ * bien la même bande de grille, et c'est la question posée. Les bornes sont
+ * strictes — un cours qui finit à 9h et un qui commence à 9h se suivent sans se
+ * superposer. Les heures étant en HH:MM, la comparaison de chaînes suffit.
+ */
+function seChevauchent(a: CaseDeGrille, b: CaseDeGrille): boolean {
+  if (a.weekday !== b.weekday) return false;
+  return a.start_time < b.end_time && b.start_time < a.end_time;
+}
+
+/**
+ * La périodicité qui **complète** celle d'un créneau, proposée au second.
+ *
+ * `paires` ↔ `impaires` : c'est l'alternance d'une semaine sur deux, le seul
+ * cas où deux cours partagent une bande sans jamais tomber la même semaine.
+ *
+ * `toutes` → `paires`, faute de mieux : un créneau qui vaut toutes les semaines
+ * n'a pas de complément, et c'est bien le problème — il faudra le passer en
+ * « impaires » pour que l'alternance soit vraie. Rien ne le fait d'ici : écrire
+ * en douce la ligne existante au moment où l'on en ouvre une autre est
+ * exactement la modification qu'on ne retrouve jamais, et elle resterait à
+ * moitié faite si l'enseignant annulait la création. C'est la phrase sous la
+ * liste qui le dit, et lui qui tranche.
+ */
+function pariteComplementaire(parity: WeekParity): WeekParity {
+  if (parity === "paires") return "impaires";
+  if (parity === "impaires") return "paires";
+  return "paires";
+}
+
+/** Ce que la porte « un autre cours à cet horaire » transmet à l'hôte : la case
+ *  de grille, et la périodicité proposée. Rien de plus — le reste du créneau
+ *  (classe, intitulé, salle) est précisément ce qui va différer. */
+export interface AutreCreneauAuMemeHoraire {
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  week_parity: WeekParity;
+}
+
 export interface SlotDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -114,6 +165,15 @@ export interface SlotDialogProps {
   defaultWeekday?: number;
   defaultStartTime?: string;
   defaultEndTime?: string;
+  /** Périodicité préremplie en création. Elle ne vient que d'un endroit : la
+   *  porte « un autre cours à cet horaire », qui propose le complément de la
+   *  périodicité du créneau déjà en place. Ailleurs, « Toutes les semaines ». */
+  defaultParity?: WeekParity;
+  /** Absent : la porte « un autre cours à cet horaire » n'apparaît pas. Elle
+   *  n'a de sens qu'en modification, et c'est l'hôte qui ouvre le second
+   *  dialogue — celui-ci ne se change pas en formulaire de création sous les
+   *  doigts de l'enseignant. */
+  onAddAnother?: (modele: AutreCreneauAuMemeHoraire) => void;
   /** Le parent écrit et recharge sa liste ; le dialogue affiche l'erreur. */
   onSubmit: (input: TimetableSlotInput) => Promise<void>;
   /** Absent : le bouton « Supprimer » n'apparaît pas. */
@@ -137,8 +197,10 @@ export function SlotDialog({
   defaultWeekday,
   defaultStartTime,
   defaultEndTime,
+  defaultParity,
   onSubmit,
   onDelete,
+  onAddAnother,
 }: SlotDialogProps): ReactElement {
   const [sessionId, setSessionId] = useState(AUCUNE_CLASSE);
   const [weekday, setWeekday] = useState("1");
@@ -166,13 +228,20 @@ export function SlotDialog({
     setWeekday(String(slot?.weekday ?? defaultWeekday ?? 1));
     setStartTime(slot?.start_time ?? defaultStartTime ?? "");
     setEndTime(slot?.end_time ?? defaultEndTime ?? "");
-    setParity(slot?.week_parity ?? "toutes");
+    setParity(slot?.week_parity ?? defaultParity ?? "toutes");
     setLabel(slot?.label ?? "");
     setRoom(slot?.room ?? "");
     setError(null);
     setPending(false);
     setConfirmingDelete(false);
-  }, [open, slotId, defaultWeekday, defaultStartTime, defaultEndTime]);
+  }, [
+    open,
+    slotId,
+    defaultWeekday,
+    defaultStartTime,
+    defaultEndTime,
+    defaultParity,
+  ]);
 
   const classesDeLAnnee = useMemo(
     () => sessions.filter((s) => s.year_start === yearStart),
@@ -200,6 +269,42 @@ export function SlotDialog({
   }, [slot]);
 
   const horaires = useMemo(() => horairesConnus(slots), [slots]);
+
+  /**
+   * Les créneaux qui occupent déjà la case en cours de saisie.
+   *
+   * Calculés sur les **brouillons** et non sur le créneau enregistré : passer
+   * le champ « Jour » du lundi au mardi doit changer la liste tout de suite,
+   * sinon elle décrit une case qu'on vient de quitter.
+   *
+   * Rien ici ne refuse rien, et c'est le point : deux créneaux au même horaire
+   * sont **légitimes** — c'est la quinzaine, et c'est le besoin signalé. Ce que
+   * la liste apporte, c'est de les montrer : la grille empile bien les cartes
+   * côte à côte, mais au moment de la saisie l'enseignant ne voyait pas ce qui
+   * est déjà là, donc ne pouvait pas choisir la périodicité qui l'évite.
+   */
+  const voisins = useMemo(() => {
+    if (startTime === "" || endTime === "" || endTime <= startTime) return [];
+    const saisie: CaseDeGrille = {
+      weekday: Number(weekday),
+      start_time: startTime,
+      end_time: endTime,
+    };
+    return slots.filter((s) => s.id !== slotId && seChevauchent(s, saisie));
+  }, [slots, slotId, weekday, startTime, endTime]);
+
+  /** Ceux des voisins qui tomberont la **même semaine** que la saisie en cours.
+   *  « toutes » d'un côté ou de l'autre suffit à les faire se rencontrer. */
+  const voisinsSimultanes = useMemo(
+    () =>
+      voisins.filter(
+        (v) =>
+          parity === "toutes" ||
+          v.week_parity === "toutes" ||
+          v.week_parity === parity,
+      ),
+    [voisins, parity],
+  );
 
   const handleSubmit = async () => {
     const intitule = label.trim();
@@ -480,6 +585,35 @@ export function SlotDialog({
             )}
           </div>
 
+          {/* Ce que la case contient déjà. Ni avertissement ni refus :
+              superposer deux créneaux est le geste demandé. C'est une
+              information que la saisie ne donnait pas — et sans elle, choisir
+              une périodicité complémentaire relève de la mémoire. */}
+          {voisins.length > 0 && (
+            <div className="space-y-1.5 rounded-md border bg-muted/40 px-3 py-2">
+              <p className="text-xs font-medium">
+                {voisins.length > 1
+                  ? `${voisins.length} créneaux occupent déjà cet horaire`
+                  : "Un créneau occupe déjà cet horaire"}
+              </p>
+              <ul className="space-y-0.5 text-xs text-muted-foreground">
+                {voisins.map((v) => (
+                  <li key={v.id}>
+                    {v.label.trim() || "Créneau sans intitulé"}
+                    {v.session_name ? ` — ${v.session_name}` : ""} ·{" "}
+                    {v.start_time} – {v.end_time} ·{" "}
+                    {WEEK_PARITY_LABELS[v.week_parity].toLowerCase()}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                {voisinsSimultanes.length > 0
+                  ? "Ils tomberont la même semaine que celui-ci, et la grille les affichera côte à côte. Pour une alternance d'une semaine sur deux, donnez à chacun sa périodicité : « paires » à l'un, « impaires » à l'autre."
+                  : "Les périodicités se complètent : ces cours ne tomberont jamais la même semaine."}
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="slot-label">Intitulé</Label>
             <Input
@@ -506,6 +640,53 @@ export function SlotDialog({
               placeholder="B12"
             />
           </div>
+
+          {/* La porte vers un second créneau au même horaire.
+              La grille en ouvre une autre depuis : un glissé par-dessus une
+              carte amorce une création à cet horaire. Mais le CLIC sur une
+              carte, lui, ouvre forcément cette modification — la carte couvre
+              la bande —, donc ce bouton reste le chemin de qui a cliqué, et le
+              seul chemin au clavier. Il est aussi le seul à prérégler la
+              périodicité complémentaire : c'est le seul des deux gestes qui
+              dise « l'autre semaine », un glissé ne disant que l'horaire.
+              Elle n'enregistre rien et ne touche pas au créneau ouvert : elle
+              ferme ce dialogue et en ouvre un de création, préréglé sur la même
+              case et sur la périodicité complémentaire. Le brouillon en cours
+              est donc perdu, et c'est volontaire — le transporter ferait croire
+              que les deux formulaires n'en sont qu'un. La phrase le dit avant
+              le clic. */}
+          {slot && onAddAnother && (
+            <div className="space-y-2 rounded-md border border-dashed px-3 py-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  onAddAnother({
+                    weekday: Number(weekday),
+                    startTime: startTime || slot.start_time,
+                    endTime: endTime || slot.end_time,
+                    week_parity: pariteComplementaire(slot.week_parity),
+                  })
+                }
+              >
+                <CopyPlus className="h-4 w-4" />
+                Un autre cours à cet horaire
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Pour une alternance d'une semaine sur deux. Le nouveau créneau
+                sera préréglé sur{" "}
+                {(WEEKDAY_LABELS[Number(weekday)] ?? "").toLowerCase()}, même
+                horaire, en{" "}
+                {WEEK_PARITY_LABELS[
+                  pariteComplementaire(slot.week_parity)
+                ].toLowerCase()}
+                . Ce créneau-ci n'est pas modifié, et ce que vous venez de
+                saisir ici sans l'enregistrer ne sera pas repris.
+              </p>
+            </div>
+          )}
 
           {messageErreur}
         </div>

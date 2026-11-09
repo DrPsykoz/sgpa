@@ -5,7 +5,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import { Plus, Trash2, User, Users } from "lucide-react";
+import { Plus, Trash2, User, UserX, Users } from "lucide-react";
 
 import { DataState } from "@/components/DataState";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AbsencePeriodDialog } from "@/pages/SessionDetail/dialogs/AbsencePeriodDialog";
+import { TeacherAbsenceDialog } from "@/pages/SessionDetail/dialogs/TeacherAbsenceDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import type {
   AbsencePeriodInput,
   Session,
   Student,
+  TeacherAbsenceInput,
 } from "@/types";
 
 export interface AbsencesTabProps {
@@ -54,24 +56,55 @@ function formatFenetre(period: AbsencePeriod): string {
 
 /** Qui la période vise. `student_id` à `null` = toute la classe. */
 function formatCible(period: AbsencePeriod): string {
+  if (period.teacher_absent) return "Professeur absent";
   if (period.student_id === null) return "Toute la classe";
   return `${period.student_last_name ?? ""} ${period.student_first_name ?? ""}`.trim();
 }
 
 /** La même cible au fil d'une phrase. Le nom d'un élève garde ses capitales :
- *  seule la mention « toute la classe » se met en minuscules. */
+ *  seules les mentions qui n'en sont pas un se mettent en minuscules. */
 function formatCiblePhrase(period: AbsencePeriod): string {
+  if (period.teacher_absent) return "toute la classe, le professeur étant absent";
   return period.student_id === null ? "toute la classe" : formatCible(period);
 }
 
-function formatSeances(count: number): string {
+/**
+ * Le compte de séances, et ce qu'il leur arrive.
+ *
+ * Il prend la période entière et non son seul `seance_count`, parce que le même
+ * chiffre se lit de deux façons : « écartées » quand la période retire du
+ * dénominateur, « concernées » quand l'appel se fait quand même (palier 020).
+ * Dire « 6 séances écartées » sur une sortie scolaire où l'appel compte serait
+ * un mensonge sur le bilan, pas une approximation de vocabulaire.
+ */
+function formatSeances(period: AbsencePeriod): string {
+  const count = period.seance_count;
+  if (period.attendance_expected) {
+    return count > 1
+      ? `${count} séances concernées`
+      : `${count} séance concernée`;
+  }
   return count > 1 ? `${count} séances écartées` : `${count} séance écartée`;
+}
+
+/** L'infobulle du compte, qui dit l'effet sur le bilan en toutes lettres. */
+function titreSeances(period: AbsencePeriod): string {
+  if (period.attendance_expected) {
+    return `Ces séances restent comptées pour ${formatCiblePhrase(period)} : la période ne retire rien du dénominateur du bilan, et l'appel est à faire comme d'habitude.`;
+  }
+  return `Ces séances ne comptent ni comme présence ni comme absence pour ${formatCiblePhrase(period)} : elles sortent du dénominateur du bilan.`;
 }
 
 /** Ce que la suppression change vraiment, dit avant de confirmer : les séances
  *  ne sont pas restituées — elles n'ont jamais bougé —, elles redeviennent
  *  comptées dans le dénominateur de l'assiduité. */
-function phraseSuppression(count: number): string {
+function phraseSuppression(period: AbsencePeriod): string {
+  // Une période « avec appel » ne retirait rien : annoncer un retour au calcul
+  // laisserait croire qu'un bilan va bouger, et aucun ne bougera.
+  if (period.attendance_expected) {
+    return "Cette période ne retirait rien du calcul d'assiduité : aucun bilan ne change. Seul son nom disparaît des listes.";
+  }
+  const count = period.seance_count;
   if (count === 0) {
     return "Aucune séance n'était écartée par cette période : aucun bilan ne change.";
   }
@@ -103,6 +136,11 @@ export function AbsencesTab({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Le dialogue d'absence du professeur est à part : il écrit sur plusieurs
+  // classes à la fois, donc il ne peut pas partager l'état d'un dialogue qui
+  // modifie une période de celle-ci.
+  const [profOpen, setProfOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,6 +190,14 @@ export function AbsencesTab({
     await load();
   };
 
+  // Une absence du professeur peut naître ici et toucher d'autres classes que
+  // celle-ci : on recharge quand même la liste de celle-ci, la seule que cet
+  // onglet affiche. Les autres se verront en ouvrant leur fiche.
+  const handleTeacherAbsence = async (input: TeacherAbsenceInput) => {
+    await api.createTeacherAbsencePeriods(input);
+    await load();
+  };
+
   const handleDelete = async () => {
     if (!toDelete) return;
     await api.deleteAbsencePeriod(toDelete.id);
@@ -174,13 +220,28 @@ export function AbsencesTab({
               d'assiduité de qui elle vise : un élève parti trois semaines en
               stage n'apparaît plus à 20/26 sur son bilan, mais à 20/20. Aucune
               séance n'est créée ni supprimée, et le cours compte toujours pour
-              le reste de la classe.
+              le reste de la classe. Une sortie scolaire se note de la même
+              façon, en cochant « l'appel se fait quand même » : elle nomme
+              alors ces journées sans rien retirer du calcul.
             </CardDescription>
           </div>
-          <Button size="sm" className="shrink-0" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Nouvelle période
-          </Button>
+          {/* Deux boutons et non un sélecteur : les deux gestes ne portent pas
+              sur la même chose — l'un sur cette classe, l'autre sur autant de
+              classes que la journée en a vidées. */}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setProfOpen(true)}
+            >
+              <UserX className="h-4 w-4" />
+              Absence de ma part
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Nouvelle période
+            </Button>
+          </div>
         </CardHeader>
 
         <CardContent>
@@ -188,15 +249,19 @@ export function AbsencesTab({
             loading={loading}
             error={loadError}
             empty={periods.length === 0}
-            emptyLabel="Aucune période pour cette classe. Ajoutez-en une dès que les dates d'un stage sont connues : les séances qu'elle couvre sortiront du calcul d'assiduité."
+            emptyLabel="Aucune période pour cette classe. Ajoutez-en une dès que les dates d'un stage sont connues : les séances qu'elle couvre sortiront du calcul d'assiduité. Les sorties scolaires et vos propres absences se notent au même endroit."
             onRetry={() => {
               void load();
             }}
           >
             <div className="space-y-2">
               {periods.map((period) => {
+                // Trois sortes de ligne, trois icônes : le professeur absent
+                // n'est pas « toute la classe » — la classe était là, et c'est
+                // l'inverse qu'il faut lire d'un coup d'œil.
+                const profAbsent = period.teacher_absent;
                 const pourToute = period.student_id === null;
-                const Icone = pourToute ? Users : User;
+                const Icone = profAbsent ? UserX : pourToute ? Users : User;
                 return (
                   <div
                     key={period.id}
@@ -215,14 +280,18 @@ export function AbsencesTab({
                       <div
                         className={cn(
                           "rounded-lg p-2",
-                          pourToute
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground",
+                          profAbsent
+                            ? "bg-destructive/10 text-destructive"
+                            : pourToute
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground",
                         )}
                         title={
-                          pourToute
-                            ? "Période de toute la classe"
-                            : "Période d'un seul élève"
+                          profAbsent
+                            ? "Absence du professeur : toute la classe, sans appel"
+                            : pourToute
+                              ? "Période de toute la classe"
+                              : "Période d'un seul élève"
                         }
                       >
                         <Icone className="h-4 w-4" />
@@ -238,6 +307,18 @@ export function AbsencesTab({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
+                      {/* L'appel est la seule chose que le compte de séances ne
+                          dit pas : « 6 séances concernées » ne distingue pas
+                          une sortie d'un stage. Le mot, lui, le dit. */}
+                      {period.attendance_expected && (
+                        <Badge
+                          variant="outline"
+                          className="font-normal"
+                          title="L'appel de ces séances est à faire comme d'habitude : la classe était ailleurs, mais avec vous."
+                        >
+                          Avec appel
+                        </Badge>
+                      )}
                       {period.seance_count === 0 ? (
                         <Badge
                           variant="outline"
@@ -250,9 +331,9 @@ export function AbsencesTab({
                         <Badge
                           variant="outline"
                           className="font-normal"
-                          title={`Ces séances ne comptent ni comme présence ni comme absence pour ${formatCiblePhrase(period)} : elles sortent du dénominateur du bilan.`}
+                          title={titreSeances(period)}
                         >
-                          {formatSeances(period.seance_count)}
+                          {formatSeances(period)}
                         </Badge>
                       )}
                       <Button
@@ -289,6 +370,16 @@ export function AbsencesTab({
         onSubmit={handleSubmit}
       />
 
+      {/* Pas de `key` ici : ce dialogue ne modifie aucune ligne existante, il
+          n'a donc pas de brouillon à oublier entre deux ouvertures — il se
+          réinitialise lui-même sur `open`. */}
+      <TeacherAbsenceDialog
+        open={profOpen}
+        onOpenChange={setProfOpen}
+        session={session}
+        onSubmit={handleTeacherAbsence}
+      />
+
       <ConfirmDialog
         open={toDelete !== null}
         onOpenChange={(open) => {
@@ -302,7 +393,7 @@ export function AbsencesTab({
                 « {toDelete.reason} », {formatFenetre(toDelete).toLowerCase()},
                 pour {formatCiblePhrase(toDelete)}.
               </p>
-              <p>{phraseSuppression(toDelete.seance_count)}</p>
+              <p>{phraseSuppression(toDelete)}</p>
               <p>
                 Aucune séance, aucun appel et aucun cahier de texte n'est touché.
               </p>

@@ -19,6 +19,7 @@ import {
 import { Attachments } from "@/components/Attachments";
 import type { AttachmentsHandle } from "@/components/Attachments";
 import { DataState } from "@/components/DataState";
+import { PastilleDeCategorie } from "@/components/PastilleCategorie";
 import { RichEditor } from "@/components/RichEditor";
 import {
   AlertDialog,
@@ -41,6 +42,7 @@ import { api } from "@/lib/api";
 import { aDuContenu } from "@/lib/contenu";
 import { cn } from "@/lib/utils";
 import type { AgendaEntry } from "@/types";
+import { MAX_ENTRY_CATEGORY_CHARS } from "@/types";
 
 export interface AgendaEntryEditorProps {
   /** L'éditeur relit l'entrée complète : les listes ne portent pas le corps
@@ -103,7 +105,7 @@ function studentName(entry: AgendaEntry): string | null {
  * `key={entry.id}`.
  *
  * Trois écritures disjointes, comme la séance : `updateAgendaEntryMeta`
- * (intitulé, date, horaire), `updateAgendaEntryContent` (le texte) et
+ * (intitulé, catégorie, date, horaire), `updateAgendaEntryContent` (le texte) et
  * `setAgendaEntryContentWaived` (le « rien à écrire »). La cible — la classe ET
  * l'élève — n'est écrite par aucune des trois : elle est fixée à la création, et
  * le backend refuse de la changer.
@@ -124,6 +126,7 @@ export function AgendaEntryEditor({
   // Ces champs ne partent QUE par api.updateAgendaEntryMeta.
   const [metaOpen, setMetaOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [categoryDraft, setCategoryDraft] = useState("");
   const [dateDraft, setDateDraft] = useState("");
   const [startDraft, setStartDraft] = useState("");
   const [endDraft, setEndDraft] = useState("");
@@ -168,6 +171,7 @@ export function AgendaEntryEditor({
       const loaded = await api.getAgendaEntry(entryId);
       setEntry(loaded);
       setTitleDraft(loaded.title);
+      setCategoryDraft(loaded.category);
       setDateDraft(loaded.date);
       setStartDraft(loaded.start_time);
       setEndDraft(loaded.end_time);
@@ -195,6 +199,7 @@ export function AgendaEntryEditor({
     entry !== null &&
     metaOpen &&
     (titleDraft !== entry.title ||
+      categoryDraft !== entry.category ||
       dateDraft !== entry.date ||
       startDraft !== entry.start_time ||
       endDraft !== entry.end_time);
@@ -214,6 +219,7 @@ export function AgendaEntryEditor({
         startDraft,
         endDraft,
         titleDraft,
+        categoryDraft,
       );
       // On réadopte l'entrée relue — elle porte l'intitulé nettoyé et
       // `updated_at` — mais on garde le corps rédigé de l'état local, qui peut
@@ -224,6 +230,7 @@ export function AgendaEntryEditor({
           : { ...saved, content_html: current.content_html },
       );
       setTitleDraft(saved.title);
+      setCategoryDraft(saved.category);
       setDateDraft(saved.date);
       setStartDraft(saved.start_time);
       setEndDraft(saved.end_time);
@@ -239,6 +246,7 @@ export function AgendaEntryEditor({
   const cancelMeta = () => {
     if (!entry) return;
     setTitleDraft(entry.title);
+    setCategoryDraft(entry.category);
     setDateDraft(entry.date);
     setStartDraft(entry.start_time);
     setEndDraft(entry.end_time);
@@ -344,8 +352,12 @@ export function AgendaEntryEditor({
             </Button>
           )}
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold">
+            <h3 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
               {entry ? entry.title : "Rendez-vous"}
+              {/* À côté de l'intitulé et non dans la ligne grise en dessous :
+                  c'est la première chose à lire d'un rendez-vous qui en porte
+                  une, et la carte du calendrier la met déjà au même rang. */}
+              {entry && <PastilleDeCategorie category={entry.category} />}
             </h3>
             {entry && (
               <p className="text-sm text-muted-foreground">
@@ -458,13 +470,30 @@ export function AgendaEntryEditor({
               <CardContent className="space-y-4">
                 {metaOpen ? (
                   <>
-                    <div className="space-y-2">
-                      <Label htmlFor="entree-titre">Intitulé</Label>
-                      <Input
-                        id="entree-titre"
-                        value={titleDraft}
-                        onChange={(e) => setTitleDraft(e.target.value)}
-                      />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="entree-titre">Intitulé</Label>
+                        <Input
+                          id="entree-titre"
+                          value={titleDraft}
+                          onChange={(e) => setTitleDraft(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="entree-categorie">
+                          Catégorie{" "}
+                          <span className="font-normal text-muted-foreground">
+                            (facultative)
+                          </span>
+                        </Label>
+                        <Input
+                          id="entree-categorie"
+                          value={categoryDraft}
+                          onChange={(e) => setCategoryDraft(e.target.value)}
+                          placeholder="Ex. : alerte à la bombe"
+                          maxLength={MAX_ENTRY_CATEGORY_CHARS}
+                        />
+                      </div>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
@@ -497,8 +526,10 @@ export function AgendaEntryEditor({
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Les deux heures peuvent rester vides : le rendez-vous
-                      s'affiche alors hors de la grille horaire du jour. Ce
-                      bouton n'enregistre ni le texte ci-dessous, ni l'élève.
+                      s'affiche alors hors de la grille horaire du jour. La
+                      catégorie s'affiche en pastille sur les calendriers, à
+                      côté de l'intitulé. Ce bouton n'enregistre ni le texte
+                      ci-dessous, ni l'élève.
                     </p>
                     {metaError && (
                       <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -508,10 +539,22 @@ export function AgendaEntryEditor({
                     )}
                   </>
                 ) : (
-                  <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                  <dl className="grid gap-3 text-sm sm:grid-cols-4">
                     <div>
                       <dt className="text-xs text-muted-foreground">Date</dt>
                       <dd>{formatLongDate(entry.date)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        Catégorie
+                      </dt>
+                      <dd>
+                        {entry.category ? (
+                          <PastilleDeCategorie category={entry.category} />
+                        ) : (
+                          <span className="text-muted-foreground">Aucune</span>
+                        )}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Horaire</dt>
