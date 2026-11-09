@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { styleTeinteActivite } from "@/lib/teintes";
 import type {
+  CompetencyInfo,
   Progression,
   ProgressionActivite,
   ProgressionDomaine,
@@ -44,6 +45,44 @@ function deplacer(ids: string[], index: number, pas: -1 | 1): string[] | null {
   const suivant = [...ids];
   [suivant[index], suivant[cible]] = [suivant[cible], suivant[index]];
   return suivant;
+}
+
+/** Les compétences cochées dans le référentiel, dans l'ordre du référentiel.
+ *
+ *  Une liste de phrases et non des pastilles : ce sont des phrases entières, et
+ *  huit rectangles colorés auraient fait une mosaïque — la pastille de
+ *  catégorie reste le seul aplat de couleur de l'application. Le champ est écrit
+ *  en petit à côté, parce qu'une compétence lue hors de l'arbre ne dit pas d'où
+ *  elle vient ; « archivée » aussi, sinon une compétence retirée du référentiel
+ *  resterait dans le plan sans qu'on sache pourquoi elle a disparu du
+ *  sélecteur. */
+function CompetencesCochees({
+  competences,
+}: {
+  competences: CompetencyInfo[];
+}): ReactElement | null {
+  if (competences.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Compétences
+      </p>
+      <ul className="space-y-0.5 text-sm">
+        {competences.map((competence) => (
+          <li
+            key={competence.id}
+            className="flex flex-wrap items-baseline gap-x-2"
+          >
+            <span>{competence.name}</span>
+            <span className="text-xs text-muted-foreground">
+              {competence.field_name}
+              {competence.archived && " · archivée"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /** Un bloc de texte libre, affiché seulement s'il porte quelque chose. */
@@ -162,14 +201,15 @@ export function EtapesEditor({
   };
 
   /** Création d'une étape : deux commandes, et c'est voulu.
-   *  `create_progression_etape` ne prend que l'intitulé — il n'a pas à connaître
-   *  les trois textes libres —, et les trois autres champs du formulaire suivent
-   *  par la commande qui les écrit déjà. */
+   *  `create_progression_etape` ne prend que l'intitulé — il n'a à connaître ni
+   *  les textes ni les compétences —, et le reste du formulaire suit par la
+   *  commande qui l'écrit déjà, dans sa transaction. */
   const soumettreEtape = async (champs: {
     libelle: string;
     competences: string;
     connaissances: string;
     priorites: string;
+    competencyIds: string[];
   }) => {
     const id =
       etapeEditee?.id ??
@@ -180,6 +220,7 @@ export function EtapesEditor({
       champs.competences,
       champs.connaissances,
       champs.priorites,
+      champs.competencyIds,
     );
     await onChanged();
   };
@@ -221,8 +262,8 @@ export function EtapesEditor({
       {etapes.length === 0 ? (
         <p className="rounded-lg border border-dashed px-6 py-8 text-center text-sm text-muted-foreground">
           Aucune étape pour l'instant. La première décrit ce que la classe
-          aborde en premier : ses compétences, ses connaissances, ses priorités —
-          avec vos mots.
+          aborde en premier : ses compétences, prises dans le référentiel, puis
+          ses connaissances et ses priorités, avec vos mots.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -290,7 +331,15 @@ export function EtapesEditor({
               </div>
 
               <div className="space-y-4 px-4 py-3">
-                <Champ titre="Compétences" valeur={etape.competences} />
+                <CompetencesCochees competences={etape.competences_ref} />
+                {/* Le texte d'avant le palier 021, nommé pour ce qu'il est :
+                    sans ce titre il passerait pour une seconde liste de
+                    compétences, alors qu'il est la même chose écrite à la main
+                    et en voie d'effacement. */}
+                <Champ
+                  titre="Compétences saisies à la main"
+                  valeur={etape.competences}
+                />
                 <Champ titre="Connaissances" valeur={etape.connaissances} />
                 <Champ titre="Priorités" valeur={etape.priorites} />
 

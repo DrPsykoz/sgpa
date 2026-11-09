@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CompetencyPicker } from "@/components/CompetencyPicker";
 import {
   Dialog,
   DialogContent,
@@ -21,24 +22,35 @@ export interface EtapeDialogProps {
   etape: ProgressionEtape | null;
   onSubmit: (champs: {
     libelle: string;
+    /** Le texte libre d'avant le palier 021, transité inchangé — vide seulement
+     *  si l'enseignant a cliqué « Effacer ce texte ». */
     competences: string;
     connaissances: string;
     priorites: string;
+    competencyIds: string[];
   }) => Promise<void>;
 }
 
 /**
  * Une étape de l'année : l'échelon entre l'année et l'activité.
  *
- * C'est elle qui porte les compétences, les connaissances et les priorités — en
- * **texte libre**, et non des identifiants du référentiel. Décision de l'auteur :
- * ce sont ses mots, pas des cases à cocher, et une étape qui citerait le
- * référentiel se figerait au jour de sa saisie.
+ * C'est elle qui porte les compétences, les connaissances et les priorités. Les
+ * **compétences se cochent dans le référentiel** depuis le palier 021 : le même
+ * `CompetencyPicker` que les évaluations, pour que la même compétence s'écrive
+ * du même mot dans le plan de l'année et dans le bulletin. L'auteur a rouvert
+ * le 2026-11-09 sa décision de texte libre du 2026-11-07 — ne pas la refermer
+ * sans lui.
  *
- * Les quatre champs partent en une seule commande, et ce n'est pas la règle
- * « deux écritures sont deux commandes » qui plie : ce sont les quatre champs
- * d'un seul formulaire, saisis d'un bloc par un seul écran. La règle vise deux
- * écrans qui écrivent chacun la moitié d'une ligne sans avoir rafraîchi l'autre.
+ * **Le texte libre d'avant n'a pas disparu de la base**, et ce dialogue est le
+ * seul endroit qui l'efface : il le montre en lecture seule, explique d'où il
+ * vient, et attend un clic. Tant qu'il est là il est réécrit tel quel à chaque
+ * enregistrement — c'est la raison du champ `competences` dans `onSubmit`, et
+ * l'omettre effacerait les phrases d'un enseignant au premier renommage.
+ *
+ * Tout part en une seule commande, et ce n'est pas la règle « deux écritures
+ * sont deux commandes » qui plie : ce sont les champs d'un seul formulaire,
+ * saisis d'un bloc par un seul écran. La règle vise deux écrans qui écrivent
+ * chacun la moitié d'une ligne sans avoir rafraîchi l'autre.
  */
 export function EtapeDialog({
   open,
@@ -50,6 +62,7 @@ export function EtapeDialog({
   const [competences, setCompetences] = useState("");
   const [connaissances, setConnaissances] = useState("");
   const [priorites, setPriorites] = useState("");
+  const [competencyIds, setCompetencyIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +75,7 @@ export function EtapeDialog({
     setCompetences(etape?.competences ?? "");
     setConnaissances(etape?.connaissances ?? "");
     setPriorites(etape?.priorites ?? "");
+    setCompetencyIds((etape?.competences_ref ?? []).map((c) => c.id));
     setError(null);
     setPending(false);
   }, [open, etape]);
@@ -77,7 +91,13 @@ export function EtapeDialog({
     setPending(true);
     setError(null);
     try {
-      await onSubmit({ libelle, competences, connaissances, priorites });
+      await onSubmit({
+        libelle,
+        competences,
+        connaissances,
+        priorites,
+        competencyIds,
+      });
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -88,7 +108,7 @@ export function EtapeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {etape === null ? "Nouvelle étape" : "Modifier l'étape"}
@@ -113,16 +133,46 @@ export function EtapeDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="etape-competences">Compétences</Label>
-            <Textarea
-              id="etape-competences"
-              value={competences}
-              rows={3}
-              placeholder="Une par ligne, avec vos mots."
-              disabled={pending}
-              onChange={(event) => setCompetences(event.target.value)}
+            <Label>
+              Compétences ({competencyIds.length} sélectionnée
+              {competencyIds.length > 1 ? "s" : ""})
+            </Label>
+            <CompetencyPicker
+              selected={competencyIds}
+              onChange={setCompetencyIds}
             />
+            <p className="text-xs text-muted-foreground">
+              Elles viennent du référentiel, celui de Réglages : une compétence
+              renommée là-bas se renomme ici et sur le document imprimé.
+            </p>
           </div>
+
+          {/* Le texte d'avant le sélecteur. Il n'est pas modifiable : le
+              remettre en saisie rouvrirait les deux façons de dire la même
+              chose, et c'est justement ce que le palier 021 referme. Il reste
+              lisible, et imprimé, jusqu'à ce que l'enseignant l'efface. */}
+          {competences.trim() !== "" && (
+            <div className="space-y-2 rounded-lg border border-dashed px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Compétences saisies à la main
+              </p>
+              <p className="whitespace-pre-line text-sm">{competences}</p>
+              <p className="text-xs text-muted-foreground">
+                Ce texte a été écrit avant que le sélecteur n'existe. Il reste
+                affiché et imprimé tant que vous ne l'effacez pas : retrouvez
+                ces compétences dans le référentiel ci-dessus, puis effacez-le.
+                L'effacement s'enregistre avec le reste du formulaire.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setCompetences("")}
+              >
+                Effacer ce texte
+              </Button>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="etape-connaissances">Connaissances</Label>

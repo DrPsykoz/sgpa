@@ -1828,6 +1828,24 @@ export async function exportProgressionPDF({
 		calendar.weeks.map((week, index) => [week.monday, index] as const),
 	);
 
+	/** La cellule « Compétences » d'une étape : celles du référentiel, puis le
+	 *  texte libre d'avant le palier 021 tant qu'il reste.
+	 *
+	 *  Les deux dans la MÊME colonne et non deux colonnes : le tableau tient déjà
+	 *  huit colonnes sur une A4 paysage, et l'enseignant qui relit son année n'a
+	 *  pas à savoir par quel écran la phrase est arrivée là. Le nom seul, sans le
+	 *  champ ni le socle — la colonne fait 44 mm, et le plan de l'année nomme ce
+	 *  qu'on travaille, là où la fiche contrat doit situer la compétence dans le
+	 *  socle. Le texte libre passe en dernier parce qu'il est en voie de
+	 *  disparition : il s'effacera d'un bouton, et la cellule n'aura plus qu'une
+	 *  moitié. */
+	const competencesDeEtape = (etape: ProgressionEtape): string => {
+		const lignesDeCellule = etape.competences_ref.map((c) => c.name);
+		const libre = etape.competences.trim();
+		if (libre !== "") lignesDeCellule.push(libre);
+		return lignesDeCellule.join("\n");
+	};
+
 	const lignes: LigneDeProgression[] = progression.etapes.flatMap(
 		(etape): LigneDeProgression[] =>
 			etape.activites.length === 0
@@ -1857,7 +1875,10 @@ export async function exportProgressionPDF({
 					rowSpan: span,
 					styles: { fontStyle: "bold" },
 				});
-				cells.push({ content: ligne.etape.competences, rowSpan: span });
+				cells.push({
+					content: competencesDeEtape(ligne.etape),
+					rowSpan: span,
+				});
 				cells.push({ content: ligne.etape.connaissances, rowSpan: span });
 				cells.push({ content: ligne.etape.priorites, rowSpan: span });
 			}
