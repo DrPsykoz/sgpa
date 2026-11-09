@@ -28,12 +28,14 @@ La base est **chiffrée** — une clé USB perdue ne livre aucun nom d'élève.
 | **Classes**           | Une classe = un niveau (`6eme`, `5eme`, `4eme`, `3eme`, `3eme_prepa`) pour une année scolaire. Le niveau et l'année ne sont stockés nulle part ailleurs.                                                     |
 | **Élèves**            | Ajout unitaire ou collage multi-lignes depuis un tableur. `enrolled_on` / `left_on` bornent l'assiduité : un élève arrivé en janvier n'est pas compté absent de septembre à décembre.                        |
 | **Séances**           | Titre, date, trimestre déduit de la date et corrigeable à la main, indicateur « annulée » (sortie, jour férié) qui garde la séance au cahier de texte mais la sort des statistiques. Cahier de texte TipTap, **pièces jointes** (image, PDF, audio, docx — 10 Mo par fichier, images redimensionnées à 1600 px, stockées **dans la base chiffrée**), et un « rien à écrire » daté pour les séances qui n'ont pas de compte rendu à produire. |
+| **Emploi du temps**  | La grille hebdomadaire : créneaux récurrents, toutes les semaines ou **une semaine sur deux** (parité du numéro ISO), **plusieurs cours sur la même case** quand ils alternent, cours ponctuels et rendez-vous datés. Elle **définit** et ne contient aucun écran de séance : l'appel et le cahier de texte vivent à l'accueil et dans la fiche de classe. Vue « Semaine » par défaut, vue « Année » pour comparer les progressions de toutes les classes. |
+| **Absences & sorties** | Une période nomme les jours où une classe, ou un seul élève, n'est pas en cours : stage, hospitalisation, séjour. Trois cas distincts — elle **retire** ses séances du dénominateur d'assiduité (stage), ou l'**appel se fait quand même** (sortie scolaire, CDI), ou c'est le **professeur** qui manquait (formation, maladie), auquel cas l'accueil ne réclame ni appel ni cahier de texte. |
 | **Besoins particuliers** | Étiquettes de l'enseignant (dysorthographie, dyscalculie, AESH, PAP…) et une note libre par élève. L'application **n'en livre aucune** : les libellés justes sont ceux des notifications et des PAP de l'établissement. Affichés à l'appel, dans les grilles de notation, dans la liste de la classe et dans les bilans à l'écran — **sur aucun document imprimé**, et un test le vérifie. |
 | **Appel**             | Cinq états : `non_fait`, `present`, `absent`, `retard`, `excuse`. « Non fait » est un état réel : rien n'est pré-rempli à « présent », et l'appel oublié se voit.                                             |
-| **Référentiel**       | Arbre Cycle → Domaine → Champ → Compétence en 6 commandes, saisie par collage multi-lignes, archivage d'une compétence déjà notée plutôt que suppression. Livré pré-rempli avec les 5 domaines du socle.      |
+| **Référentiel**       | Arbre Cycle → Domaine → Champ → Compétence en 6 commandes, saisie par collage multi-lignes, archivage plutôt que suppression d'une compétence déjà notée, retenue par une évaluation ou citée par une progression — les trois sont comptées avant le refus. Livré pré-rempli avec les 5 domaines du socle.      |
 | **Évaluations**       | Grille compétences × élèves, note entière de 1 à 20 avec son libellé de maîtrise affiché à côté (case vide = non évalué), trimestre déduit de la date. Retirer une compétence d'une évaluation demande confirmation avant de toucher aux notes.                         |
 | **Fiches contrat**    | Une trame par évaluation (projet, champ professionnel et son sous-ensemble, activités de référence, métiers visés), des lignes d'activités ordonnées dont chacune peut pointer une compétence du référentiel, un tableau donné / demandé / exigé **ligne par ligne**, et une couche nominative par élève. Composable en un clic depuis les compétences de l'évaluation. |
-| **Progression**       | La planification de l'année d'une classe : les **domaines** explorés, découpés en **étapes** (compétences, connaissances, priorités) qui portent des **activités**, posées à la souris sur les **vraies semaines** du calendrier — deux bandes, vacances et stages lus du calendrier officiel. Une par classe. Vue « Année » de l'emploi du temps pour comparer toutes les classes d'un coup d'œil, export PDF en paysage. |
+| **Progression**       | La planification de l'année d'une classe : les **domaines** explorés, découpés en **étapes** (compétences cochées dans le **référentiel**, connaissances et priorités avec ses mots) qui portent des **activités**, posées à la souris sur les **vraies semaines** du calendrier — deux bandes, vacances et stages lus du calendrier officiel. Une par classe. Vue « Année » de l'emploi du temps pour comparer toutes les classes d'un coup d'œil, export PDF en paysage. |
 | **Bilans**            | Par classe et par trimestre : moyennes par compétence, moyenne générale, statistiques d'assiduité (dont les séances hors période d'inscription), commentaire enseignant.                                      |
 | **Export PDF**        | Bilan trimestriel, fiche contrat du projet et **progression annuelle** (`src/lib/pdf.ts`), déposés dans `exports/` à côté de l'exécutable. La **fiche nominative par élève** n'a toujours pas d'export : c'est sa maquette qui n'est pas arrêtée, pas celle de la trame. |
 | **Sauvegarde**        | Copie complète à la demande dans `data/backups/`, les 10 plus récentes conservées. Copie automatique avant toute migration de schéma. `VACUUM INTO` hérite de la clé : **les sauvegardes sont chiffrées elles aussi**.                                        |
@@ -62,7 +64,7 @@ La base est **chiffrée** — une clé USB perdue ne livre aucun nom d'élève.
 il l'est par sa capacité à déballer la clé maître.
 
 Pas de gestionnaire d'état global, pas de client HTTP, pas de serveur. Le front parle au Rust
-par `invoke()` et rien d'autre : **103 commandes**, exposées par une façade typée unique
+par `invoke()` et rien d'autre : **124 commandes**, exposées par une façade typée unique
 (`src/lib/api.ts`).
 
 ## Structure du projet
@@ -93,7 +95,8 @@ src/                                       Frontend React
 │       ├── progression/                   le **seul** endroit où une progression s'écrit :
 │       │                                  EtapesEditor · FriseProgression · EtapeDialog ·
 │       │                                  ActiviteDialog · DomainesDialog · EnteteDialog
-│       └── dialogs/                       StudentFormDialog · StudentNeedsDialog · AbsencePeriodDialog
+│       └── dialogs/                       StudentFormDialog · StudentNeedsDialog ·
+│                                         AbsencePeriodDialog · TeacherAbsenceDialog
 ├── components/
 │   ├── AgendaEntryEditor.tsx              le compte rendu d'un rendez-vous, pièces comprises
 │   ├── Attachments.tsx                    les pièces jointes des **deux** porteurs (`APPELS`)
@@ -105,6 +108,7 @@ src/                                       Frontend React
 │   ├── LimiteErreur.tsx                   filet de rendu : un écran lisible plutôt qu'une fenêtre blanche
 │   ├── NeedsChips.tsx   NeedTagsCard.tsx  besoins particuliers — à l'écran seulement
 │   ├── OccurrenceDialog.tsx               faire naître la séance d'un créneau, annulée ou non
+│   ├── PastilleCategorie.tsx              la catégorie d'un rendez-vous, en petit — le seul aplat
 │   ├── PinInput.tsx   RecoveryPhrase.tsx  six cases, et les douze mots
 │   ├── RichEditor.tsx                     TipTap
 │   ├── TrimesterBoundsDialog.tsx          bornes d'année + aperçu du recalcul
@@ -117,7 +121,7 @@ src/                                       Frontend React
 │   ├── useZoneDepot.ts                    glisser-déposer : **un seul exemplaire**, six pièges
 │   └── useIdleTimer.ts                    écrit, pas encore branché
 ├── lib/
-│   ├── api.ts                             façade typée des 123 commandes + ApiError
+│   ├── api.ts                             façade typée des 124 commandes + ApiError
 │   ├── contenu.ts                         « vide », et les trois façons de régler un compte rendu
 │   ├── depot.ts                           `estDepotDeFichiers`, `interdireNavigationParDepot`
 │   ├── journal.ts                         filets globaux d'erreur, sans jamais rien de personnel
@@ -147,7 +151,9 @@ src-tauri/
 │   │       ├── 002_referentiel.sql        semis du socle commun
 │   │       ├── 003_sans_bcrypt.sql        la base n'héberge plus rien du verrou
 │   │       ├── 019_progression.sql        la planification de l'année, et son modèle commenté
-│   │       └── …                          19 paliers en tout, voir le tableau plus bas
+│   │       ├── 020_appel_et_categorie.sql  l'appel pendant une période, l'absence du professeur,
+│   │       │                               la catégorie d'un rendez-vous
+│   │       └── …                          20 paliers en tout, voir le tableau plus bas
 │   └── commands/
 │       ├── lock.rs           verrou, code PIN, récupération, réglages  (13 commandes)
 │       ├── sessions.rs       classes                   (5)
@@ -156,10 +162,10 @@ src-tauri/
 │       ├── timetable.rs      créneaux et rendez-vous   (15)
 │       ├── seances.rs        séances et présences      (11)
 │       ├── attachments.rs    pièces jointes des deux porteurs  (10)
-│       ├── evaluations.rs    évaluations et notes      (7)
+│       ├── evaluations.rs    évaluations et notes      (8)
 │       ├── needs.rs          besoins particuliers      (7)
 │       ├── progressions.rs   progression annuelle      (18)
-│       ├── absences.rs       périodes d'absence        (4)
+│       ├── absences.rs       périodes d'absence        (5)
 │       ├── trimesters.rs     bornes d'année            (3)
 │       ├── contracts.rs      fiches contrat            (5)
 │       ├── home.rs           l'accueil : les jours à venir, « À reprendre »  (2)
@@ -270,7 +276,7 @@ La variable d'environnement `SGPA_DATA_DIR` impose un autre emplacement pour `da
 
 ```powershell
 pnpm exec tsc --noEmit            # typecheck du front
-cd src-tauri ; cargo test --lib   # 178 tests
+cd src-tauri ; cargo test --lib   # 188 tests
 cd src-tauri ; cargo clippy       # doit rester à zéro avertissement
 ```
 
@@ -453,7 +459,7 @@ ensuite dans `AppState` sous `Mutex` et est partagée par toutes les commandes v
 `tauri::State`. `PRAGMA user_version` vit dans l'en-tête, qui est chiffré : le mécanisme de
 migration fonctionne inchangé, simplement après le mot de passe.
 
-### Les 36 tables
+### Les 37 tables
 
 ```
 app_settings                     ligne unique — remplace l'ancienne table users
@@ -477,13 +483,17 @@ sessions                         une classe pour une année (level_code + year_s
 │   └── student_needs            (student_id, tag_id) → étiquettes posées sur l'élève
 ├── timetable_slots              créneaux récurrents ; session_id NULL = occupation sans classe
 ├── agenda_entries               rendez-vous datés ; session_id et student_id facultatifs,
-│   │                            content_waived_at comme une séance
+│   │                            content_waived_at comme une séance, category en texte libre
 │   └── agenda_entry_attachments BLOB — jumelle de seance_attachments, pas une colonne « porteur »
-├── absence_periods              absence justifiée, collective (student_id NULL) ou nominative
+├── absence_periods              absence justifiée, collective (student_id NULL) ou nominative ;
+│   │                            attendance_expected = l'appel se fait quand même,
+│   │                            teacher_absent = c'est le professeur qui manquait
 │   └── stage_placements         un placement désarme la période pour l'élève concerné
 ├── progressions                 UNE par classe (session_id UNIQUE) : titre, intitule_groupe, devise
-│   ├── progression_etapes       l'échelon entre l'année et l'activité : compétences,
-│   │   │                        connaissances, priorités — en texte libre
+│   ├── progression_etapes       l'échelon entre l'année et l'activité : connaissances et
+│   │   │                        priorités en texte libre ; competences = le texte d'avant 021
+│   │   ├── progression_etape_competences  les compétences, cochées dans le référentiel
+│   │   │                        (palier 021) — sans position : l'ordre est celui du référentiel
 │   │   └── progression_activites  ce qu'on fait ; domaine_id facultatif vers progression_domaines
 │   └── progression_plages       une case de frise : (week_monday, voie 0|1) → activite_id
 ├── seances                      trimester, trimester_is_manual, cancelled, content_html,
@@ -510,7 +520,11 @@ créneau ne doit jamais emporter un appel déjà fait.
 
 `ON DELETE CASCADE` sur les liens de composition ; `ON DELETE RESTRICT` vers `competencies` :
 supprimer une compétence déjà notée est refusé par SQLite, et la commande traduit le refus en
-proposition d'archivage.
+proposition d'archivage. Trois tables la retiennent ainsi — `grades`,
+`evaluation_competencies` et, depuis le palier 021, `progression_etape_competences` — et
+`delete_node` compte les **trois** avant de supprimer : une table ajoutée en `RESTRICT` sans
+l'être ici rendrait le message faux par omission, « 0 évaluation, 0 note » suivi d'un refus
+que plus rien n'explique.
 
 ### Migrations
 
@@ -538,6 +552,8 @@ liste ordonnée des paliers, chacun étant un fichier de `db/sql/` :
 | 17     | `017_rendez_vous_compte_rendu.sql` | `agenda_entries.content_waived_at` et `agenda_entry_attachments` : un rendez-vous a désormais le même compte rendu qu'une séance — pièces jointes comprises |
 | 18     | `018_note_sur_20.sql`          | `grades.mark`, note entière de 1 à 20, remplace `grades.level` : le libellé de maîtrise devient la lecture de la note et non son origine. Table reconstruite — SQLite ne sait pas remplacer le CHECK d'une colonne, et `BETWEEN 0 AND 5` aurait refusé toute note au-dessus de 5 dès la première frappe |
 | 19     | `019_progression.sql`          | `progression_domaines`, `progressions`, `progression_etapes`, `progression_activites`, `progression_plages` : la planification de l'année, une progression par classe (`session_id UNIQUE`), une plage désignée par le **lundi** de sa semaine |
+| 20     | `020_appel_et_categorie.sql`   | `absence_periods.attendance_expected` (l'appel se fait quand même : sortie scolaire, séjour, CDI), `absence_periods.teacher_absent` (c'est le professeur qui manquait, pas la classe) et `agenda_entries.category` (texte libre, affichée en pastille). Aucune table nouvelle, trois `DEFAULT` qui reproduisent le comportement de la veille — l'ordre des deux `ALTER` n'est pas interchangeable, le CHECK du second cite le premier |
+| 21     | `021_competences_de_progression.sql` | `progression_etape_competences` : les compétences d'une étape viennent du **référentiel** et non plus d'un champ texte. Miroir d'`evaluation_competencies` — CASCADE sur l'étape, RESTRICT sur la compétence, index inverse — à une colonne près : **pas de `position`**, l'ordre étant celui du référentiel. Rien n'est migré et `progression_etapes.competences` n'est ni vidée ni supprimée : aucun rattachement ne peut être deviné d'une suite de phrases écrites à la main |
 
 Le palier 3 vide la base de tout ce qui touchait au verrou. Le condensat bcrypt n'a plus de
 vérificateur — le mot de passe se prouve en déballant la clé maître — et un condensat resté là
@@ -661,6 +677,21 @@ phrases d'exemple changent. Elles nomment aussi, depuis le palier 016, une **cla
 facultativement un **élève** — la classe étant déduite de l'élève dès qu'il y en a un, et un
 couple contradictoire refusé plutôt que rectifié en silence (`resolve_entry_session`).
 
+Et, **depuis le palier 020, une `category`** : un mot, trente caractères au plus, en texte
+libre. Le palier 004 avait écrit qu'il n'y aurait pas de colonne `kind` tant qu'un second
+exemple réel n'existerait pas, et que l'intitulé porterait la catégorie en attendant. Le
+second exemple est l'exercice PPMS : un événement qui concerne l'établissement entier, ne
+nomme aucune classe, et dont ce qu'on veut lire d'un coup d'œil sur le calendrier n'est pas
+l'intitulé mais la **nature**. Elle s'affiche en pastille — le seul aplat de couleur de
+l'application, `PastilleDeCategorie`, partagé par les deux calendriers et l'en-tête du
+compte rendu, pour que trois rédactions ne divergent pas. Texte libre et non liste close :
+une taxonomie figerait un vocabulaire qui appartient à l'établissement, et chaque valeur
+manquante renverrait l'enseignant à écrire la catégorie dans le titre, c'est-à-dire à l'état
+d'avant. Le prix est connu et arbitré par l'auteur : « PPMS » et « ppms » font deux
+catégories. La borne de trente caractères vit dans `clean_entry_category` et dans la saisie,
+**pas** dans un CHECK : une limite d'affichage n'est pas une règle de données, et un CHECK
+aurait refusé en anglais ce que la commande refuse en français.
+
 ### Besoins particuliers des élèves
 
 `student_need_tags` est le vocabulaire de l'enseignant — « Dysorthographie », « AESH », « PAP »
@@ -685,6 +716,143 @@ classe d'une année. Le même enfant en 4ᵉ puis en 3ᵉ est deux lignes de `st
 étiquettes sont à reposer en septembre. Le vocabulaire, lui, est global et ne se ressaisit
 jamais.
 
+### Périodes d'absence : trois cas, et deux colonnes pour les distinguer
+
+Depuis le palier 005, une période retire ses séances du **dénominateur d'assiduité** de qui elle
+vise. C'est juste pour un stage : l'élève n'est pas là, sa présence en cours n'a pas de sens, et
+la compter en absence fabriquerait un taux faux sur le bilan remis à la famille.
+
+Ça ne l'est pas pour une sortie scolaire, un séjour, une matinée au CDI : l'enseignant est
+**avec** la classe, l'appel se fait, et manquer est une absence comme une autre. Il n'avait aucun
+moyen de le dire, et les deux contournements qui restaient étaient tous deux mauvais — ne pas
+saisir la période, et la sortie disparaissait de l'emploi du temps ; la saisir, et la journée
+sortait silencieusement de l'assiduité de toute la classe. D'où `attendance_expected`, qui
+neutralise la neutralisation : la période nomme toujours sa raison, s'affiche toujours sur
+l'emploi du temps, mais ses séances restent au dénominateur.
+
+La règle vit dans la **requête du bilan** (`reports::ATTENDANCE_SQL`) et nulle part dans le
+stockage : rien n'est recopié, donc décocher la case rend les séances au calcul sans rien
+reconstruire. Elle se lit **aux deux points symétriques** de cette requête, celui de
+`neutralisees` et celui du `LEFT JOIN`, ou à aucun : ne l'ajouter qu'à l'un des deux casse
+l'invariant imprimé `applicable + hors_inscription + neutralisees == seances_trimestre`.
+
+`teacher_absent` ne change **aucun calcul**, et c'est voulu : une période écarte déjà ses
+séances, donc « l'enseignant n'était pas là » n'a rien de plus à retirer. Ce qu'il apporte, c'est
+la **cause**, que `reason` — texte libre — ne permettait pas de distinguer d'une chaîne
+quelconque. Deux conséquences, toutes deux à l'écran et aucune dans les chiffres :
+
+- l'emploi du temps écrit « Professeur absent », dans la teinte de la classe, là où il écrivait le
+  motif de la classe — une fermeture d'établissement et une classe en stage se lisaient pareil ;
+- les **trois rappels de l'accueil se taisent** sur une séance couverte : il n'y a ni appel à
+  terminer, ni cahier de texte à écrire, ni annulation à motiver pour un cours que personne n'a
+  assuré. La séance quitte aussi les trois dénominateurs, par le raisonnement même qui en sort
+  les séances annulées. Ce silence ne vaut **que** pour `teacher_absent` : une période de stage
+  continue de réclamer, l'enseignant était là et ses autres classes ont eu cours.
+
+Le couple contradictoire est **impossible**, pas découragé. Un professeur absent ne fait pas
+l'appel ; ce n'est pas une politique qu'on pourrait rouvrir, c'est une tautologie. Trois verrous
+le disent, chacun à son étage : `create_teacher_absence_periods` ne prend pas `attendance_expected`
+en paramètre — **la commande EST le drapeau** —, `update_absence_period` refuse de rendre l'appel
+à une absence du professeur (et de la rendre nominative : il n'est pas absent pour un seul élève),
+et le CHECK du schéma le redit pour un appelant futur qui n'aurait lu ni l'un ni l'autre. SQLite
+n'ajoutant pas de contrainte de table par `ALTER`, ce CHECK est porté par la colonne et cite sa
+voisine : **l'ordre des deux `ALTER` du palier 020 n'est pas interchangeable.**
+
+Une absence du professeur pose **une ligne par classe cochée**, dans une seule transaction — une
+journée de formation vide l'emploi du temps entier, une réunion ne prend qu'une classe, et c'est
+à lui de cocher. Il n'y a pas d'entité « absence groupée » : même raison que « Gr 2 » au palier
+019, un objet qui n'existe que pour relier des lignes devient un objet dont il faut gérer le
+cycle de vie. Une classe inconnue annule **tout** le geste, et une liste vide est refusée en
+français.
+
+Les trois cas ne se dessinent pas pareil sur les calendriers, et c'est `absenceDuCreneau`
+(`pages/Timetable/journee.ts`) qui tranche : une classe hors cours **garde sa carte** et
+l'estompe, avec le motif écrit dessus, exactement comme un créneau de quinzaine qui ne tombe pas
+cette semaine — « une case disparue passerait pour un créneau perdu ». Un jour fermé pour tout le
+monde, lui, retire ses cartes : l'en-tête de la colonne le dit une fois, vingt-quatre cartes
+estompées le rediraient vingt-quatre fois. Et `attendance_expected` ne change rien au dessin : le
+cours a lieu, estomper sa carte ferait disparaître à l'œil la séance dont on attend justement
+l'appel. Les mots vivent à un seul endroit (`motsDeAbsence`, `motsDesAbsences`), en trois
+longueurs — la carte, le bandeau, l'infobulle —, comme `motsDuCahier`.
+
+Ce qu'une carte ne peut pas dire, une **légende** le dit sous la grille. L'en-tête d'une colonne
+fait six caractères : à deux classes hors cours le même jour, il ne pouvait plus que compter —
+« 2 classes hors cours », vrai et inutilisable. Le détail existait déjà, mais dans un `title=`, et
+une infobulle ne se découvre pas. `LegendeDesAbsences` écrit donc une ligne par période : la classe
+dans sa teinte et son filet — `teinte-carte` et `styleTeinte`, ceux de la carte qu'elle explique,
+aucune couleur écrite à la main —, le motif, les jours couverts, et l'effet sur l'assiduité en une
+phrase. Elle est **sous** la grille parce qu'une colonne n'a pas la place d'une phrase, et parce
+que la même période revient dans chaque journée qu'elle couvre : `get_week_schedule` rend une
+`SessionAway` par jour, donc `absencesGroupees` déduplique sur (classe, `teacher_absent`,
+`attendance_expected`, motif) avant d'afficher — sans quoi un stage d'une semaine s'écrirait cinq
+fois. Les mots viennent de `journee.ts` (`motsDeLegende`), avec ceux des cartes : deux rédactions
+finiraient par ne pas dire la même chose de la même période.
+
+### Deux cours sur la même case : la semaine A/B
+
+`timetable_slots.week_parity` existe depuis le palier 004 (`toutes`, `paires`, `impaires`, sur le
+**numéro de semaine ISO**), et la table n'a jamais porté de contrainte d'unicité sur
+`(weekday, start_time)` : deux créneaux sur la même bande étaient permis par le schéma depuis le
+premier jour. Ce qui manquait était la **porte** — une case occupée renvoyait tous ses clics vers
+la modification du créneau existant, et rien ne proposait d'en ajouter un second au même endroit.
+
+Il y en a maintenant **deux, et elles ne se remplacent pas**.
+
+**Dans la grille : le clic ouvre la carte, le glissé ajoute à côté.** C'est le geste qu'on essaie
+d'abord, et il ne marchait pas — une carte couvre sa bande, donc le `pointerdown` ne descendait
+jamais jusqu'au fond cliquable. `commencerTraceSurCarte` (`WeekGrid`) retrouve cette bande **sous
+le curseur** par `elementsFromPoint`, qui rend les éléments empilés dans l'ordre — la carte
+d'abord, la bande ensuite —, et le tracé reprend là, à l'identique : même géométrie, même aperçu,
+même sélection inclusive. D'où les attributs `data-bande`, `data-jour`, `data-colonne`,
+`data-minutes` et `data-date` portés par les bandes du fond : ils sont leur seule description
+lisible de l'extérieur, et les lire sur l'élément lui-même évite une table d'index parallèle qui
+se désynchroniserait de ce qui est dessiné. Sans mouvement, `relacher` ne crée rien et le clic
+ouvre la carte comme avant — rien n'est retiré à qui ne glisse pas. Et `consommerClic`, partagé
+par la bande et la carte, avale le `click` que le navigateur émet encore après un glissé : sans
+lui, le geste créerait la plage **et** ouvrirait par-dessus la carte dont il est parti. Les cartes
+qui ne s'ouvrent pas d'un clic reçoivent la même amorce, sinon un horaire occupé resterait
+impossible à doubler ; et la carte d'un cours ponctuel, devenue un lien depuis que sa fiche est
+atteignable d'ici, porte en plus `draggable={false}` — le navigateur sait glisser une ancre tout
+seul, et ce fantôme aurait mangé le tracé.
+
+**Dans le dialogue de modification :** « Un autre cours à cet horaire » rouvre le sélecteur
+de forme préréglé sur le même jour, le même horaire, et la **parité complémentaire** de celle du
+créneau qu'on quitte. C'est le chemin de qui a cliqué, le seul chemin au clavier — les bandes du
+fond restent atteignables par tabulation sous les cartes —, et le seul des deux à deviner la
+périodicité : il est le seul geste qui dise « l'autre semaine », un tracé ne disant que l'horaire.
+Trois détails qui ne sont pas des détails :
+
+- **Le créneau existant n'est pas touché.** Le geste ne réécrit pas sa parité en `paires` pour
+  faire place à son jumeau : une modification en douce resterait à moitié faite si l'enseignant
+  annulait la création, et c'est exactement celle qu'on ne retrouve jamais. La parité reste la
+  sienne, et un panneau d'information dit ce qui va se passer — « ils tomberont la même semaine »,
+  ou « les périodicités se complètent ».
+- Ce panneau liste les voisins dès que l'horaire saisi en **chevauche** un, pas seulement quand il
+  l'égale : un 8h–9h et un 8h30–10h occupent bel et bien la même bande de grille.
+- L'hôte remet `slotEnEditionId` à `null` avant d'ouvrir la création. Sans ce geste, l'écriture
+  qui suit passerait par `enregistrerCreneau`, qui consulte cet identifiant, et **écraserait** le
+  créneau qu'on vient de quitter.
+
+L'**horaire d'un cours ponctuel** (`seances.slot_id IS NULL`) s'édite enfin dans sa propre fiche,
+et lui seul : une séance née d'un créneau tient son heure du modèle hebdomadaire, qui se corrige
+dans l'emploi du temps et pour toutes les semaines à la fois. La corriger occurrence par
+occurrence ferait deux vérités pour la même heure — c'est « l'emploi du temps définit » appliqué à
+une colonne. Un cours ponctuel, lui, n'a aucun modèle derrière lui : sans ce champ, un horaire
+saisi de travers restait faux pour toujours. Sur une séance de créneau, l'horaire **transite
+inchangé** par `update_seance_meta` ; l'omettre l'enverrait vide, et un simple renommage effacerait
+l'heure du cours.
+
+Restait à y **arriver**. La carte d'un cours ponctuel était inerte dans la grille : elle
+s'affichait, et aucun clic n'atteignait ni l'horaire qu'on venait de rendre modifiable, ni l'appel,
+ni le cahier de texte. Elle est maintenant un `<Link>` vers
+`/classes/:id?onglet=seances&ouvrir=:seanceId`, c'est-à-dire vers le **seul** écran de séance qui
+existe : **mener n'est pas héberger**, et un second écran de séance posé dans l'emploi du temps
+aurait rouvert le défaut que la suppression de l'onglet « Journée » avait fermé. Un `<button>` qui
+navigue serait un mensonge — clic du milieu, « ouvrir dans un nouvel onglet » et copie de l'adresse
+n'auraient rien à prendre. Et l'adresse vit **à un seul endroit**, `adresseDeLaSeance` dans
+`journee.ts`, partagée avec les deux appels de l'accueil : trois gabarits d'URL auraient divergé au
+premier paramètre ajouté.
+
 ### Progression annuelle
 
 Palier 019. C'est la mise au propre d'un classeur papier : l'année d'une classe, les domaines
@@ -698,14 +866,32 @@ est donc un **libellé imprimé** (`intitule_groupe`) et non une entité : il n'
 Trois niveaux, et c'est le milieu qui compte :
 
 - l'**étape** (`progression_etapes`) est l'échelon entre l'année et l'activité, et c'est elle
-  qui porte les **compétences**, les **connaissances** et les **priorités**. En texte libre :
-  elles ne citent pas le référentiel `competencies`, parce que l'enseignant écrit des phrases
-  et non des codes ;
+  qui porte les **compétences**, les **connaissances** et les **priorités**. Les compétences
+  se **cochent dans le référentiel** depuis le palier 021
+  (`progression_etape_competences`), avec le même sélecteur que les évaluations, pour que la
+  même compétence s'écrive du même mot dans le plan de l'année et dans le bulletin. Les
+  connaissances et les priorités restent en texte libre ;
 - l'**activité** (`progression_activites`) est ce qu'on fait, rattachée à une étape et
   éventuellement à un **domaine** ;
 - la **plage** (`progression_plages`) est une case de frise : un **lundi**, une bande (`voie`,
   0 ou 1), une activité. La semaine se désigne par sa date et **jamais par un numéro ISO** — un
   numéro n'a pas d'année, et la semaine 1 de 2027 suit la 53 de 2026.
+
+Le palier 019 avait tranché l'inverse — « en texte libre, parce qu'il écrit des phrases » —
+et c'était une décision de l'auteur ; il l'a rouverte le 2026-11-09. Ce n'est pas un
+revirement en l'air : les 53 compétences semées par le palier 009 viennent de **son** tableau,
+donc les phrases qu'il retapait à la main étaient déjà dans la base, à deux écrans de là.
+Deux conséquences, tenues par la forme des données et non par la vigilance. La table de
+rattachement **n'a pas de colonne `position`** : l'ordre d'une étape est celui du référentiel,
+celui que Réglages règle, donc une compétence déplacée là-bas se déplace dans toutes les
+progressions d'un coup — sa voisine `evaluation_competencies` a cette colonne, l'écrit à
+chaque enregistrement, et son lecteur ne la lit jamais. Et `progression_etapes.competences`
+**n'est ni vidée ni supprimée** : des enseignants ont des bases réelles, l'écran montre ce
+texte en lecture seule sous « Compétences saisies à la main » tant qu'il reste, le PDF
+l'imprime encore, un seul bouton l'efface, et tout appelant d'`update_progression_etape` le
+fait **transiter inchangé** — l'omettre effacerait au premier renommage d'étape des phrases
+écrites avant que le sélecteur n'existe. Un palier ultérieur pourra retirer la colonne le jour
+où elle sera vide partout ; jamais par un `UPDATE` qui déciderait à la place de l'enseignant.
 
 Le **rang** d'une activité dans l'année est calculé par le backend en parcourant
 `(etape.position, activite.position)`. C'est lui, et rien d'autre, qui donne sa **couleur** :
@@ -722,6 +908,17 @@ plusieurs ne sont pas entières — le classeur d'origine supposait quatre semai
 calendrier officiel, pas peints à la main ; les stages d'une classe entière s'y lisent aussi. Et
 une semaine fermée **reste peignable** : le calendrier bouge, et l'application ne dicte pas où
 planifier.
+
+**Le bouton de la souris décide du geste** sur la frise de la fiche de classe : clic gauche
+pose l'activité choisie, clic droit l'efface, et un glissement couvre une bande entière en
+**une seule** commande — huit appels auraient laissé la frise à moitié peinte en cas d'échec
+au cinquième. Au clavier, `Entrée` pose et `Suppr` efface : le pinceau « gomme » qui occupait
+une entrée du sélecteur a disparu, mais pas sans remplaçant, et les cases restent
+atteignables par tabulation. Les deux gestes ont **la même portée** — une case est une
+semaine, un glissement est une bande : le clic droit n'efface pas le trait entier sous le
+curseur, qui peut faire vingt semaines, et la frise n'a pas d'annulation. `blur`, `Échap` et
+`pointercancel` **abandonnent** un tracé sans rien écrire, et le menu contextuel de WebView2
+n'est supprimé que pour le geste en cours.
 
 Les **domaines** (`progression_domaines`) sont le vocabulaire de l'enseignant, **livré vide**
 comme `professional_fields`. Ils sont **globaux** : un domaine exploré en 4ᵉ et en 3ᵉ est le
@@ -824,7 +1021,7 @@ touche la base.
 
 ## Tests
 
-`cargo test --lib`, depuis `src-tauri/` — **178 tests** :
+`cargo test --lib`, depuis `src-tauri/` — **188 tests** :
 
 | Fichier                       | Tests | Ce qui est vérifié                                                                                                            |
 | ----------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -834,16 +1031,16 @@ touche la base.
 | `db/mod.rs`                   | 9     | la base se rouvre avec la même clé, une mauvaise clé est refusée par la lecture de contrôle, le fichier sur le disque ne laisse rien lire, `VACUUM INTO` reste chiffré, base sans `sgpa.keys` mise de côté ; trimestre aux dates charnières, hors bornes, année bissextile, bornes par défaut |
 | `commands/students.rs`        | 6     | découpage nom / prénom des lignes collées, noms composés, lignes vides, validation des dates                                   |
 | `commands/trimesters.rs`      | 6     | validation des bornes : ordre, égalité fin / début de T3, dates impossibles, année hors bornes, libellé court de date          |
-| `db/migrations.rs`            | 15    | version atteinte, idempotence, base trop récente refusée, semis du socle, aucune référence orpheline ; et des bases peuplées qui traversent les derniers paliers **intactes** — celle du palier 016 vérifie en plus que la classe d'un rendez-vous est bien déduite de son élève et qu'une reprise n'en invente aucune, celle du palier 017 qu'aucun « rien à écrire » n'est inventé et qu'**aucun octet ne survit à sa classe** — deux cascades enchaînées, posées par `ALTER TABLE`, réellement actives ; celle du palier 018 qu'aucun libellé ne change de sens à la conversion, que les index et le `RESTRICT` sont bien reposés sur la table reconstruite, et que le nouveau CHECK refuse 0, 21 et −1 ; celle du palier 019 qu'une base d'avant la progression le traverse sans perdre une ligne, et que les cinq tables nouvelles n'y naissent vides |
+| `db/migrations.rs`            | 17    | version atteinte, idempotence, base trop récente refusée, semis du socle, aucune référence orpheline ; et des bases peuplées qui traversent les derniers paliers **intactes** — celle du palier 016 vérifie en plus que la classe d'un rendez-vous est bien déduite de son élève et qu'une reprise n'en invente aucune, celle du palier 017 qu'aucun « rien à écrire » n'est inventé et qu'**aucun octet ne survit à sa classe** — deux cascades enchaînées, posées par `ALTER TABLE`, réellement actives ; celle du palier 018 qu'aucun libellé ne change de sens à la conversion, que les index et le `RESTRICT` sont bien reposés sur la table reconstruite, et que le nouveau CHECK refuse 0, 21 et −1 ; celle du palier 019 qu'une base d'avant la progression le traverse sans perdre une ligne, et que les cinq tables nouvelles n'y naissent vides ; celle du palier 020 qu'un bilan d'assiduité recompté **avec la requête réelle du bilan** rende les mêmes chiffres après migration qu'avant, puis qu'il change bien quand la case est cochée ; celle du palier 021 que les textes d'une étape restent intacts, qu'**aucun rattachement n'est deviné** (la table nouvelle naît vide), qu'un doublon est refusé, que supprimer du référentiel une compétence citée par une étape est refusé par le `RESTRICT`, et que supprimer l'étape emporte ses liens sans laisser d'orphelin |
 | `commands/reports/scoring.rs` | 5     | moyenne non pondérée, moyenne pondérée par le nombre de notes, absence de note — sur 20 depuis le palier 018                     |
 | `portable.rs`                 | 5     | sonde d'écriture (dossier inscriptible, chemin inexistant), purge des traces WebView2 et profil absent, verrou qui refuse une seconde instance |
-| `commands/timetable.rs`       | 16    | créneaux récurrents : chevauchements, bornes d'horaire, jours de la semaine, entrées datées et leur rattachement ; `feries.rs` ajoute 4 tests sur les jours fériés mobiles |
+| `commands/timetable.rs`       | 16    | créneaux récurrents : parité de la semaine (dont deux semaines impaires de suite au passage de 2027), bornes d'horaire, ordre des heures, jours de la semaine, intitulés obligatoires ; la journée assemblée depuis ses trois sources, la quinzaine qui ne tombe pas, une lecture qui n'écrit rien, et l'année qui compte ses **vraies** semaines ; `feries.rs` ajoute 4 tests sur les jours fériés mobiles |
 | `commands/reports.rs`         | 15    | assiduité : séances hors période d'inscription, absences justifiées collectives ou nominatives, placements de stage qui désarment la période pour un seul élève |
-| `commands/absences.rs`        | 13    | périodes d'absence justifiée : validation des bornes, chevauchements, portée collective ou nominative, cascade vers les placements |
+| `commands/absences.rs`        | 18    | périodes d'absence justifiée : validation des bornes, chevauchements, portée collective ou nominative, cascade vers les placements ; et depuis le palier 020 — une période « avec appel » s'écrit et se relit, une absence du professeur pose une ligne par classe cochée dans une seule transaction, une liste de classes vide est refusée, une classe inconnue annule tout le geste, et `update_absence_period` refuse de rendre l'appel à une absence du professeur ou de la rendre nominative — tout en laissant corriger ses dates, une absence du professeur n'étant pas une ligne en lecture seule |
 | `db/holidays.rs`              | 8     | découpage d'une année scolaire, semis du calendrier officiel, et surtout : un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys` |
 | `commands/seances.rs`         | 8     | appel : « non fait » comme état réel, appel collectif, remise à zéro, création depuis un créneau |
 | `commands/attachments.rs`     | 3     | le plafond de 10 Mo porte sur les octets **décodés** et non sur la chaîne base64 reçue ; taille affichée en français (« 312 Ko », « 1,4 Mo ») ; les deux porteurs ont des requêtes jumelles — une divergence ne se verrait que sur l'écran le moins fréquenté |
-| `commands/progressions.rs`    | 5     | la progression annuelle : le rang d'une activité suit `(étape, activité)` et non l'ordre d'insertion, une activité d'une autre classe est refusée, une plage se désigne par un lundi, la frise n'a que deux bandes, et supprimer une étape ne laisse pas une plage orpheline |
+| `commands/progressions.rs`    | 8     | la progression annuelle : le rang d'une activité suit `(étape, activité)` et non l'ordre d'insertion, une activité d'une autre classe est refusée, une plage se désigne par un lundi, la frise n'a que deux bandes, et supprimer une étape ne laisse pas une plage orpheline ; et depuis le palier 021 — les compétences d'une étape sortent dans l'ordre du **référentiel** et non dans celui des clics (ce qui dispense la table de rattachement d'une colonne `position`), une compétence inconnue annule **tout** l'enregistrement et pas seulement ses rattachements, et le texte libre d'avant survit au passage du sélecteur |
 | `commands/needs.rs`           | 1     | le garde-fou de la décision « jamais imprimé » : `reports.rs`, `reports/scoring.rs`, `contracts.rs` et `src/lib/pdf.ts` sont relus et ne doivent citer ni `student_need_tags`, ni `student_needs`, ni `needs_note` |
 | `commands/contracts.rs`       | 5     | le libellé saisi survit à l'enregistrement, une compétence inconnue garde le texte et lâche le lien, plusieurs activités partagent une seule compétence (ce qui l'empêche de compter plusieurs fois), supprimer la compétence conserve la ligne, le tableau des consignes accepte plusieurs lignes alignées |
 | `commands/referential.rs`     | 5     | libellé d'un domaine du socle : forme complète « D3 — … (Cycle 3) », code absent sans tiret orphelin, cycle absent sans parenthèses vides, nom absent qui ne produit rien, espaces rognés |

@@ -254,6 +254,116 @@ Une séance qui porte au moins une pièce jointe sort aussi de la liste toute
 seule : la photo du tableau EST le compte rendu.
 
 
+L'EMPLOI DU TEMPS — DEUX COURS SUR LE MÊME CRÉNEAU
+--------------------------------------------------
+
+Un créneau peut tomber toutes les semaines, ou une semaine sur deux. Quand vous
+choisissez « semaines paires » ou « semaines impaires », SGPA se fonde sur le
+NUMÉRO de la semaine dans l'année — celui affiché en haut de la grille : la
+semaine 36 est paire, la 37 est impaire.
+
+Deux cours peuvent maintenant occuper le même jour à la même heure : l'atelier
+du lundi 8h, un groupe une semaine sur deux. Deux façons de poser le second.
+
+LE PLUS DIRECT : dans la grille, glissez par-dessus la carte déjà en place,
+comme vous le feriez sur une bande vide. Sur une case occupée, le partage est
+celui-ci — le CLIC ouvre la carte, le GLISSÉ ajoute à côté. Le rectangle bleu
+suit votre souris, et le formulaire s'ouvre sur les heures que vous avez
+tracées.
+
+L'AUTRE, qui en dit plus :
+
+  1. cliquez sur le créneau déjà en place ;
+  2. en bas du panneau, « Un autre cours à cet horaire » ;
+  3. le formulaire s'ouvre déjà réglé sur le même jour, le même horaire, et sur
+     la périodicité complémentaire — « impaires » si le premier est « paires ».
+
+C'est la seule des deux qui devine la périodicité, parce que c'est la seule où
+vous avez dit « l'autre semaine » : un tracé, lui, ne dit que l'horaire.
+
+Le créneau de départ n'est pas modifié au passage. S'il se trouve que les deux
+tombent la même semaine, un encadré vous le dit : c'est à vous de donner
+« paires » à l'un et « impaires » à l'autre. Quand les deux périodicités se
+complètent, la grille n'affiche que celui de la semaine en cours ; sinon elle
+les affiche côte à côte.
+
+L'HORAIRE D'UN COURS PONCTUEL SE CORRIGE. Un cours ajouté à la main, hors
+grille hebdomadaire, a maintenant ses deux heures modifiables dans sa fiche,
+avec le titre et la date. Un cours né d'un créneau de l'emploi du temps, lui,
+tient son heure de ce créneau : corrigez-la dans l'emploi du temps, et toutes
+les semaines suivent d'un coup.
+
+ET ON Y ARRIVE D'UN CLIC. Dans la grille, la carte d'un cours ponctuel vous
+emmène à sa fiche — onglet « Séances » de la classe —, où se trouvent son
+horaire, son titre, son appel et son cahier de texte. Elle ne s'ouvrait pas
+avant : le cours s'affichait, et l'horaire qu'on venait de rendre modifiable
+restait hors d'atteinte depuis l'écran où on le regardait.
+
+
+STAGES, SORTIES, ABSENCES — TROIS SITUATIONS DIFFÉRENTES
+--------------------------------------------------------
+
+Fiche de la classe, onglet « Stages et absences ». Une période nomme les jours
+où la classe, ou un seul élève, n'est pas en cours. Ce qui les distingue n'est
+pas le motif que vous écrivez : c'est l'appel.
+
+  * STAGE, HOSPITALISATION, DÉPART ANTICIPÉ — « Nouvelle période », et laissez
+    la case « L'appel se fait quand même » décochée. Les séances de la période
+    sortent du calcul d'assiduité de qui est visé : l'élève en entreprise n'est
+    ni présent ni absent de votre cours, et le compter absent donnerait un taux
+    faux sur le bilan remis à la famille.
+
+  * SORTIE SCOLAIRE, SÉJOUR, MATINÉE AU CDI — « Nouvelle période », et cochez
+    « L'appel se fait quand même ». Vous êtes AVEC la classe, l'appel a un
+    sens, et manquer est une absence comme une autre. La période s'affiche sur
+    l'emploi du temps comme les autres, mais elle ne retire rien du calcul.
+
+  * VOUS ÊTES ABSENT — le bouton « Absence de ma part », dans le même onglet.
+    Cochez toutes les classes concernées : une journée de formation vide
+    souvent l'emploi du temps entier, une réunion ne prend qu'une classe. SGPA
+    pose une période par classe cochée, d'un seul geste.
+
+Ce que change la troisième : l'emploi du temps écrit « Professeur absent » sur
+les cours concernés, dans la couleur de la classe, au lieu de vous laisser
+deviner des mois plus tard pourquoi la semaine est vide. Et l'accueil ne vous
+réclame plus rien sur ces séances — ni appel, ni cahier de texte, ni motif
+d'annulation : personne ne les a assurées.
+
+Une absence de votre part ne peut pas être « avec appel », ni viser un seul
+élève : vous n'êtes pas absent pour un élève en particulier. Ses dates, elles,
+se corrigent normalement.
+
+SOUS LA GRILLE, LA LISTE DES PÉRIODES DE LA SEMAINE. Quand deux classes sont
+hors cours le même jour, l'en-tête de la colonne ne peut plus que les compter.
+L'emploi du temps écrit donc, juste sous la grille, une ligne par période : la
+classe dans sa couleur, le motif que vous avez écrit, les jours couverts, et ce
+que la période fait au calcul d'assiduité. Il n'y a plus rien à survoler pour
+le savoir.
+
+Les périodes saisies avant cette version se comportent exactement comme avant :
+elles retirent leurs séances du calcul, et aucun bilan déjà remis ne change de
+chiffre. La case est nouvelle, décochée, et c'est à vous de la cocher le jour
+où elle s'applique.
+
+
+UNE CATÉGORIE SUR UN RENDEZ-VOUS
+--------------------------------
+
+Un rendez-vous de l'emploi du temps — réunion, conseil de classe, ESS, exercice
+PPMS — accepte une catégorie : un mot, trente caractères au plus, que vous
+écrivez comme vous l'entendez. Elle s'affiche en petit sur les calendriers, à
+côté de l'intitulé, dans un rectangle plein.
+
+C'est fait pour les événements dont la NATURE compte plus que le titre :
+« PPMS » sur un exercice d'alerte, « Conseil » sur un conseil de classe. Vous
+la voyez d'un coup d'œil sans relire la ligne entière.
+
+Le champ est libre et facultatif, il n'y a aucune liste à choisir. Une seule
+chose à savoir : « PPMS » et « ppms » feront deux catégories différentes, SGPA
+ne corrige pas votre casse. Elle se modifie à tout moment depuis le compte
+rendu du rendez-vous, avec son intitulé et sa date.
+
+
 LA PROGRESSION DE L'ANNÉE
 -------------------------
 
@@ -261,12 +371,33 @@ Fiche de la classe, onglet « Progression ». C'est la mise au propre de votre
 plan d'année : ce que vous explorez, et la semaine où ça tombe.
 
 Vous définissez d'abord des ÉTAPES. Une étape porte son intitulé, ses
-compétences, ses connaissances et ses priorités — en texte libre, vos phrases
-et pas des codes. Dans chaque étape, vous posez des ACTIVITÉS : ce que vous
-faites concrètement. Chacune peut relever d'un DOMAINE.
+compétences, ses connaissances et ses priorités. Les CONNAISSANCES et les
+PRIORITÉS sont en texte libre, vos phrases. Les COMPÉTENCES, elles, SE
+COCHENT DANS LE RÉFÉRENTIEL — le même sélecteur que dans une évaluation,
+pour qu'une compétence soit écrite du même mot dans votre plan d'année et
+dans le bulletin de l'élève. Une compétence renommée dans Réglages se
+renomme ici et sur le document imprimé. Dans chaque étape, vous posez des
+ACTIVITÉS : ce que vous faites concrètement. Chacune peut relever d'un
+DOMAINE.
 
-Ensuite vous les posez sur la frise. Vous choisissez une activité comme
-pinceau, et vous glissez la souris sur une bande : les semaines se peignent.
+SI VOUS AVEZ DÉJÀ ÉCRIT VOS COMPÉTENCES À LA MAIN, elles ne sont pas
+perdues. Avant cette version, ce champ était un simple texte. Ce que vous y
+avez tapé reste affiché, et reste imprimé, sous le titre « Compétences
+saisies à la main » : retrouvez ces compétences dans le référentiel juste
+au-dessus, puis cliquez « Effacer ce texte » quand c'est fait. Tant que vous
+ne cliquez pas, rien ne bouge — SGPA n'efface pas vos phrases, et ne devine
+pas à votre place à quelle compétence du référentiel elles correspondent.
+
+Ensuite vous les posez sur la frise. Vous choisissez une activité dans la
+liste, puis : CLIC GAUCHE POUR LA POSER, CLIC DROIT POUR EFFACER. Glissez
+sans relâcher pour couvrir plusieurs semaines d'un coup. Au clavier, la
+touche Entrée pose et la touche Suppr efface.
+
+Un clic, ou une touche, vaut UNE SEMAINE : pour effacer six semaines
+d'affilée, glissez dessus avec le bouton droit. C'est exprès — un clic droit
+qui aurait effacé d'un coup toute la bande sous le curseur aurait emporté
+vingt semaines de travail, et la frise n'a pas de bouton « annuler ».
+
 Il y a DEUX BANDES, l'une au-dessus de l'autre — la seconde sert à ce qui
 court à côté, un projet long, un groupe qui fait autre chose.
 
