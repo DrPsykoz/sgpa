@@ -210,6 +210,7 @@ pub fn run() {
             // Périodes d'absence justifiée
             absences::get_absence_periods,
             absences::create_absence_period,
+            absences::create_teacher_absence_periods,
             absences::update_absence_period,
             absences::delete_absence_period,
             // Trimestres

@@ -231,12 +231,14 @@ fn subtree_competencies(kind: NodeKind) -> &'static str {
 ///
 /// L'impact est compté AVANT la suppression ; ce filet ne sert que si la base a
 /// changé entre-temps. On ne peut pas en dire plus : une erreur de clé étrangère
-/// ne nomme jamais les lignes en cause.
+/// ne nomme jamais les lignes en cause — elle ne dit même pas laquelle des
+/// trois tables en RESTRICT a parlé.
 fn delete_error(err: rusqlite::Error) -> String {
     if let rusqlite::Error::SqliteFailure(inner, _) = &err {
         if inner.code == rusqlite::ErrorCode::ConstraintViolation {
-            return "La suppression a été refusée : des évaluations ou des notes en \
-                    dépendent encore. Rechargez le référentiel puis réessayez."
+            return "La suppression a été refusée : des évaluations, des notes ou des \
+                    progressions en dépendent encore. Rechargez le référentiel puis \
+                    réessayez."
                 .to_string();
         }
     }
@@ -535,8 +537,14 @@ fn article(kind: NodeKind) -> &'static str {
 ///
 /// Le comptage est fait AVANT la tentative : le RESTRICT du schéma fait bien
 /// échouer la suppression, mais une erreur de clé étrangère ne dit ni combien
-/// d'évaluations ni combien de notes sont concernées — c'est pourtant la seule
-/// information qui permette à l'enseignant de décider d'archiver.
+/// d'évaluations, ni combien de notes, ni combien d'étapes de progression sont
+/// concernées — c'est pourtant la seule information qui permette à l'enseignant
+/// de décider d'archiver.
+///
+/// **Le troisième compte est arrivé avec le palier 021**, le jour où une étape
+/// de progression a pu citer le référentiel. Ajouter une table en RESTRICT sans
+/// l'ajouter ici aurait rendu le message faux par omission : « 0 évaluation,
+/// 0 note » suivi d'un refus que rien n'explique.
 #[tauri::command]
 pub fn delete_node(
     state: tauri::State<'_, AppState>,
@@ -549,23 +557,29 @@ pub fn delete_node(
     let impact = format!(
         "SELECT (SELECT COUNT(*) FROM grades WHERE competency_id IN ({subtree})),
                 (SELECT COUNT(DISTINCT evaluation_id) FROM evaluation_competencies
+                  WHERE competency_id IN ({subtree})),
+                (SELECT COUNT(DISTINCT etape_id) FROM progression_etape_competences
                   WHERE competency_id IN ({subtree}))"
     );
-    let (grades, evaluations): (i64, i64) = conn
-        .query_row(&impact, params![id], |row| Ok((row.get(0)?, row.get(1)?)))
+    let (grades, evaluations, etapes): (i64, i64, i64) = conn
+        .query_row(&impact, params![id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .map_err(|e| e.to_string())?;
 
-    if grades > 0 || evaluations > 0 {
+    if grades > 0 || evaluations > 0 || etapes > 0 {
         return Err(match kind {
             NodeKind::Competency => format!(
-                "Cette compétence est utilisée par {evaluations} évaluation(s) et \
-                 porte {grades} note(s). Archivez-la plutôt que de la supprimer."
+                "Cette compétence est utilisée par {evaluations} évaluation(s), \
+                 porte {grades} note(s) et figure dans {etapes} étape(s) de \
+                 progression. Archivez-la plutôt que de la supprimer."
             ),
             // Cycle, domaine et champ sont tous masculins : « de le supprimer ».
             _ => format!(
                 "{} contient des compétences utilisées par {evaluations} \
-                 évaluation(s) et portant {grades} note(s). Archivez ces \
-                 compétences ou retirez-les des évaluations avant de le supprimer.",
+                 évaluation(s), portant {grades} note(s) et citées dans {etapes} \
+                 étape(s) de progression. Archivez ces compétences, ou retirez-les \
+                 des évaluations et des progressions, avant de le supprimer.",
                 kind.demonstrative()
             ),
         });

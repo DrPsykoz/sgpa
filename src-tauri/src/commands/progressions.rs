@@ -28,6 +28,14 @@
 //!   couleur que le tableau ne confirmerait pas — c'est exactement le défaut du
 //!   document d'origine.
 //!
+//! **Les compétences d'une étape viennent du référentiel** depuis le palier
+//! 021, et non plus d'un champ texte. La colonne `competences` reste, avec ce
+//! qui y avait été écrit : l'écran la montre en lecture seule tant qu'elle
+//! n'est pas vide, et seul un geste de l'enseignant l'efface. Tant qu'elle
+//! existe, `update_progression_etape` la reçoit et la réécrit telle quelle —
+//! l'omettre l'enverrait vide, et un simple renommage d'étape effacerait les
+//! phrases écrites avant que le sélecteur n'existe.
+//!
 //! **Les semaines ne sont pas stockées comme des numéros.** `week_monday` est
 //! le lundi, une date, et ce module vérifie que c'en est bien un : une plage
 //! posée un mercredi passerait le GLOB du schéma et resterait invisible sur une
@@ -39,6 +47,8 @@ use serde::Serialize;
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use crate::commands::evaluations::{unique_ids, CompetencyInfo};
+use crate::commands::referential::socle_reference;
 use crate::commands::timetable::parse_date;
 use crate::db::collect;
 use crate::state::AppState;
@@ -93,10 +103,20 @@ pub struct ProgressionEtape {
     /// `""` = étape sans titre, et c'est le cas normal : les quatre blocs du
     /// document de l'auteur n'en avaient pas.
     pub libelle: String,
-    /// Les trois textes libres, une ligne par puce. Jamais `null` : une valeur
-    /// qui a deux façons de dire « vide » finit par n'être testée que d'une des
-    /// deux.
+    /// Les compétences cochées dans le référentiel, **dans l'ordre du
+    /// référentiel** et non dans celui où elles ont été cochées : la table de
+    /// rattachement n'a pas de colonne `position`, et l'en-tête du palier 021
+    /// dit pourquoi.
+    pub competences_ref: Vec<CompetencyInfo>,
+    /// Le texte libre d'avant le palier 021, **gardé tel quel**.
+    ///
+    /// Le sélecteur a remplacé le champ le 2026-11-09 ; la colonne n'est ni
+    /// vidée ni supprimée. Une base réelle ne perd pas une phrase parce qu'un
+    /// écran a changé de forme.
     pub competences: String,
+    /// Les deux textes libres restants, une ligne par puce. Jamais `null` : une
+    /// valeur qui a deux façons de dire « vide » finit par n'être testée que
+    /// d'une des deux.
     pub connaissances: String,
     pub priorites: String,
     pub activites: Vec<ProgressionActivite>,
@@ -150,6 +170,28 @@ const ETAPES: &str = "SELECT id, position, libelle, competences, connaissances, 
      FROM progression_etapes
     WHERE progression_id = ?1
     ORDER BY position, created_at, id";
+
+/// Les compétences cochées, **toutes les étapes d'une progression d'un coup**.
+///
+/// Une requête et non une par étape : la progression arrive déjà d'un seul
+/// appel, et quatre étapes auraient voulu dire quatre allers-retours pour une
+/// lecture qui est groupée par construction.
+///
+/// L'ordre est celui du référentiel — `d.position, f.position, c.position`,
+/// exactement celui de `get_evaluation_competencies` —, précédé de l'ordre des
+/// étapes pour que le regroupement se fasse en un seul parcours. C'est aussi
+/// pourquoi la table de rattachement n'a pas de colonne `position` : l'ordre
+/// que l'enseignant règle dans Réglages vaut partout d'un coup.
+const COMPETENCES_DES_ETAPES: &str = "SELECT ec.etape_id, c.id, c.name, f.name, d.name, cy.name,
+            d.code, c.archived_at IS NOT NULL
+     FROM progression_etape_competences ec
+     JOIN progression_etapes e ON e.id = ec.etape_id
+     JOIN competencies c       ON c.id = ec.competency_id
+     JOIN fields f             ON f.id = c.field_id
+     JOIN domains d            ON d.id = f.domain_id
+     JOIN cycles cy            ON cy.id = d.cycle_id
+    WHERE e.progression_id = ?1
+    ORDER BY e.position, e.created_at, e.id, d.position, f.position, c.position";
 
 const ACTIVITES: &str = "SELECT a.id, a.etape_id, a.domaine_id, a.position, a.libelle
      FROM progression_activites a
@@ -345,12 +387,47 @@ pub fn get_progression(
             id: row.get(0)?,
             position: row.get(1)?,
             libelle: row.get(2)?,
+            competences_ref: Vec::new(),
             competences: row.get(3)?,
             connaissances: row.get(4)?,
             priorites: row.get(5)?,
             activites: Vec::new(),
         })
     })?;
+
+    // Les compétences cochées, dans l'ordre du référentiel. Le regroupement se
+    // fait en un parcours parce que la requête trie d'abord par étape, et
+    // `socle_reference` compose le libellé ici comme partout ailleurs : le front
+    // ne réimplémente pas la règle.
+    let cochees: Vec<(String, CompetencyInfo)> =
+        collect(&conn, COMPETENCES_DES_ETAPES, params![id], |row| {
+            let domain_name: String = row.get(4)?;
+            let cycle_name: String = row.get(5)?;
+            Ok((
+                row.get(0)?,
+                CompetencyInfo {
+                    id: row.get(1)?,
+                    name: row.get(2)?,
+                    field_name: row.get(3)?,
+                    socle_reference: socle_reference(
+                        &row.get::<_, String>(6)?,
+                        &domain_name,
+                        &cycle_name,
+                    ),
+                    domain_name,
+                    cycle_name,
+                    archived: row.get(7)?,
+                },
+            ))
+        })?;
+
+    for (etape_id, competence) in cochees {
+        // L'étape est forcément présente : la requête part d'une jointure sur
+        // `progression_etapes` filtrée par la même progression.
+        if let Some(etape) = etapes.iter_mut().find(|e| e.id == etape_id) {
+            etape.competences_ref.push(competence);
+        }
+    }
 
     // Les activités arrivent déjà dans l'ordre de l'année — `ACTIVITES` trie par
     // position d'étape puis par position d'activité. Le rang est donc le compteur
@@ -506,6 +583,7 @@ pub fn create_progression_etape(
         id,
         position,
         libelle: libelle.trim().to_string(),
+        competences_ref: Vec::new(),
         competences: String::new(),
         connaissances: String::new(),
         priorites: String::new(),
@@ -513,15 +591,29 @@ pub fn create_progression_etape(
     })
 }
 
-/// Le titre de l'étape et ses trois textes.
+/// Le titre de l'étape, les compétences qu'elle prend au référentiel, et ses
+/// textes.
 ///
-/// **Une seule commande pour quatre colonnes**, à l'inverse de
+/// **Une seule commande pour la ligne et ses rattachements**, à l'inverse de
 /// `update_seance_meta` / `update_seance_content`. La règle des écritures
 /// disjointes vise le cas où deux appelants écrivent la même ligne avec des
-/// champs qu'ils n'ont pas rafraîchis ; ici les quatre colonnes sont les quatre
-/// champs d'un formulaire unique, enregistrés d'un seul geste, et aucun autre
-/// écran ne les touche. Le réordonnancement, lui, est une autre commande :
-/// autre colonne, autre appelant, autre moment.
+/// champs qu'ils n'ont pas rafraîchis ; ici tout vient d'un formulaire unique,
+/// enregistré d'un seul geste, et aucun autre écran ne le touche. Le
+/// réordonnancement, lui, est une autre commande : autre colonne, autre
+/// appelant, autre moment.
+///
+/// **Une seule transaction**, sur la forme de `update_evaluation` : la ligne,
+/// puis l'effacement des rattachements, puis leur réécriture. Une compétence
+/// disparue du référentiel annule donc **tout** l'enregistrement — sans cela
+/// l'étape garderait son nouveau titre et perdrait ses compétences, et aucun
+/// écran ne montrerait ce demi-enregistrement.
+///
+/// **`competences` est le texte libre d'avant le palier 021, et il transite.**
+/// Tout appelant le fait passer inchangé, comme il fait passer l'horaire d'une
+/// séance dans `update_seance_meta` : l'omettre l'enverrait vide, et un simple
+/// renommage effacerait les phrases qu'un enseignant avait écrites avant que le
+/// sélecteur n'existe. Seul le bouton qui efface ce texte envoie une chaîne
+/// vide, et c'est tout son travail.
 #[tauri::command]
 pub fn update_progression_etape(
     state: tauri::State<'_, AppState>,
@@ -530,9 +622,17 @@ pub fn update_progression_etape(
     competences: String,
     connaissances: String,
     priorites: String,
+    competency_ids: Vec<String>,
 ) -> Result<(), String> {
-    let conn = state.conn()?;
-    let touched = conn
+    // Dédoublonné pour la même raison que dans `update_evaluation` : la clé
+    // primaire de la table de rattachement ferait échouer un doublon avec un
+    // message SQLite brut, pour un geste qui n'a rien d'une erreur de l'écran.
+    let competency_ids = unique_ids(competency_ids);
+
+    let mut conn = state.conn()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let touched = tx
         .execute(
             "UPDATE progression_etapes
                 SET libelle = ?2, competences = ?3, connaissances = ?4,
@@ -550,6 +650,36 @@ pub fn update_progression_etape(
     if touched == 0 {
         return Err("Étape introuvable.".to_string());
     }
+
+    // Effacer puis réécrire, et non comparer : la liste reçue EST la sélection,
+    // et un différentiel aurait demandé de relire l'ancienne pour arriver au
+    // même état. La table ne porte pas de position, donc deux écritures de la
+    // même liste donnent la même ligne.
+    tx.execute(
+        "DELETE FROM progression_etape_competences WHERE etape_id = ?1",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                      VALUES (?1, ?2)",
+            )
+            .map_err(|e| e.to_string())?;
+        for competency_id in &competency_ids {
+            stmt.execute(params![id, competency_id]).map_err(|e| {
+                format!(
+                    "Une compétence sélectionnée n'a pas pu être rattachée à \
+                     l'étape : elle a probablement été supprimée du référentiel. \
+                     Rouvrez le sélecteur de compétences puis réessayez.\nDétail : {e}"
+                )
+            })?;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -994,6 +1124,18 @@ mod tests {
                          ('a2', 'et1', 2, 'Enduire'),
                          ('a3', 'et2', 1, 'Bardage'),
                          ('a9', 'et9', 1, 'Activité d''une autre classe')",
+            // Un coin de référentiel à soi, plutôt que les 53 compétences
+            // semées par le palier 009 : les deux positions contredisent
+            // l'ordre d'insertion, ce qu'un tri par `rowid` ne pourrait pas
+            // faire passer.
+            "INSERT INTO cycles (id, name, position) VALUES ('cy1', 'Cycle 4', 1)",
+            "INSERT INTO domains (id, cycle_id, name, position, code)
+                  VALUES ('do1', 'cy1', 'Les langages pour penser', 1, 'D1')",
+            "INSERT INTO fields (id, domain_id, name, position)
+                  VALUES ('fi1', 'do1', 'Habitat', 1)",
+            "INSERT INTO competencies (id, field_id, name, position)
+                  VALUES ('co2', 'fi1', 'Deuxième à l''écran', 2),
+                         ('co1', 'fi1', 'Première à l''écran', 1)",
         ] {
             conn.execute_batch(instruction).unwrap();
         }
@@ -1043,6 +1185,115 @@ mod tests {
         assert_ne!(
             proprietaire, "p1",
             "le contrôle d'appartenance doit voir la différence"
+        );
+    }
+
+    /// Les compétences d'une étape sortent dans l'ordre du référentiel, et non
+    /// dans celui où l'enseignant les a cochées.
+    ///
+    /// C'est tout ce qui justifie l'absence de colonne `position` sur la table
+    /// de rattachement : si le tri venait de l'ordre de sélection, une
+    /// compétence déplacée dans Réglages ne bougerait plus dans les
+    /// progressions déjà écrites. Le même parcours vérifie qu'une étape d'une
+    /// autre classe ne remonte pas : la progression est dans le `WHERE`.
+    #[test]
+    fn les_competences_d_une_etape_suivent_l_ordre_du_referentiel() {
+        let conn = base("competences-ordre");
+        conn.execute_batch(
+            "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                  VALUES ('et1', 'co2'), ('et1', 'co1'), ('et9', 'co1')",
+        )
+        .unwrap();
+
+        let mut stmt = conn.prepare(COMPETENCES_DES_ETAPES).unwrap();
+        let ordre: Vec<String> = stmt
+            .query_map(params!["p1"], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            ordre,
+            vec!["co1", "co2"],
+            "`c.position` décide, et l'étape de la 4ᵉ B reste chez elle"
+        );
+    }
+
+    /// Une compétence inconnue annule **tout** l'enregistrement.
+    ///
+    /// La ligne et ses rattachements sont écrits dans une seule transaction,
+    /// comme dans `update_evaluation`. Sans elle, l'étape garderait son nouveau
+    /// titre et perdrait ses compétences : un demi-enregistrement qu'aucun
+    /// écran ne signale, et que l'enseignant ne découvrirait qu'en relisant son
+    /// plan.
+    #[test]
+    fn une_competence_inconnue_annule_tout_le_geste() {
+        let mut conn = base("competences-inconnue");
+        conn.execute(
+            "UPDATE progression_etapes SET libelle = ?2 WHERE id = ?1",
+            params!["et1", "Étape de départ"],
+        )
+        .unwrap();
+
+        {
+            let tx = conn.transaction().unwrap();
+            tx.execute(
+                "UPDATE progression_etapes SET libelle = ?2 WHERE id = ?1",
+                params!["et1", "Titre réécrit"],
+            )
+            .unwrap();
+            let refus = tx.execute(
+                "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                      VALUES (?1, ?2)",
+                params!["et1", "compétence-absente-du-référentiel"],
+            );
+            assert!(refus.is_err(), "la clé étrangère doit refuser");
+            // `tx` tombe sans `commit` : la transaction se défait, comme dans la
+            // commande quand l'insertion rend son message français.
+        }
+
+        let libelle: String = conn
+            .query_row(
+                "SELECT libelle FROM progression_etapes WHERE id = ?1",
+                params!["et1"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(libelle, "Étape de départ", "le titre revient en arrière");
+    }
+
+    /// Le texte libre d'avant le palier 021 survit au sélecteur.
+    ///
+    /// C'est la promesse faite aux bases réelles : cocher des compétences, les
+    /// décocher toutes, renommer l'étape — rien de cela ne touche la colonne
+    /// `competences`. Seul un geste explicite de l'enseignant l'efface, et la
+    /// migration 021 ne l'a pas vidée.
+    #[test]
+    fn le_texte_libre_survit_au_selecteur() {
+        let conn = base("competences-texte");
+        conn.execute(
+            "UPDATE progression_etapes SET competences = ?2 WHERE id = ?1",
+            params!["et1", "Identifier un matériau\nRanger son poste"],
+        )
+        .unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                  VALUES ('et1', 'co1')",
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM progression_etape_competences WHERE etape_id = ?1",
+            params!["et1"],
+        )
+        .unwrap();
+
+        // `ETAPES` trie par position : et1 est la première de 'p1'.
+        let texte: String = conn
+            .query_row(ETAPES, params!["p1"], |row| row.get(3))
+            .unwrap();
+        assert_eq!(
+            texte, "Identifier un matériau\nRanger son poste",
+            "la colonne garde ses phrases au caractère près"
         );
     }
 

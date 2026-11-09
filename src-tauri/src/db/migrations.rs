@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 19;
+pub const SCHEMA_VERSION: i32 = 21;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -101,6 +101,16 @@ const STEPS: &[(i32, &str, &str)] = &[
         19,
         "la progression annuelle d'une classe",
         include_str!("sql/019_progression.sql"),
+    ),
+    (
+        20,
+        "l'appel pendant une période, l'absence du professeur, la catégorie d'un rendez-vous",
+        include_str!("sql/020_appel_et_categorie.sql"),
+    ),
+    (
+        21,
+        "les compétences d'une étape de progression, prises dans le référentiel",
+        include_str!("sql/021_competences_de_progression.sql"),
     ),
 ];
 
@@ -442,7 +452,7 @@ mod tests {
     /// annuelle — `progression_domaines`, `progressions`,
     /// `progression_etapes`, `progression_activites`, `progression_plages`.
     /// Un palier qui ajoute une table change cette ligne, et une seule.
-    const TABLES_ATTENDUES: i64 = 36;
+    const TABLES_ATTENDUES: i64 = 37;
 
     /// Applique les paliers un par un **sans** passer par `run`, pour fabriquer
     /// une base telle qu'elle existe chez l'enseignant *avant* la mise à jour :
@@ -1658,6 +1668,300 @@ SELECT st.id,
             )
             .unwrap();
         assert_eq!(tables, TABLES_ATTENDUES, "019 ajoute cinq tables");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 020 ajoute trois colonnes et ne change RIEN tant que
+    /// l'enseignant n'a rien coché.
+    ///
+    /// C'est le seul endroit qui le vérifie pour de bon : on recompte un bilan
+    /// d'assiduité **avec la requête réelle du bilan**, celle de
+    /// `reports::ATTENDANCE_SQL`, et on exige les chiffres que l'ancienne règle
+    /// donnait. Un `DEFAULT 1` glissé sur `attendance_expected`, ou son `AND`
+    /// posé du mauvais côté d'un des deux points symétriques de la requête,
+    /// déplacerait ici un pourcentage déjà remis à une famille — et nulle part
+    /// ailleurs avant la prochaine réunion parents-professeurs.
+    #[test]
+    fn une_base_v19_peuplee_traverse_le_palier_020_intacte() {
+        let dir = temp_dir("v19-appel");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 19);
+
+        // Quatre séances au premier trimestre, une période de classe qui en
+        // couvre deux, un seul appel fait. L'ancienne règle donne donc
+        // 2 applicables, 1 présence, 1 non renseigné, 2 neutralisées.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026),
+                         ('s2', '4ème B', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO seances (id, session_id, title, date, trimester)
+                  VALUES ('sc1', 's1', 'Atelier', '2026-09-07', 1),
+                         ('sc2', 's1', 'Atelier', '2026-09-14', 1),
+                         ('sc3', 's1', 'Atelier', '2026-09-21', 1),
+                         ('sc4', 's1', 'Atelier', '2026-09-28', 1);
+             INSERT INTO attendance_records (seance_id, student_id, status)
+                  VALUES ('sc1', 'e1', 'present');
+             INSERT INTO absence_periods (id, session_id, student_id, reason, start_date, end_date)
+                  VALUES ('ap1', 's1', NULL, 'Stage en entreprise', '2026-09-14', '2026-09-21');
+             INSERT INTO agenda_entries (id, date, title)
+                  VALUES ('ag1', '2026-10-13', 'Exercice PPMS');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        /// (applicable, présences, non renseigné, neutralisées) pour l'unique
+        /// élève, lues par la requête du bilan et non par une copie locale de
+        /// sa règle : une copie dériverait sans prévenir.
+        fn assiduite(conn: &Connection) -> (i64, i64, i64, i64) {
+            conn.query_row(
+                crate::commands::reports::ATTENDANCE_SQL,
+                rusqlite::params!["s1", 1],
+                |r| Ok((r.get(1)?, r.get(2)?, r.get(6)?, r.get(7)?)),
+            )
+            .unwrap()
+        }
+
+        // LE point du palier : les défauts reproduisent la veille.
+        assert_eq!(
+            assiduite(&conn),
+            (2, 1, 1, 2),
+            "une période déjà saisie écarte toujours ses séances"
+        );
+
+        let (attendu, absent): (i64, i64) = conn
+            .query_row(
+                "SELECT attendance_expected, teacher_absent FROM absence_periods WHERE id = 'ap1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (attendu, absent),
+            (0, 0),
+            "aucune période existante n'arrive cochée"
+        );
+
+        // « L'appel se fait quand même » : les quatre séances reviennent au
+        // dénominateur, et les deux qui n'ont pas d'appel deviennent du non
+        // renseigné — ce qu'elles sont réellement.
+        conn.execute(
+            "UPDATE absence_periods SET attendance_expected = 1 WHERE id = 'ap1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            assiduite(&conn),
+            (4, 1, 3, 0),
+            "une période « avec appel » ne neutralise plus rien"
+        );
+
+        // Un professeur absent ne fait pas l'appel : le couple est refusé par
+        // le schéma, pas seulement par la commande qui n'en offre pas le
+        // paramètre.
+        let contradiction = conn.execute(
+            "UPDATE absence_periods SET teacher_absent = 1 WHERE id = 'ap1'",
+            [],
+        );
+        assert!(
+            contradiction.is_err(),
+            "« professeur absent » et « avec appel » ne peuvent pas coexister"
+        );
+
+        // Et une absence du professeur neutralise comme n'importe quelle
+        // période : elle ne change aucun calcul, elle nomme la cause.
+        conn.execute(
+            "UPDATE absence_periods SET attendance_expected = 0, teacher_absent = 1
+              WHERE id = 'ap1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            assiduite(&conn),
+            (2, 1, 1, 2),
+            "« professeur absent » écarte les séances, comme avant"
+        );
+
+        // Le rendez-vous d'hier a gardé son titre et n'arrive pas catégorisé :
+        // la catégorie est un mot de l'enseignant, pas une valeur devinée.
+        let (titre, categorie): (String, String) = conn
+            .query_row(
+                "SELECT title, category FROM agenda_entries WHERE id = 'ag1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(titre, "Exercice PPMS");
+        assert_eq!(categorie, "", "aucune catégorie inventée au passage");
+
+        conn.execute(
+            "UPDATE agenda_entries SET category = 'PPMS' WHERE id = 'ag1'",
+            [],
+        )
+        .unwrap();
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "020 n'ajoute aucune table");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 021 donne aux étapes une liste de compétences du référentiel
+    /// **sans toucher au texte qu'elles portaient**.
+    ///
+    /// C'est le seul endroit qui vérifie les deux moitiés de la promesse faite
+    /// le 2026-11-09 : le texte libre déjà saisi est toujours là mot pour mot
+    /// — un `UPDATE … SET competences = ''` glissé dans le palier l'aurait
+    /// effacé chez tout le monde, et personne ne s'en serait aperçu avant de
+    /// rouvrir sa progression —, et la nouvelle table n'arrive avec aucune
+    /// ligne devinée : rattacher une compétence par ressemblance de phrase
+    /// aurait mis dans un plan imprimé un choix que l'enseignant n'a pas fait.
+    #[test]
+    fn une_base_v20_peuplee_traverse_le_palier_021_intacte() {
+        let dir = temp_dir("v20-competences");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 20);
+
+        // Une progression comme en produit le palier 019 : une étape, ses trois
+        // textes écrits à la main, une activité posée sur une semaine.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026);
+             INSERT INTO progressions (id, session_id, titre)
+                  VALUES ('p1', 's1', 'Habitat');
+             INSERT INTO progression_etapes
+                  (id, progression_id, position, libelle, competences, connaissances, priorites)
+                  VALUES ('et1', 'p1', 1, 'Découverte des matériaux',
+                          'Identifier un matériau\nRanger son poste',
+                          'Les familles de matériaux', 'Sécurité');
+             INSERT INTO progression_domaines (id, name) VALUES ('dom1', 'Habitat');
+             INSERT INTO progression_activites (id, etape_id, domaine_id, position, libelle)
+                  VALUES ('ac1', 'et1', 'dom1', 0, 'Visite du chantier');
+             INSERT INTO progression_plages (progression_id, week_monday, voie, activite_id)
+                  VALUES ('p1', '2026-09-07', 0, 'ac1');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // LE point du palier : le texte est intact, au caractère près.
+        let (competences, connaissances, priorites): (String, String, String) = conn
+            .query_row(
+                "SELECT competences, connaissances, priorites
+                   FROM progression_etapes WHERE id = 'et1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            competences, "Identifier un matériau\nRanger son poste",
+            "le texte libre d'une étape survit au palier, retours à la ligne compris"
+        );
+        assert_eq!(connaissances, "Les familles de matériaux");
+        assert_eq!(priorites, "Sécurité");
+
+        let rattachees: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM progression_etape_competences",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            rattachees, 0,
+            "aucune compétence devinée : c'est l'enseignant qui coche"
+        );
+
+        // La table accepte la compétence du référentiel semé par 002/009, et
+        // refuse la même deux fois — c'est la clé primaire qui le dit, pas un
+        // contrôle en Rust qu'un second appelant pourrait oublier.
+        let competence: String = conn
+            .query_row("SELECT id FROM competencies LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                  VALUES ('et1', ?1)",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+        assert!(
+            conn.execute(
+                "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                      VALUES ('et1', ?1)",
+                rusqlite::params![competence],
+            )
+            .is_err(),
+            "une compétence ne se rattache pas deux fois à la même étape"
+        );
+
+        // RESTRICT : le référentiel ne peut pas emporter en silence une ligne
+        // d'un plan. C'est `delete_node` qui l'annonce en français, mais c'est
+        // le schéma qui le garantit.
+        assert!(
+            conn.execute(
+                "DELETE FROM competencies WHERE id = ?1",
+                rusqlite::params![competence],
+            )
+            .is_err(),
+            "supprimer une compétence citée par une étape est refusé"
+        );
+
+        // CASCADE dans l'autre sens : l'étape emporte ses rattachements, comme
+        // elle emporte déjà ses activités et leurs plages.
+        conn.execute("DELETE FROM progression_etapes WHERE id = 'et1'", [])
+            .unwrap();
+        let restantes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM progression_etape_competences",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(restantes, 0, "l'étape supprimée n'a rien laissé derrière elle");
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "021 ajoute une table");
 
         let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();

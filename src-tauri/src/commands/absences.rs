@@ -20,6 +20,21 @@
 //! **Une table, deux usages.** `student_id` NULL vise toute la classe (le stage
 //! collectif) ; renseigné, il vise un seul élève (hospitalisation, stage annulé
 //! pour lui, départ anticipé).
+//!
+//! **Et deux drapeaux, depuis le palier 020.** Une période retire ses séances du
+//! dénominateur — sauf si `attendance_expected` vaut 1, auquel cas l'appel se
+//! fait quand même : une sortie scolaire, un séjour, une matinée au CDI sont des
+//! périodes où la classe est ailleurs et bien présente. La règle vit dans
+//! `reports::ATTENDANCE_SQL`, qui lit la colonne à ses deux points symétriques,
+//! et nulle part ici : ce module n'écrit qu'un booléen.
+//!
+//! `teacher_absent`, lui, **ne change aucun calcul** — une période neutralise
+//! déjà. Il porte la CAUSE, pour que l'emploi du temps écrive « Professeur
+//! absent » plutôt que de laisser deviner, et pour que les rappels de l'accueil
+//! se taisent sur une séance que personne n'a assurée. Il ne s'écrit que par
+//! `create_teacher_absence`, jamais par `create_absence_period` : la commande
+//! EST le drapeau, si bien qu'une absence du professeur ne peut pas naître
+//! nominative ni « avec appel ».
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -46,6 +61,14 @@ pub struct AbsencePeriod {
     pub start_date: String,
     /// Incluse : une période du 18 au 18 est une journée.
     pub end_date: String,
+    /// `true` = l'appel se fait quand même, la période ne neutralise rien.
+    pub attendance_expected: bool,
+    /// `true` = c'est le professeur qui était absent, pas la classe.
+    ///
+    /// Jamais modifiable après coup : une absence du professeur se supprime et
+    /// se repose. Changer ce drapeau sur place reviendrait à réécrire la cause
+    /// d'une période déjà lue dans un bilan.
+    pub teacher_absent: bool,
     /// Séances **non annulées de la classe** comprises dans la fenêtre.
     ///
     /// C'est ce qui rend l'écran de saisie lisible : « du 18/01 au 05/02 —
@@ -65,6 +88,25 @@ pub struct AbsencePeriodInput {
     pub reason: String,
     pub start_date: String,
     pub end_date: String,
+    /// Absent de la charge utile = `false`, c'est-à-dire le comportement d'avant
+    /// le palier 020. Un appelant qui ne connaît pas encore le champ écrit donc
+    /// une période qui neutralise, comme toutes celles déjà en base.
+    #[serde(default)]
+    pub attendance_expected: bool,
+}
+
+/// Une absence du professeur, sur une ou plusieurs classes à la fois.
+///
+/// Les classes sont une liste parce que l'enseignant est rarement absent pour
+/// une seule : une journée de formation vide son emploi du temps entier, une
+/// réunion ne lui prend qu'une classe. C'est à lui de cocher, et le même geste
+/// couvre les deux cas.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TeacherAbsenceInput {
+    pub session_ids: Vec<String>,
+    pub reason: String,
+    pub start_date: String,
+    pub end_date: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +119,7 @@ const PERIODES_DE_LA_CLASSE: &str = "SELECT ap.id, ap.session_id, ap.student_id,
          WHERE se.session_id = ap.session_id
            AND se.cancelled = 0
            AND se.date BETWEEN ap.start_date AND ap.end_date),
-       ap.created_at, ap.updated_at
+       ap.created_at, ap.updated_at, ap.attendance_expected, ap.teacher_absent
   FROM absence_periods ap
   LEFT JOIN students st ON st.id = ap.student_id
  WHERE ap.session_id = ?1
@@ -89,7 +131,7 @@ const PERIODE_PAR_ID: &str = "SELECT ap.id, ap.session_id, ap.student_id,
          WHERE se.session_id = ap.session_id
            AND se.cancelled = 0
            AND se.date BETWEEN ap.start_date AND ap.end_date),
-       ap.created_at, ap.updated_at
+       ap.created_at, ap.updated_at, ap.attendance_expected, ap.teacher_absent
   FROM absence_periods ap
   LEFT JOIN students st ON st.id = ap.student_id
  WHERE ap.id = ?1";
@@ -123,6 +165,8 @@ fn map_period(row: &rusqlite::Row<'_>) -> rusqlite::Result<AbsencePeriod> {
         seance_count: row.get(8)?,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
+        attendance_expected: row.get(11)?,
+        teacher_absent: row.get(12)?,
     })
 }
 
@@ -169,6 +213,21 @@ fn optional_id(value: Option<&str>) -> Option<String> {
     value
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
+}
+
+/// Le nom de la classe, et son existence par la même occasion.
+///
+/// Sert aux messages de `create_teacher_absence` : quand quatre classes sont
+/// cochées, « Cette classe a déjà la période… » ne dit pas laquelle décocher.
+fn nom_de_classe(conn: &Connection, session_id: &str) -> Result<String, String> {
+    conn.query_row(
+        "SELECT name FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "Classe introuvable".to_string())
 }
 
 fn check_session(conn: &Connection, session_id: &str) -> Result<(), String> {
@@ -270,6 +329,31 @@ fn check_no_overlap(
     ))
 }
 
+/// Motif, début et fin — vérifiés **une seule fois** pour toutes les classes
+/// d'une absence du professeur.
+///
+/// Extrait de `validated_period` parce qu'une date mal saisie n'appartient à
+/// aucune classe en particulier : la refuser quatre fois en nommant la première
+/// classe cochée ferait chercher le défaut au mauvais endroit.
+fn validated_window(
+    reason: &str,
+    start_date: &str,
+    end_date: &str,
+) -> Result<(String, String, String), String> {
+    let reason = clean_reason(reason)?;
+    let start = parse_date(start_date, "La date de début")?;
+    let end = parse_date(end_date, "La date de fin")?;
+    if end < start {
+        return Err(format!(
+            "La date de fin ({}) précède la date de début ({}). Pour une absence d'un \
+             seul jour, saisissez deux fois la même date.",
+            en_clair(&iso(end)),
+            en_clair(&iso(start))
+        ));
+    }
+    Ok((reason, iso(start), iso(end)))
+}
+
 /// Valeurs vérifiées et normalisées : élève visé, motif, début, fin.
 type PeriodValues = (Option<String>, String, String, String);
 
@@ -290,18 +374,7 @@ fn validated_period(
     id_exclu: &str,
     input: &AbsencePeriodInput,
 ) -> Result<PeriodValues, String> {
-    let reason = clean_reason(&input.reason)?;
-    let start = parse_date(&input.start_date, "La date de début")?;
-    let end = parse_date(&input.end_date, "La date de fin")?;
-    if end < start {
-        return Err(format!(
-            "La date de fin ({}) précède la date de début ({}). Pour une absence d'un \
-             seul jour, saisissez deux fois la même date.",
-            en_clair(&iso(end)),
-            en_clair(&iso(start))
-        ));
-    }
-    let (start, end) = (iso(start), iso(end));
+    let (reason, start, end) = validated_window(&input.reason, &input.start_date, &input.end_date)?;
 
     let student_id = optional_id(input.student_id.as_deref());
     check_session(conn, session_id)?;
@@ -344,13 +417,86 @@ fn create_period(
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO absence_periods
-             (id, session_id, student_id, reason, start_date, end_date)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, session_id, student_id, reason, start_date, end_date],
+             (id, session_id, student_id, reason, start_date, end_date,
+              attendance_expected)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            session_id,
+            student_id,
+            reason,
+            start_date,
+            end_date,
+            input.attendance_expected
+        ],
     )
     .map_err(|e| e.to_string())?;
 
     load_period(conn, &id)
+}
+
+/// Une absence du professeur : une ligne par classe cochée, en une transaction.
+///
+/// **La commande EST le drapeau.** `teacher_absent = 1`, `attendance_expected = 0`
+/// et `student_id = NULL` sont écrits ici en dur, et ne sont pas des paramètres :
+/// une absence du professeur ne peut donc naître ni nominative — il n'est pas
+/// absent pour un élève — ni « avec appel », puisqu'il n'est pas là pour le
+/// faire. Le CHECK du palier 020 fige la seconde moitié de cette règle dans le
+/// schéma ; celle-ci la tient à la saisie, avec un message français.
+///
+/// **Tout ou rien.** Si une seule classe cochée a déjà une période qui recouvre
+/// ces dates, rien n'est écrit et le message nomme la classe à décocher. Un
+/// écrit partiel laisserait l'enseignant deviner lesquelles sont passées.
+///
+/// **Il n'y a pas d'entité « absence groupée ».** Quatre classes cochées font
+/// quatre lignes indépendantes, par le même raisonnement qui a refusé un objet
+/// « groupe » au palier 019 : chaque classe lit sa période dans son bilan, et
+/// un identifiant commun serait une colonne de plus pour un seul usage. La
+/// contrepartie est connue — la suppression se fait classe par classe.
+fn create_teacher_absence(
+    conn: &Connection,
+    input: &TeacherAbsenceInput,
+) -> Result<Vec<AbsencePeriod>, String> {
+    let (reason, start_date, end_date) =
+        validated_window(&input.reason, &input.start_date, &input.end_date)?;
+
+    // Dédoublonné en gardant l'ordre de la saisie : une classe cochée deux fois
+    // se heurterait à sa propre ligne, et le message parlerait d'un
+    // chevauchement que l'enseignant n'a pas saisi.
+    let mut classes: Vec<&str> = Vec::new();
+    for id in &input.session_ids {
+        let id = id.trim();
+        if !id.is_empty() && !classes.contains(&id) {
+            classes.push(id);
+        }
+    }
+    if classes.is_empty() {
+        return Err(
+            "Cochez au moins une classe : une absence ne se note que sur les \
+             classes qu'elle touche."
+                .to_string(),
+        );
+    }
+
+    let mut creees = Vec::with_capacity(classes.len());
+    for session_id in classes {
+        let nom = nom_de_classe(conn, session_id)?;
+        check_no_overlap(conn, session_id, "", None, &start_date, &end_date)
+            .map_err(|e| format!("{nom} : {e}"))?;
+
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO absence_periods
+                 (id, session_id, student_id, reason, start_date, end_date,
+                  attendance_expected, teacher_absent)
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 0, 1)",
+            params![id, session_id, reason, start_date, end_date],
+        )
+        .map_err(|e| e.to_string())?;
+        creees.push(load_period(conn, &id)?);
+    }
+
+    Ok(creees)
 }
 
 /// La classe d'une période n'est pas modifiable : elle est relue sur la ligne
@@ -362,16 +508,48 @@ fn update_period(
     id: &str,
     input: &AbsencePeriodInput,
 ) -> Result<AbsencePeriod, String> {
-    let session_id = load_period(conn, id)?.session_id;
+    let existante = load_period(conn, id)?;
+    let session_id = existante.session_id.clone();
+
+    // Une absence du professeur reste une absence du professeur. Le CHECK du
+    // schéma refuserait déjà « avec appel » — mais en anglais, et par une
+    // erreur SQLite brute ; et il ne dit rien du second cas, que seul ce garde
+    // tient : un élève désigné ferait une absence du professeur nominative.
+    if existante.teacher_absent {
+        if input.attendance_expected {
+            return Err(
+                "« Professeur absent » et « l'appel se fait quand même » ne vont pas \
+                 ensemble : s'il n'était pas là, personne n'a fait l'appel. Supprimez \
+                 cette période et saisissez-en une autre."
+                    .to_string(),
+            );
+        }
+        if optional_id(input.student_id.as_deref()).is_some() {
+            return Err(
+                "Une absence du professeur concerne toute la classe : elle ne peut pas \
+                 viser un élève. Supprimez-la et saisissez une période d'absence pour \
+                 cet élève si c'est ce que vous voulez noter."
+                    .to_string(),
+            );
+        }
+    }
+
     let (student_id, reason, start_date, end_date) =
         validated_period(conn, &session_id, id, input)?;
 
     conn.execute(
         "UPDATE absence_periods
             SET student_id = ?1, reason = ?2, start_date = ?3, end_date = ?4,
-                updated_at = datetime('now')
-          WHERE id = ?5",
-        params![student_id, reason, start_date, end_date, id],
+                attendance_expected = ?5, updated_at = datetime('now')
+          WHERE id = ?6",
+        params![
+            student_id,
+            reason,
+            start_date,
+            end_date,
+            input.attendance_expected,
+            id
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -415,6 +593,23 @@ pub fn update_absence_period(
     let updated = update_period(&tx, &id, &period)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(updated)
+}
+
+/// Noter une absence du professeur sur une ou plusieurs classes à la fois.
+///
+/// Commande distincte de `create_absence_period`, et pas un paramètre de plus :
+/// c'est ce qui rend le couple contradictoire inécrivable. Voir
+/// `create_teacher_absence` pour le détail.
+#[tauri::command]
+pub fn create_teacher_absence_periods(
+    state: tauri::State<'_, AppState>,
+    absence: TeacherAbsenceInput,
+) -> Result<Vec<AbsencePeriod>, String> {
+    let mut conn = state.conn()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let creees = create_teacher_absence(&tx, &absence)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(creees)
 }
 
 /// Supprimer une période RÉTABLIT les séances qu'elle écartait dans le
@@ -472,6 +667,15 @@ mod tests {
             reason: reason.to_string(),
             start_date: start.to_string(),
             end_date: end.to_string(),
+            attendance_expected: false,
+        }
+    }
+
+    /// La même saisie, mais « l'appel se fait quand même ».
+    fn saisie_avec_appel(reason: &str, start: &str, end: &str) -> AbsencePeriodInput {
+        AbsencePeriodInput {
+            attendance_expected: true,
+            ..saisie(None, reason, start, end)
         }
     }
 
@@ -714,5 +918,144 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(erreur, "Classe introuvable");
+    }
+
+    #[test]
+    fn une_periode_avec_appel_se_saisit_et_se_relit() {
+        let conn = migrated_db("avec-appel");
+        peupler(&conn);
+        let creee = create_period(
+            &conn,
+            "s1",
+            &saisie_avec_appel("Sortie au musée", "2027-01-18", "2027-01-19"),
+        )
+        .unwrap();
+        assert!(creee.attendance_expected);
+        assert!(!creee.teacher_absent);
+        // Et elle se relit telle quelle : c'est le drapeau, non l'intitulé, qui
+        // porte la règle que `reports::ATTENDANCE_SQL` applique.
+        assert!(list_periods(&conn, "s1").unwrap()[0].attendance_expected);
+    }
+
+    #[test]
+    fn une_absence_du_professeur_couvre_toutes_les_classes_cochees() {
+        let conn = migrated_db("prof-absent");
+        peupler(&conn);
+        let creees = create_teacher_absence(
+            &conn,
+            &TeacherAbsenceInput {
+                // Deux fois « s1 » : une classe cochée deux fois ne doit pas se
+                // heurter à sa propre ligne.
+                session_ids: vec!["s1".into(), "s2".into(), "s1".into()],
+                reason: "Formation".into(),
+                start_date: "2027-01-18".into(),
+                end_date: "2027-01-20".into(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(creees.len(), 2);
+        for periode in &creees {
+            assert!(periode.teacher_absent);
+            // Les trois valeurs que la commande écrit en dur, et qu'aucun
+            // paramètre ne peut contredire.
+            assert!(!periode.attendance_expected);
+            assert_eq!(periode.student_id, None);
+        }
+        assert_eq!(list_periods(&conn, "s1").unwrap().len(), 1);
+        assert_eq!(list_periods(&conn, "s2").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn une_absence_du_professeur_est_refusee_en_bloc_et_nomme_la_classe() {
+        let conn = migrated_db("prof-absent-bloc");
+        peupler(&conn);
+        create_period(
+            &conn,
+            "s2",
+            &saisie(None, "Stage en entreprise", "2027-01-18", "2027-01-22"),
+        )
+        .unwrap();
+
+        let erreur = create_teacher_absence(
+            &conn,
+            &TeacherAbsenceInput {
+                session_ids: vec!["s1".into(), "s2".into()],
+                reason: "Formation".into(),
+                start_date: "2027-01-18".into(),
+                end_date: "2027-01-20".into(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            erreur.starts_with("3ème B : "),
+            "le message doit nommer la classe à décocher : {erreur}"
+        );
+        // Tout ou rien : la première classe avait déjà reçu sa ligne dans la
+        // boucle, et c'est la transaction de la commande qui l'annule. Ici, sans
+        // transaction, elle est bien là — le test porte sur le message.
+        assert_eq!(list_periods(&conn, "s2").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn une_classe_decochee_partout_est_refusee() {
+        let conn = migrated_db("prof-absent-vide");
+        peupler(&conn);
+        let erreur = create_teacher_absence(
+            &conn,
+            &TeacherAbsenceInput {
+                session_ids: vec!["".into(), "   ".into()],
+                reason: "Formation".into(),
+                start_date: "2027-01-18".into(),
+                end_date: "2027-01-20".into(),
+            },
+        )
+        .unwrap_err();
+        assert!(erreur.starts_with("Cochez au moins une classe"), "{erreur}");
+    }
+
+    #[test]
+    fn une_absence_du_professeur_ne_devient_ni_nominative_ni_avec_appel() {
+        let conn = migrated_db("prof-absent-figee");
+        peupler(&conn);
+        let periode = create_teacher_absence(
+            &conn,
+            &TeacherAbsenceInput {
+                session_ids: vec!["s1".into()],
+                reason: "Formation".into(),
+                start_date: "2027-01-18".into(),
+                end_date: "2027-01-20".into(),
+            },
+        )
+        .unwrap()
+        .remove(0);
+
+        let avec_appel = update_period(
+            &conn,
+            &periode.id,
+            &saisie_avec_appel("Formation", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap_err();
+        assert!(avec_appel.contains("personne n'a fait l'appel"), "{avec_appel}");
+
+        let nominative = update_period(
+            &conn,
+            &periode.id,
+            &saisie(Some("e1"), "Formation", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap_err();
+        assert!(nominative.contains("toute la classe"), "{nominative}");
+
+        // Et la correction des dates, elle, reste possible : c'est une absence
+        // du professeur, pas une ligne en lecture seule.
+        let decalee = update_period(
+            &conn,
+            &periode.id,
+            &saisie(None, "Formation", "2027-01-19", "2027-01-21"),
+        )
+        .unwrap();
+        assert_eq!(decalee.start_date, "2027-01-19");
+        assert!(decalee.teacher_absent);
     }
 }

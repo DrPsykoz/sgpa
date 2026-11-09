@@ -145,6 +145,20 @@ pub struct AttendanceStats {
 /// est ce qui garde le CALCUL juste sur une base reprise, importée, ou saisie
 /// avant ce garde-fou.
 ///
+/// **⚠ `attendance_expected` SE LIT AUX DEUX ENDROITS, OU À AUCUN.** Le palier
+/// 020 distingue deux périodes que 005 confondait : celle qui retire la séance
+/// du dénominateur (stage, hospitalisation, professeur absent) et celle où
+/// l'appel se fait quand même (sortie scolaire, séjour, CDI). La seconde porte
+/// `attendance_expected = 1` et ne neutralise rien — d'où le `= 0` ajouté ici
+/// **sur les deux tests `absence_periods`**, celui de `neutralisees` et celui
+/// du `LEFT JOIN`. Ne l'ajouter qu'à l'un des deux casse l'invariant imprimé
+/// `applicable + hors_inscription + neutralisees == seances_trimestre` : la
+/// séance est comptée deux fois, ou disparaît des deux côtés. Le défaut ne se
+/// voit pas sur une base où personne n'a coché la case, c'est-à-dire sur toute
+/// base migrée — `DEFAULT 0` reproduit la veille au chiffre près — et
+/// `une_base_v19_peuplee_traverse_le_palier_020_intacte` le tient en basculant
+/// la même période d'un état à l'autre.
+///
 /// **⚠ LES PARENTHÈSES DE LA SOUS-REQUÊTE SONT PORTANTES.** Le `LEFT JOIN`
 /// porte deux `NOT EXISTS` conjoints ; la sous-requête `neutralisees` en est la
 /// négation, donc une DISJONCTION — `NOT (A OR B) ≡ NOT A AND NOT B`. Sans les
@@ -178,6 +192,7 @@ SELECT st.id,
            AND (EXISTS (SELECT 1 FROM absence_periods p
                          WHERE p.session_id = st.session_id
                            AND (p.student_id IS NULL OR p.student_id = st.id)
+                           AND p.attendance_expected = 0
                            AND sx.date BETWEEN p.start_date AND p.end_date
                            AND NOT EXISTS (SELECT 1 FROM stage_placements sp
                                              JOIN students sv ON sv.id = sp.student_id
@@ -197,6 +212,7 @@ SELECT st.id,
                       AND NOT EXISTS (SELECT 1 FROM absence_periods p
                                        WHERE p.session_id = st.session_id
                                          AND (p.student_id IS NULL OR p.student_id = st.id)
+                                         AND p.attendance_expected = 0
                                          AND se.date BETWEEN p.start_date AND p.end_date
                                          AND NOT EXISTS (SELECT 1 FROM stage_placements sp
                                                            JOIN students sv ON sv.id = sp.student_id

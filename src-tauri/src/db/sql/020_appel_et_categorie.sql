@@ -1,0 +1,113 @@
+-- ==========================================================================
+-- SGPA — palier 020 : l'appel pendant une période, l'absence du professeur,
+--                     et la catégorie d'un rendez-vous
+--
+-- Trois colonnes, aucune table, aucune ligne réécrite. Les trois DEFAULT
+-- reproduisent **exactement** le comportement de la veille : une base migrée
+-- sans que l'enseignant ne touche à rien se lit, s'affiche et se calcule comme
+-- avant. C'est la contrainte de la phase de production, et elle se vérifie —
+-- `une_base_v19_peuplee_traverse_le_palier_020_intacte` recompte un bilan
+-- avant et après le palier et exige le même résultat.
+--
+-- --------------------------------------------------------------------------
+-- 1. absence_periods.attendance_expected — « l'appel se fait quand même »
+-- --------------------------------------------------------------------------
+--
+-- Depuis le palier 005, une période retire ses séances du dénominateur
+-- d'assiduité de qui elle vise. C'est juste pour un stage : l'élève n'est pas
+-- là, sa présence en cours n'a pas de sens, et la compter en absence
+-- fabriquerait un taux faux sur le bilan remis à la famille.
+--
+-- Ça ne l'est pas pour une sortie scolaire, un séjour, une journée au CDI :
+-- l'enseignant est AVEC la classe, l'appel se fait, et manquer est une absence
+-- comme une autre. Il n'avait aucun moyen de le dire. Les deux contournements
+-- qui restaient étaient tous les deux mauvais : ne pas saisir la période, et
+-- la sortie disparaissait de l'emploi du temps ; la saisir, et la journée
+-- sortait silencieusement de l'assiduité de toute la classe.
+--
+-- `attendance_expected = 1` neutralise la neutralisation. La période nomme
+-- toujours sa raison, s'affiche toujours sur l'emploi du temps, mais ses
+-- séances restent au dénominateur. La règle vit dans la requête du bilan
+-- (`reports::ATTENDANCE_SQL`, un `AND p.attendance_expected = 0` ajouté à ses
+-- DEUX points symétriques), jamais dans le stockage : rien n'est recopié, donc
+-- décocher la case rend les séances au calcul sans rien reconstruire.
+--
+-- DEFAULT 0 : toute période déjà saisie continue d'écarter ses séances, et
+-- aucun bilan déjà remis ne change de chiffre.
+--
+-- --------------------------------------------------------------------------
+-- 2. absence_periods.teacher_absent — « c'est moi qui ne suis pas là »
+-- --------------------------------------------------------------------------
+--
+-- Elle ne change **aucun calcul**, et c'est voulu : une période écarte déjà ses
+-- séances, donc « l'enseignant n'était pas là » n'a rien de plus à retirer. Ce
+-- qu'elle apporte, c'est la CAUSE — que `reason`, texte libre, ne permettait pas
+-- de distinguer d'une chaîne quelconque. Deux conséquences, toutes deux
+-- visibles à l'écran et nulle part dans les chiffres :
+--
+--   * l'emploi du temps peut dire « Professeur absent » là où il disait
+--     « classe absente », et le dire dans la teinte de la classe au lieu du
+--     gris d'un jour férié — une fermeture d'établissement et une classe en
+--     stage se lisaient pareil ;
+--   * les trois rappels de l'accueil se taisent sur une séance couverte : il
+--     n'y a ni appel à terminer, ni cahier de texte à écrire, ni annulation à
+--     motiver pour un cours qui n'a pas eu lieu. Ce silence ne vaut QUE pour
+--     `teacher_absent = 1`, jamais pour une période ordinaire : sans cette
+--     restriction, la migration aurait fait taire des rappels déjà affichés
+--     chez un enseignant qui n'a rien demandé.
+--
+-- Son autre rôle est de rendre le couple contradictoire IMPOSSIBLE. Un
+-- professeur absent ne fait pas l'appel ; ce n'est pas une politique qu'on
+-- pourrait rouvrir, c'est une tautologie. Aucune commande ne peut produire
+-- (teacher_absent = 1, attendance_expected = 1) — `create_teacher_absence` ne
+-- prend pas le second en paramètre —, et le CHECK le redit au schéma, pour que
+-- la règle survive à un appelant futur qui n'aurait pas lu ces lignes.
+--
+-- SQLite n'ajoute pas de contrainte de TABLE par ALTER : le CHECK est donc
+-- porté par la colonne, d'où il cite sa voisine. Elle existe déjà, l'ordre des
+-- deux ALTER ci-dessous n'est pas interchangeable.
+--
+-- Et une absence du professeur n'est jamais nominative — il n'est pas absent
+-- pour un élève en particulier. `create_teacher_absence` écrit donc toujours
+-- `student_id = NULL`, et pose une ligne par classe concernée, dans une seule
+-- transaction. Il n'y a pas d'entité « absence groupée » : même raison que
+-- « Gr 2 » au palier 019, un objet qui n'existe que pour relier des lignes
+-- devient un objet dont il faut gérer le cycle de vie.
+--
+-- --------------------------------------------------------------------------
+-- 3. agenda_entries.category — la catégorie, en petit
+-- --------------------------------------------------------------------------
+--
+-- Le palier 004 avait écrit, à propos de cette table : « PAS de colonne kind.
+-- Le titre porte la catégorie tant qu'un second exemple réel n'existe pas. »
+-- Le second exemple est arrivé — l'exercice PPMS, l'alerte à la bombe : un
+-- événement qui concerne l'établissement entier, ne nomme aucune classe, et
+-- dont ce qu'on veut lire d'un coup d'œil sur le calendrier n'est pas
+-- l'intitulé mais la NATURE.
+--
+-- Texte libre, et non une liste close. Une taxonomie figerait aujourd'hui un
+-- vocabulaire qui appartient à l'établissement, et chaque valeur manquante
+-- deviendrait une impasse : l'enseignant écrirait la catégorie dans le titre,
+-- c'est-à-dire exactement l'état d'avant. Le prix assumé est que « PPMS » et
+-- « ppms » font deux catégories ; l'auteur l'a arbitré.
+--
+-- Aucun CHECK de longueur, délibérément. La pastille est petite, donc la
+-- saisie est bornée à trente caractères, au clavier comme en Rust et l'affichage tronque — mais
+-- une contrainte de forme gravée ici serait impossible à desserrer sans
+-- reconstruire la table, pour un réglage d'affichage.
+--
+-- Aucun index non plus : rien ne filtre là-dessus, la colonne ne fait que
+-- s'afficher. Un index serait une promesse de requête qui n'existe pas.
+-- ==========================================================================
+
+-- L'ordre compte : le CHECK de la seconde colonne cite la première.
+ALTER TABLE absence_periods
+    ADD COLUMN attendance_expected INTEGER NOT NULL DEFAULT 0
+        CHECK (attendance_expected IN (0, 1));
+
+ALTER TABLE absence_periods
+    ADD COLUMN teacher_absent INTEGER NOT NULL DEFAULT 0
+        CHECK (teacher_absent IN (0, 1)
+               AND (teacher_absent = 0 OR attendance_expected = 0));
+
+ALTER TABLE agenda_entries ADD COLUMN category TEXT NOT NULL DEFAULT '';

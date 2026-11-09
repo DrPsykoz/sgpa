@@ -111,6 +111,20 @@ pub struct AgendaEntrySummary {
     /// propre calendrier continuait d'afficher « compte rendu à écrire ».
     pub content_waived: bool,
     pub has_attachment: bool,
+    /// Catégorie, en texte libre et vide par défaut (palier 020).
+    ///
+    /// Le palier 004 avait écrit qu'il n'y aurait **pas** de colonne `kind`
+    /// tant qu'un second exemple réel n'existerait pas, et que l'intitulé
+    /// porterait la catégorie en attendant. L'exercice PPMS est ce second
+    /// exemple : « Exercice PPMS — alerte à la bombe » était un intitulé qui
+    /// disait deux choses, et l'enseignant voulait voir la seconde en petit sur
+    /// le calendrier, sans la relire en entier.
+    ///
+    /// **Texte libre, et non une liste fermée.** Une liste aurait demandé de
+    /// connaître d'avance les catégories d'un métier qu'on n'exerce pas ;
+    /// l'enseignant écrit « PPMS », « ESS », « Conseil » comme il l'entend. Le
+    /// prix est connu et accepté : « PPMS » et « ppms » sont deux catégories.
+    pub category: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -136,6 +150,20 @@ pub struct AgendaEntry {
     /// lieu, il n'y a simplement rien à en consigner. Il sort donc de
     /// « À reprendre » sans sortir de l'emploi du temps.
     pub content_waived_at: Option<String>,
+    /// Catégorie, en texte libre et vide par défaut (palier 020).
+    ///
+    /// Le palier 004 avait écrit qu'il n'y aurait **pas** de colonne `kind`
+    /// tant qu'un second exemple réel n'existerait pas, et que l'intitulé
+    /// porterait la catégorie en attendant. L'exercice PPMS est ce second
+    /// exemple : « Exercice PPMS — alerte à la bombe » était un intitulé qui
+    /// disait deux choses, et l'enseignant voulait voir la seconde en petit sur
+    /// le calendrier, sans la relire en entier.
+    ///
+    /// **Texte libre, et non une liste fermée.** Une liste aurait demandé de
+    /// connaître d'avance les catégories d'un métier qu'on n'exerce pas ;
+    /// l'enseignant écrit « PPMS », « ESS », « Conseil » comme il l'entend. Le
+    /// prix est connu et accepté : « PPMS » et « ppms » sont deux catégories.
+    pub category: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -198,12 +226,27 @@ pub struct DayClosure {
 }
 
 /// Une classe entière hors cours, et pourquoi.
+///
+/// Les deux drapeaux du palier 020 sont ici parce que c'est l'écran qui décide
+/// quoi en faire, et que les trois cas ne se dessinent pas pareil :
+///
+///   * ni l'un ni l'autre — la classe est ailleurs et son cours n'a pas lieu :
+///     le créneau est masqué, comme depuis le palier 006 ;
+///   * `attendance_expected` — sortie scolaire, séjour, CDI : la classe est
+///     ailleurs mais **l'appel se fait**, donc le créneau reste à l'écran,
+///     sinon la séance dont on attend l'appel aurait disparu de la grille ;
+///   * `teacher_absent` — c'est le professeur qui manque, et la carte le dit
+///     avec ces mots plutôt que de laisser deviner.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionAway {
     pub session_id: String,
     pub session_name: String,
     /// Le motif saisi sur la période — « Stage en entreprise », le plus souvent.
     pub reason: String,
+    /// L'appel se fait quand même : le créneau n'est pas masqué.
+    pub attendance_expected: bool,
+    /// C'est le professeur qui était absent, pas la classe.
+    pub teacher_absent: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,6 +464,10 @@ fn clean_label(label: &str) -> Result<String, String> {
     Ok(label.to_string())
 }
 
+/// Borne d'affichage de la catégorie, pas une règle de données : voir
+/// `clean_entry_category`.
+const MAX_CATEGORY_CHARS: usize = 30;
+
 fn clean_entry_title(title: &str) -> Result<String, String> {
     let title = title.trim();
     if title.is_empty() {
@@ -431,6 +478,27 @@ fn clean_entry_title(title: &str) -> Result<String, String> {
         );
     }
     Ok(title.to_string())
+}
+
+/// Une catégorie nettoyée : rognée, et bornée en longueur.
+///
+/// Facultative — `""` est la valeur de toutes les entrées déjà en base, et
+/// celle que l'écran propose. La borne est ici et non dans un CHECK du schéma :
+/// une limite d'affichage n'est pas une règle de données, et un CHECK aurait
+/// fait échouer en anglais une saisie trop longue au lieu de la refuser en
+/// français. Trente caractères, parce qu'elle s'affiche en pastille dans une
+/// case de calendrier large de quelques centimètres.
+fn clean_entry_category(category: &str) -> Result<String, String> {
+    let category = category.trim();
+    if category.chars().count() > MAX_CATEGORY_CHARS {
+        return Err(format!(
+            "La catégorie est trop longue ({} caractères) : {MAX_CATEGORY_CHARS} au plus. \
+             Elle s'affiche en petit sur le calendrier, à côté de l'intitulé — « PPMS », \
+             « ESS », « Conseil ». Ce qui mérite une phrase va dans l'intitulé.",
+            category.chars().count()
+        ));
+    }
+    Ok(category.to_string())
 }
 
 fn check_weekday(weekday: i32) -> Result<(), String> {
@@ -653,7 +721,7 @@ const ENTREES_DE_LA_PERIODE: &str = "SELECT ae.id, ae.date, ae.start_time, ae.en
        ae.content_html <> '',
        ae.content_waived_at IS NOT NULL,
        EXISTS (SELECT 1 FROM agenda_entry_attachments aat WHERE aat.entry_id = ae.id),
-       ae.created_at, ae.updated_at
+       ae.category, ae.created_at, ae.updated_at
   FROM agenda_entries ae
   LEFT JOIN sessions s  ON s.id  = ae.session_id
   LEFT JOIN students st ON st.id = ae.student_id
@@ -665,7 +733,7 @@ const ENTREES_DE_L_ELEVE: &str = "SELECT ae.id, ae.date, ae.start_time, ae.end_t
        ae.content_html <> '',
        ae.content_waived_at IS NOT NULL,
        EXISTS (SELECT 1 FROM agenda_entry_attachments aat WHERE aat.entry_id = ae.id),
-       ae.created_at, ae.updated_at
+       ae.category, ae.created_at, ae.updated_at
   FROM agenda_entries ae
   LEFT JOIN sessions s  ON s.id  = ae.session_id
   LEFT JOIN students st ON st.id = ae.student_id
@@ -674,7 +742,8 @@ const ENTREES_DE_L_ELEVE: &str = "SELECT ae.id, ae.date, ae.start_time, ae.end_t
 
 const ENTREE_PAR_ID: &str = "SELECT ae.id, ae.date, ae.start_time, ae.end_time, ae.title,
        ae.session_id, s.name, ae.student_id, st.first_name, st.last_name,
-       ae.content_html, ae.content_waived_at, ae.created_at, ae.updated_at
+       ae.content_html, ae.content_waived_at, ae.category,
+       ae.created_at, ae.updated_at
   FROM agenda_entries ae
   LEFT JOIN sessions s  ON s.id  = ae.session_id
   LEFT JOIN students st ON st.id = ae.student_id
@@ -742,8 +811,9 @@ fn map_entry_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgendaEntrySum
         has_content: row.get(10)?,
         content_waived: row.get(11)?,
         has_attachment: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        category: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
@@ -761,8 +831,9 @@ fn map_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgendaEntry> {
         student_last_name: row.get(9)?,
         content_html: row.get(10)?,
         content_waived_at: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        category: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
@@ -879,7 +950,8 @@ const VACANCES_DE_LA_PERIODE: &str = "SELECT sh.start_date, sh.end_date, sh.labe
 /// (hospitalisation, stage annulé pour un seul) ne retire JAMAIS un créneau. La
 /// classe est là, un élève manque. Les confondre referait, à l'envers, le défaut
 /// que le palier 006 a corrigé.
-const CLASSES_HORS_COURS: &str = "SELECT p.session_id, s.name, p.reason, p.start_date, p.end_date
+const CLASSES_HORS_COURS: &str = "SELECT p.session_id, s.name, p.reason, p.start_date, p.end_date,
+       p.attendance_expected, p.teacher_absent
   FROM absence_periods p
   JOIN sessions s ON s.id = p.session_id
  WHERE p.student_id IS NULL
@@ -890,21 +962,37 @@ const CLASSES_HORS_COURS: &str = "SELECT p.session_id, s.name, p.reason, p.start
 /// Une période recouvrant des jours : les bornes, et de quoi la décrire.
 type Periode = (String, String, String, String);
 
-/// Une classe hors cours sur une période : classe, nom, motif, bornes.
-type ClasseHorsCours = (String, String, String, String, String);
+/// Une classe hors cours sur une période.
+///
+/// Une structure et non un n-uplet, depuis que la ligne porte deux booléens :
+/// côte à côte et de même type, `.5` et `.6` s'échangent sans que rien ne le
+/// dise, et l'échange ferait masquer le créneau d'une sortie scolaire tout en
+/// affichant « Professeur absent » sur un stage. C'est la raison qui a déjà
+/// donné un seul objet en paramètre à `exportProgressionPDF`.
+struct ClasseHorsCours {
+    session_id: String,
+    session_name: String,
+    reason: String,
+    start_date: String,
+    end_date: String,
+    attendance_expected: bool,
+    teacher_absent: bool,
+}
 
 fn map_periode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Periode> {
     Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
 }
 
 fn map_classe_hors_cours(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClasseHorsCours> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-    ))
+    Ok(ClasseHorsCours {
+        session_id: row.get(0)?,
+        session_name: row.get(1)?,
+        reason: row.get(2)?,
+        start_date: row.get(3)?,
+        end_date: row.get(4)?,
+        attendance_expected: row.get(5)?,
+        teacher_absent: row.get(6)?,
+    })
 }
 
 /// Les raisons de ne pas faire cours un jour donné, vacances **et** fériés.
@@ -935,11 +1023,13 @@ fn closures_du_jour(date: NaiveDate, jour: &str, vacances: &[Periode]) -> Vec<Da
 fn sessions_away_du_jour(jour: &str, periodes: &[ClasseHorsCours]) -> Vec<SessionAway> {
     periodes
         .iter()
-        .filter(|(_, _, _, debut, fin)| debut.as_str() <= jour && jour <= fin.as_str())
-        .map(|(session_id, session_name, reason, _, _)| SessionAway {
-            session_id: session_id.clone(),
-            session_name: session_name.clone(),
-            reason: reason.clone(),
+        .filter(|p| p.start_date.as_str() <= jour && jour <= p.end_date.as_str())
+        .map(|p| SessionAway {
+            session_id: p.session_id.clone(),
+            session_name: p.session_name.clone(),
+            reason: p.reason.clone(),
+            attendance_expected: p.attendance_expected,
+            teacher_absent: p.teacher_absent,
         })
         .collect()
 }
@@ -1398,6 +1488,10 @@ pub fn delete_timetable_slot(state: tauri::State<'_, AppState>, id: String) -> R
 /// ce qui compte ; une réunion de secteur ne nomme ni l'un ni l'autre. Dès qu'un
 /// élève est désigné, c'est SA classe qui est enregistrée — voir
 /// `resolve_entry_session` —, jamais celle reçue de l'écran.
+// Huit paramètres, et la même raison qu'`update_seance_meta` : ce sont les
+// champs d'un formulaire, et la signature d'une commande Tauri EST le contrat
+// du front. Les regrouper en structure rendrait l'appel plus opaque.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn create_agenda_entry(
     state: tauri::State<'_, AppState>,
@@ -1405,6 +1499,7 @@ pub fn create_agenda_entry(
     start_time: String,
     end_time: String,
     title: String,
+    category: String,
     session_id: Option<String>,
     student_id: Option<String>,
 ) -> Result<AgendaEntry, String> {
@@ -1413,6 +1508,7 @@ pub fn create_agenda_entry(
     let end_time = parse_optional_time(&end_time, "L'heure de fin")?;
     check_time_order(&start_time, &end_time)?;
     let title = clean_entry_title(&title)?;
+    let category = clean_entry_category(&category)?;
     let session_id = optional_id(session_id);
     let student_id = optional_id(student_id);
 
@@ -1423,14 +1519,15 @@ pub fn create_agenda_entry(
     let id = Uuid::new_v4().to_string();
     tx.execute(
         "INSERT INTO agenda_entries
-             (id, date, start_time, end_time, title, session_id, student_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (id, date, start_time, end_time, title, category, session_id, student_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             iso(date),
             start_time,
             end_time,
             title,
+            category,
             session_id,
             student_id
         ],
@@ -1451,7 +1548,7 @@ pub fn get_agenda_entry(
     load_entry(&conn, &id)
 }
 
-/// Date, horaire, intitulé — **jamais** la cible ni le corps rédigé.
+/// Date, horaire, intitulé, catégorie — **jamais** la cible ni le corps rédigé.
 ///
 /// La cible, ce sont les deux : l'élève ET la classe. Toutes deux sont immuables
 /// après création, comme la classe d'une séance — un rapport écrit sur Jean ne
@@ -1466,21 +1563,23 @@ pub fn update_agenda_entry_meta(
     start_time: String,
     end_time: String,
     title: String,
+    category: String,
 ) -> Result<AgendaEntry, String> {
     let date = parse_date(&date, "La date")?;
     let start_time = parse_optional_time(&start_time, "L'heure de début")?;
     let end_time = parse_optional_time(&end_time, "L'heure de fin")?;
     check_time_order(&start_time, &end_time)?;
     let title = clean_entry_title(&title)?;
+    let category = clean_entry_category(&category)?;
 
     let conn = state.conn()?;
     let touched = conn
         .execute(
             "UPDATE agenda_entries
                 SET date = ?1, start_time = ?2, end_time = ?3, title = ?4,
-                    updated_at = datetime('now')
-              WHERE id = ?5",
-            params![iso(date), start_time, end_time, title, id],
+                    category = ?5, updated_at = datetime('now')
+              WHERE id = ?6",
+            params![iso(date), start_time, end_time, title, category, id],
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {

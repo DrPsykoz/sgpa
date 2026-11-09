@@ -413,6 +413,15 @@ export interface DaySlot {
 	seance: DaySeance | null;
 }
 
+/** Plafond de saisie de la catégorie d'un rendez-vous (palier 020).
+ *
+ *  Le refus vient du backend (`clean_entry_category`), seule implémentation de
+ *  la règle : ce nombre n'alimente qu'un `maxLength`, pour éviter un
+ *  aller-retour dont on connaît déjà l'issue. Il vit ici parce que **deux
+ *  écrans** le lisent — le dialogue de création et l'éditeur —, et que deux
+ *  constantes recopiées divergent au premier ajustement. */
+export const MAX_ENTRY_CATEGORY_CHARS = 30;
+
 /** Entrée datée sans son corps rédigé, pour les listes. */
 export interface AgendaEntrySummary {
 	id: string;
@@ -436,6 +445,15 @@ export interface AgendaEntrySummary {
 	 *  contredirait l'accueil, qui a cessé de le demander. */
 	content_waived: boolean;
 	has_attachment: boolean;
+	/** Catégorie, en texte libre et `""` par défaut (palier 020).
+	 *
+	 *  S'affiche en **pastille**, à côté de l'intitulé, sur les deux calendriers :
+	 *  « Exercice PPMS — alerte à la bombe » disait deux choses dans un seul
+	 *  intitulé, dont une que l'enseignant voulait voir d'un coup d'œil sans
+	 *  relire la phrase. Trente caractères au plus, bornés par le backend
+	 *  (`clean_entry_category`) — pas par un CHECK, une limite d'affichage
+	 *  n'étant pas une règle de données. */
+	category: string;
 	created_at: string;
 	updated_at: string;
 }
@@ -461,6 +479,15 @@ export interface AgendaEntry {
 	 *  une annulation. Le rendez-vous a eu lieu ; il n'y a rien à en consigner,
 	 *  donc l'accueil ne le réclame plus. */
 	content_waived_at: string | null;
+	/** Catégorie, en texte libre et `""` par défaut (palier 020).
+	 *
+	 *  S'affiche en **pastille**, à côté de l'intitulé, sur les deux calendriers :
+	 *  « Exercice PPMS — alerte à la bombe » disait deux choses dans un seul
+	 *  intitulé, dont une que l'enseignant voulait voir d'un coup d'œil sans
+	 *  relire la phrase. Trente caractères au plus, bornés par le backend
+	 *  (`clean_entry_category`) — pas par un CHECK, une limite d'affichage
+	 *  n'étant pas une règle de données. */
+	category: string;
 	created_at: string;
 	updated_at: string;
 }
@@ -515,12 +542,33 @@ export interface DayClosure {
 	origin: "ferie" | "officiel" | "manuel";
 }
 
-/** Une classe entière hors cours, et pourquoi. */
+/** Une classe entière hors cours, et pourquoi.
+ *
+ *  Trois cas, et ils ne se dessinent pas pareil — c'est `absenceDuCreneau`
+ *  (`pages/Timetable/journee.ts`) qui les départage, et les deux calendriers qui
+ *  le lisent :
+ *
+ *  - ni l'un ni l'autre : la classe est ailleurs, son cours n'a pas lieu. Sa
+ *    carte reste en place, **estompée et inerte**, le motif écrit dessus. Elle
+ *    disparaissait entièrement jusqu'au palier 020 ; ce que le palier 006
+ *    cherchait tient autrement — la carte n'ouvre plus rien, donc elle ne
+ *    propose plus de créer la séance d'un cours qui n'a pas eu lieu ;
+ *  - `attendance_expected` : sortie scolaire, séjour, CDI — la classe est
+ *    ailleurs mais **l'appel se fait**, donc le créneau ne change pas d'aspect.
+ *    L'estomper ferait reculer à l'œil la séance dont on attend justement
+ *    l'appel. Seul le bandeau de la journée la nomme ;
+ *  - `teacher_absent` : c'est le professeur qui manquait. La carte s'estompe
+ *    comme au premier cas, et les mots changent — « Professeur absent », jamais
+ *    « classe absente » : la classe était là. */
 export interface SessionAway {
 	session_id: string;
 	session_name: string;
 	/** Le motif saisi sur la période — « Stage en entreprise », le plus souvent. */
 	reason: string;
+	/** L'appel se fait quand même : le créneau n'est pas masqué. */
+	attendance_expected: boolean;
+	/** C'est le professeur qui était absent, pas la classe. */
+	teacher_absent: boolean;
 }
 
 export interface WeekSchedule {
@@ -633,6 +681,30 @@ export interface AbsencePeriod {
 	 *  les bilans se voit à la saisie, pas en juin. Ne jamais le recalculer ici :
 	 *  le bilan, lui, recompte élève par élève et c'est lui qui fait foi. */
 	seance_count: number;
+
+	/** `true` = l'appel se fait quand même, et la période **ne retire rien** du
+	 *  dénominateur (palier 020).
+	 *
+	 *  Une sortie scolaire, un séjour, une matinée au CDI sont des périodes où la
+	 *  classe est ailleurs et bien présente : l'appel s'y fait, et il compte.
+	 *  `false` est le comportement de toutes les périodes saisies avant le palier
+	 *  020, et celui que l'écran propose par défaut.
+	 *
+	 *  La règle vit dans `reports::ATTENDANCE_SQL`, qui lit la colonne à ses deux
+	 *  points symétriques. Le front ne recalcule aucune assiduité : il affiche ce
+	 *  drapeau, et `seance_count` dit déjà combien de séances sont en jeu. */
+	attendance_expected: boolean;
+
+	/** `true` = c'est le **professeur** qui était absent, pas la classe.
+	 *
+	 *  Ne change **aucun calcul** — une période neutralise déjà. Il porte la
+	 *  cause, pour que l'emploi du temps écrive « Professeur absent » plutôt que
+	 *  de laisser deviner, et pour que les rappels de l'accueil se taisent sur
+	 *  une séance que personne n'a assurée.
+	 *
+	 *  Écrit par `createTeacherAbsencePeriods` et par rien d'autre, jamais
+	 *  modifiable ensuite : une absence du professeur se supprime et se repose. */
+	teacher_absent: boolean;
 	created_at: string;
 	updated_at: string;
 }
@@ -646,6 +718,28 @@ export interface AbsencePeriod {
  *  yeux. `student_id` à `null` (ou `""`) vaut « toute la classe ». */
 export interface AbsencePeriodInput {
 	student_id: string | null;
+	reason: string;
+	start_date: string;
+	end_date: string;
+	/** « L'appel se fait quand même ». `false` reproduit le comportement d'avant
+	 *  le palier 020, et c'est ce que l'écran propose par défaut. */
+	attendance_expected: boolean;
+}
+
+/** Saisie d'une **absence du professeur**, sur une ou plusieurs classes.
+ *
+ *  Une structure à part et une commande à part, et c'est tout l'intérêt : le
+ *  backend écrit `teacher_absent = 1`, `attendance_expected = 0` et
+ *  `student_id = NULL` en dur. Le couple contradictoire — absent *et* l'appel
+ *  fait — est donc inécrivable, et une absence du professeur ne peut pas naître
+ *  nominative : il n'est pas absent pour un élève en particulier.
+ *
+ *  Les classes sont une liste parce qu'il est rarement absent pour une seule :
+ *  une journée de formation vide son emploi du temps entier, une réunion ne lui
+ *  prend qu'une classe. Tout ou rien — si une classe cochée a déjà une période
+ *  qui recouvre ces dates, rien n'est écrit et le message la nomme. */
+export interface TeacherAbsenceInput {
+	session_ids: string[];
 	reason: string;
 	start_date: string;
 	end_date: string;
@@ -1135,13 +1229,26 @@ export interface ProgressionActivite {
 
 /** Une étape de l'année : l'échelon entre l'année et l'activité.
  *
- *  Elle porte les compétences, connaissances et priorités — en **texte libre**,
- *  et non des identifiants du référentiel : ce sont les mots de l'enseignant,
- *  pas des cases à cocher. */
+ *  Elle porte les compétences, les connaissances et les priorités. Les
+ *  **compétences viennent du référentiel** depuis le palier 021 : l'auteur a
+ *  rouvert le 2026-11-09 sa propre décision du 2026-11-07 (« en texte libre, il
+ *  écrit des phrases »), et c'était cohérent — les compétences semées viennent
+ *  de son tableau, donc il retapait à la main ce que la base avait déjà. */
 export interface ProgressionEtape {
 	id: string;
 	position: number;
 	libelle: string;
+	/** Les compétences cochées, **dans l'ordre du référentiel** — celui que
+	 *  Réglages fixe, pas celui des clics : la table de rattachement ne porte
+	 *  aucune position, pour qu'une compétence déplacée là-bas se déplace du même
+	 *  coup dans toutes les progressions déjà écrites. */
+	competences_ref: CompetencyInfo[];
+	/** Le texte libre d'avant le palier 021, **gardé tel quel**.
+	 *
+	 *  Il s'affiche en lecture seule tant qu'il n'est pas vide, et seul un geste
+	 *  de l'enseignant l'efface. Ne pas le vider à sa place, et le faire
+	 *  **transiter** à chaque `updateProgressionEtape` : l'omettre l'enverrait
+	 *  vide, et un simple renommage d'étape effacerait ses phrases. */
 	competences: string;
 	connaissances: string;
 	priorites: string;

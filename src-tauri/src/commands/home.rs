@@ -177,6 +177,18 @@ pub struct HomeOverview {
 /// pas réclamer. Ajoutées **à la fin** du SELECT, les indices de `row.get`
 /// étant codés en dur.
 ///
+/// La dernière colonne, ajoutée au palier 020, dit que **le professeur n'était
+/// pas là ce jour-là** : une absence de la classe couvrant cette date avec
+/// `teacher_absent = 1`. Les trois rappels se taisent alors, et la séance quitte
+/// aussi leurs trois dénominateurs — par le raisonnement même qui en sort les
+/// séances annulées : personne n'a fait l'appel, personne n'a écrit le cahier,
+/// et réclamer les deux à qui était en formation est un reproche faux. Le
+/// filtre ne regarde que `teacher_absent` : une période de stage, elle, continue
+/// de réclamer, parce que l'enseignant était là et que ses autres classes ont eu
+/// cours. Sur une base migrée, aucune ligne ne porte encore ce drapeau — la
+/// colonne naît à 0 — donc l'accueil ne se tait sur rien de ce qu'il affichait
+/// la veille.
+///
 /// « Vide » n'est pas `= ''`, et le détour par deux `REPLACE` n'est pas une
 /// coquetterie : l'éditeur rend `<p></p>` pour un document vide, et un
 /// `<p></p>` de plus par ligne laissée blanche. Un cahier rempli puis effacé
@@ -201,7 +213,11 @@ SELECT se.id, se.title, se.date, se.session_id, s.name,
            AND sa.enrolled_on <= se.date
            AND (sa.left_on IS NULL OR se.date <= sa.left_on)),
        se.content_waived_at IS NOT NULL,
-       EXISTS (SELECT 1 FROM seance_attachments sat WHERE sat.seance_id = se.id)
+       EXISTS (SELECT 1 FROM seance_attachments sat WHERE sat.seance_id = se.id),
+       EXISTS (SELECT 1 FROM absence_periods p
+                WHERE p.session_id = se.session_id
+                  AND p.teacher_absent = 1
+                  AND se.date BETWEEN p.start_date AND p.end_date)
   FROM seances se
   JOIN sessions s ON s.id = se.session_id
  WHERE s.year_start = ?1 AND se.date < ?2
@@ -289,6 +305,9 @@ struct PastSeance {
     /// Au moins une pièce jointe. Une photo du tableau documente la séance
     /// aussi bien qu'un paragraphe tapé.
     has_attachment: bool,
+    /// Une absence du professeur couvre cette date : la séance n'a pas été
+    /// assurée, et rien ne lui est réclamé.
+    prof_absent: bool,
     enrolled: i32,
     marked: i32,
 }
@@ -336,6 +355,7 @@ fn map_past_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<PastSeance> {
         marked: row.get(9)?,
         content_waived: row.get(10)?,
         has_attachment: row.get(11)?,
+        prof_absent: row.get(12)?,
     })
 }
 
@@ -427,6 +447,16 @@ fn evaluation_item(eval: &PastEvaluation, done: Option<i32>, total: Option<i32>)
     }
 }
 
+/// Une séance qui attend vraiment un appel et un compte rendu.
+///
+/// Une fonction nommée, et non trois `!s.cancelled && !s.prof_absent` recopiés :
+/// les trois rappels ont déjà divergé une fois sur leur dénominateur, et c'est
+/// ce qui annonçait « 3 cahiers vides sur 91 » en comptant des séances
+/// annulées.
+fn tenue(s: &PastSeance) -> bool {
+    !s.cancelled && !s.prof_absent
+}
+
 /// Les trois rappels que les séances portent.
 fn seance_groups(
     conn: &Connection,
@@ -444,17 +474,22 @@ fn seance_groups(
     // ni appel ni cahier de texte à faire, elle ne doit donc pas alourdir le
     // « sur combien » des deux autres groupes. Les compter ensemble donnait
     // « 3 cahiers vides sur 91 » alors que 18 séances annulées n'en attendaient
-    // aucun.
-    let tenues = seances.iter().filter(|s| !s.cancelled).count();
+    // aucun. Une séance couverte par une absence du professeur sort pour la
+    // même raison, du même geste et des trois groupes à la fois : elle n'a pas
+    // été assurée.
+    let tenues = seances.iter().filter(|s| tenue(s)).count();
     let avec_eleves = seances
         .iter()
-        .filter(|s| !s.cancelled && s.enrolled > 0)
+        .filter(|s| tenue(s) && s.enrolled > 0)
         .count();
-    let annulees = seances.iter().filter(|s| s.cancelled).count();
+    let annulees = seances
+        .iter()
+        .filter(|s| s.cancelled && !s.prof_absent)
+        .count();
 
     let appels = seances
         .iter()
-        .filter(|s| !s.cancelled && s.enrolled > 0 && s.marked < s.enrolled)
+        .filter(|s| tenue(s) && s.enrolled > 0 && s.marked < s.enrolled)
         .map(|s| seance_item(s, Some(s.marked), Some(s.enrolled)))
         .collect();
 
@@ -473,13 +508,13 @@ fn seance_groups(
     // quatre-vingt-huit n'ont jamais été regardées.
     let cahiers = seances
         .iter()
-        .filter(|s| !s.cancelled && s.content_missing && !s.content_waived && !s.has_attachment)
+        .filter(|s| tenue(s) && s.content_missing && !s.content_waived && !s.has_attachment)
         .map(|s| seance_item(s, None, None))
         .collect();
 
     let sans_motif = seances
         .iter()
-        .filter(|s| s.cancelled && s.reason_missing)
+        .filter(|s| s.cancelled && !s.prof_absent && s.reason_missing)
         .map(|s| seance_item(s, None, None))
         .collect();
 

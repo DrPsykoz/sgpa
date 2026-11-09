@@ -39,6 +39,7 @@ import type {
 	Student,
 	StudentDeletionImpact,
 	StudentNeeds,
+	TeacherAbsenceInput,
 	TimetableSlot,
 	TimetableSlotInput,
 	TrimesterBounds,
@@ -513,12 +514,18 @@ export const api = {
 	 *  nomme une classe sans élève, une réunion de secteur ne nomme ni l'un ni
 	 *  l'autre. Quand un élève est désigné, le backend enregistre SA classe et
 	 *  **refuse** un `sessionId` qui la contredirait — passer `null` est donc la
-	 *  bonne façon de dire « celle de l'élève », et non une information perdue. */
+	 *  bonne façon de dire « celle de l'élève », et non une information perdue.
+	 *
+	 *  `category` est facultative au sens de « `""` est une valeur normale », pas
+	 *  au sens TypeScript : le paramètre est obligatoire pour que l'oubli d'un
+	 *  appelant soit une erreur de compilation et non une catégorie perdue en
+	 *  silence. Trente caractères au plus, bornés par le backend. */
 	createAgendaEntry: (
 		date: string,
 		startTime: string,
 		endTime: string,
 		title: string,
+		category: string,
 		sessionId: string | null,
 		studentId: string | null,
 	) =>
@@ -527,13 +534,15 @@ export const api = {
 			startTime,
 			endTime,
 			title,
+			category,
 			sessionId,
 			studentId,
 		}),
 
 	getAgendaEntry: (id: string) => call<AgendaEntry>("get_agenda_entry", { id }),
 
-	/** Date, horaire, intitulé — ne touche JAMAIS la cible ni le corps rédigé.
+	/** Date, horaire, intitulé, catégorie — ne touche JAMAIS la cible ni le corps
+	 *  rédigé.
 	 *
 	 *  La cible, ce sont les deux : l'élève ET la classe. Immuables après
 	 *  création — un rapport écrit sur Jean ne doit pas pouvoir devenir un rapport
@@ -544,6 +553,7 @@ export const api = {
 		startTime: string,
 		endTime: string,
 		title: string,
+		category: string,
 	) =>
 		call<AgendaEntry>("update_agenda_entry_meta", {
 			id,
@@ -551,6 +561,7 @@ export const api = {
 			startTime,
 			endTime,
 			title,
+			category,
 		}),
 
 	/** Corps rédigé seul — n'écrit JAMAIS l'en-tête de l'entrée. */
@@ -600,6 +611,19 @@ export const api = {
 	 *  L'élève visé, lui, se corrige — c'est la saisie qu'on rate le plus. */
 	updateAbsencePeriod: (id: string, period: AbsencePeriodInput) =>
 		call<AbsencePeriod>("update_absence_period", { id, period }),
+
+	/** Noter une **absence du professeur** sur une ou plusieurs classes à la fois.
+	 *
+	 *  Commande distincte de `createAbsencePeriod`, et pas un champ de plus : le
+	 *  backend écrit `teacher_absent = 1`, `attendance_expected = 0` et
+	 *  `student_id = NULL` en dur, si bien qu'aucun appelant ne peut produire une
+	 *  absence du professeur « avec appel » ou visant un seul élève.
+	 *
+	 *  Tout ou rien, en une transaction : si une classe cochée a déjà une période
+	 *  qui recouvre ces dates, rien n'est écrit et le message la nomme. Rend les
+	 *  lignes créées, une par classe — il n'y a pas d'entité « absence groupée ». */
+	createTeacherAbsencePeriods: (absence: TeacherAbsenceInput) =>
+		call<AbsencePeriod[]>("create_teacher_absence_periods", { absence }),
 
 	/** Rétablit les séances écartées dans le dénominateur d'assiduité. Aucune
 	 *  séance, aucun appel n'a jamais été touché : rien n'est perdu. */
@@ -797,18 +821,26 @@ export const api = {
 			libelle,
 		}),
 
-	/** Les quatre champs du formulaire d'une étape, ensemble.
+	/** Le formulaire d'une étape en entier : ses champs et ses compétences.
 	 *
-	 *  Ce n'est pas la règle « deux écritures sont deux commandes » qui plie : ces
-	 *  quatre colonnes sont les quatre champs d'un seul formulaire, saisi d'un
-	 *  bloc par un seul écran. La règle vise deux écrans qui écrivent chacun la
-	 *  moitié d'une ligne sans avoir rafraîchi l'autre — il n'y en a qu'un ici. */
+	 *  Ce n'est pas la règle « deux écritures sont deux commandes » qui plie : ce
+	 *  sont les champs d'un seul formulaire, saisi d'un bloc par un seul écran.
+	 *  La règle vise deux écrans qui écrivent chacun la moitié d'une ligne sans
+	 *  avoir rafraîchi l'autre — il n'y en a qu'un ici. Le backend écrit la ligne
+	 *  et les rattachements dans **une transaction**, donc une compétence
+	 *  disparue du référentiel annule tout l'enregistrement au lieu de laisser
+	 *  une étape renommée sans ses compétences.
+	 *
+	 *  **`competences` est le texte libre d'avant le palier 021, et il
+	 *  transite** : tout appelant le fait passer inchangé, comme l'horaire dans
+	 *  `updateSeanceMeta`. Seul le bouton qui l'efface envoie `""`. */
 	updateProgressionEtape: (
 		id: string,
 		libelle: string,
 		competences: string,
 		connaissances: string,
 		priorites: string,
+		competencyIds: string[],
 	) =>
 		call<void>("update_progression_etape", {
 			id,
@@ -816,6 +848,7 @@ export const api = {
 			competences,
 			connaissances,
 			priorites,
+			competencyIds,
 		}),
 
 	/** Emporte ses activités **et leurs plages** : la base tient la cascade, pas

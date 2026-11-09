@@ -109,7 +109,13 @@ fn check_trimester(trimester: Option<i32>) -> Result<(), String> {
 /// Dédoublonne en conservant l'ordre de sélection : la clé primaire de
 /// `evaluation_competencies` ferait échouer l'insertion d'un doublon avec un
 /// message SQLite brut.
-fn unique_ids(ids: Vec<String>) -> Vec<String> {
+///
+/// Partagé avec `progressions`, qui rattache des compétences à une étape depuis
+/// le palier 021 et bute sur la même clé primaire. Une seconde rédaction aurait
+/// surtout recopié le détail qui compte : les identifiants vides sont filtrés
+/// **avant** le dédoublonnage, sinon deux cases jamais cochées se comptent pour
+/// une sélection.
+pub(crate) fn unique_ids(ids: Vec<String>) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     ids.into_iter()
         .filter(|id| !id.trim().is_empty())
