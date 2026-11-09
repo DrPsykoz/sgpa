@@ -630,7 +630,14 @@ export function EvaluationDetail({
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="sticky left-0 z-20 min-w-[180px] bg-background">
+                            {/* `bg-card` et non `bg-background` : une
+                                colonne figée REPEINT ce qui défile
+                                dessous, et ce qu'elle doit repeindre ici
+                                est la carte — blanche —, pas la page —
+                                grise. Avec le jeton de la page, la
+                                colonne des élèves posait une bande grise
+                                au milieu du tableau. */}
+                            <TableHead className="sticky left-0 z-20 min-w-[180px] bg-card">
                               Élève
                             </TableHead>
                             {competencies.map((comp) => (
@@ -673,7 +680,7 @@ export function EvaluationDetail({
                             const note = enrollmentNote(student);
                             return (
                               <TableRow key={student.id}>
-                                <TableCell className="sticky left-0 z-20 bg-background font-medium">
+                                <TableCell className="sticky left-0 z-20 bg-card font-medium">
                                   <span className="block">
                                     {student.last_name} {student.first_name}
                                   </span>
