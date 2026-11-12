@@ -4,8 +4,8 @@
 //! texte. Le modèle a été corrigé au palier 010 après lecture des fusions de
 //! cellules de « fiche contrat sequence.xls » :
 //!
-//! 1. un en-tête : projet, champ professionnel et son sous-ensemble, activités
-//!    de référence, métiers visés ;
+//! 1. un en-tête : projet, champ professionnel, domaine d'activité, activité
+//!    de référence, métier visé ;
 //! 2. le tableau des activités — `contract_sheet_rows` — où une entrée du socle
 //!    couvre PLUSIEURS lignes d'activité : les lignes consécutives qui pointent
 //!    la même `competency_id` s'impriment sous une seule cellule fusionnée.
@@ -13,6 +13,16 @@
 //!    plusieurs fois dans une note ;
 //! 3. ON DONNE / ON DEMANDE / ON EXIGE — `contract_sheet_requirements` — trois
 //!    colonnes alignées sur N lignes, parce que l'alignement EST l'information.
+//!
+//! **L'en-tête puise dans le référentiel professionnel depuis le palier 024**,
+//! quand il y en a un : `activity_domains` → `reference_activities` /
+//! `careers`, trois crans semés depuis RA16 pour le seul champ Habitat. Les
+//! trois anciennes colonnes de saisie libre — `professional_subset`,
+//! `reference_activities`, `target_careers` — ne sont NI vidées NI supprimées,
+//! même précaution qu'au palier 021 pour les compétences de progression : un
+//! champ professionnel sans référentiel (les quatre autres) continue de se
+//! saisir à la main, et ce qui a déjà été tapé reste affiché et imprimé jusqu'à
+//! ce que l'enseignant l'efface lui-même.
 //!
 //! **Rien n'est écrit sans un enregistrement explicite.** `suggest_contract_sheet`
 //! compose une proposition à partir de l'évaluation (titre, classe, et une ligne
@@ -34,6 +44,32 @@ pub struct ProfessionalField {
     pub id: String,
     pub name: String,
     pub position: i32,
+}
+
+/// Une entrée de référentiel professionnel : activité de référence, ou métier.
+///
+/// Les deux ont exactement la même forme et le même parent ; deux structures
+/// identiques auraient divergé au premier champ ajouté.
+#[derive(Serialize)]
+pub struct ReferentialItem {
+    pub id: String,
+    pub name: String,
+    pub position: i32,
+}
+
+/// Un domaine d'activité et tout ce qui en dépend, d'un seul tenant.
+///
+/// L'arbre entier d'un champ professionnel tient en quelques dizaines de
+/// lignes (RA16 Habitat : 3 domaines, 34 activités, 21 métiers), donc il part
+/// en une fois. Trois commandes, ou un rechargement à chaque changement de
+/// domaine, auraient fait clignoter un menu déroulant pour rien.
+#[derive(Serialize)]
+pub struct ActivityDomain {
+    pub id: String,
+    pub name: String,
+    pub position: i32,
+    pub activities: Vec<ReferentialItem>,
+    pub careers: Vec<ReferentialItem>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -79,6 +115,16 @@ pub struct ContractSheet {
     pub professional_subset: String,
     pub reference_activities: String,
     pub target_careers: String,
+    /// Les trois couples (clé, libellé figé) du palier 024. Le libellé n'est
+    /// pas une redondance de la clé : il est ce qui s'imprime, et il survit au
+    /// retrait de l'entrée du référentiel — c'est tout l'objet du
+    /// `ON DELETE SET NULL` posé au schéma.
+    pub activity_domain_id: Option<String>,
+    pub activity_domain_label: String,
+    pub reference_activity_id: Option<String>,
+    pub reference_activity_label: String,
+    pub career_id: Option<String>,
+    pub career_label: String,
     pub rows: Vec<ContractRow>,
     pub requirements: Vec<ContractRequirement>,
 }
@@ -91,6 +137,12 @@ pub struct ContractSheetInput {
     pub professional_subset: String,
     pub reference_activities: String,
     pub target_careers: String,
+    pub activity_domain_id: Option<String>,
+    pub activity_domain_label: String,
+    pub reference_activity_id: Option<String>,
+    pub reference_activity_label: String,
+    pub career_id: Option<String>,
+    pub career_label: String,
     pub rows: Vec<ContractRow>,
     pub requirements: Vec<ContractRequirement>,
 }
@@ -136,8 +188,22 @@ fn read_sheet(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContractSheet> {
         professional_subset: row.get(5)?,
         reference_activities: row.get(6)?,
         target_careers: row.get(7)?,
+        activity_domain_id: row.get(8)?,
+        activity_domain_label: row.get(9)?,
+        reference_activity_id: row.get(10)?,
+        reference_activity_label: row.get(11)?,
+        career_id: row.get(12)?,
+        career_label: row.get(13)?,
         rows: Vec::new(),
         requirements: Vec::new(),
+    })
+}
+
+fn read_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReferentialItem> {
+    Ok(ReferentialItem {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        position: row.get(2)?,
     })
 }
 
@@ -267,6 +333,64 @@ fn resolve_field(
     }
 }
 
+/// Fige le libellé d'une entrée de référentiel, et refuse un couple incohérent.
+///
+/// Trois sorties, et chacune vient d'un arbitrage différent :
+///
+/// 1. **L'entrée a disparu du référentiel** entre l'ouverture de l'éditeur et
+///    l'enregistrement → on garde le libellé, on lâche le lien. Exactement ce
+///    que produit le `ON DELETE SET NULL` du schéma, et le même arbitrage que
+///    `resolve_field` : perdre le lien est acceptable, perdre la saisie de
+///    l'enseignant ne l'est pas.
+///
+/// 2. **Le parent lui-même a perdu son lien** (`parent` vaut `None` parce que
+///    le champ professionnel ou le domaine vient d'être supprimé) → même
+///    sortie. Refuser ici bloquerait l'enregistrement entier à cause d'un
+///    rangement de référentiel, c'est-à-dire ferait perdre la saisie pour
+///    sauver un lien.
+///
+/// 3. **Le parent existe et l'entrée appartient à un AUTRE parent** → refus en
+///    français. C'est le seul cas qui dénonce un défaut d'écran, et c'est la
+///    règle posée pour `agenda_entries` au palier 016 : un couple
+///    contradictoire est refusé, jamais rectifié en silence. Elle pèse d'autant
+///    plus ici que les deux lignes s'impriment côte à côte sur la fiche remise
+///    à l'élève — « Domaine : Construction / Activité : appliquer des
+///    revêtements muraux » est un document faux.
+///
+/// La requête est un `&'static str` choisi par l'appelant parmi trois
+/// littéraux, jamais un nom de table interpolé : c'est ce qui permet à
+/// `sql_smoke` de les préparer toutes les trois contre le schéma migré.
+fn resolve_referential(
+    tx: &rusqlite::Transaction<'_>,
+    query: &'static str,
+    step: &'static str,
+    refus: &'static str,
+    id: Option<&str>,
+    typed_label: &str,
+    parent: Option<&str>,
+) -> Result<(Option<String>, String), String> {
+    let typed_label = typed_label.trim().to_string();
+
+    let Some(id) = id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok((None, typed_label));
+    };
+
+    let found = optional(tx.query_row(query, params![id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }))
+    .map_err(sql(step))?;
+
+    let Some((name, owner)) = found else {
+        return Ok((None, typed_label));
+    };
+
+    match parent {
+        None => Ok((None, typed_label)),
+        Some(parent) if parent == owner => Ok((Some(id.to_string()), name)),
+        Some(_) => Err(refus.to_string()),
+    }
+}
+
 /// Résout la compétence d'une ligne : identifiant vérifié, libellés complétés.
 ///
 /// **Le texte de l'enseignant gagne.** Sa fiche écrit « D1,1 français cycle 3 »
@@ -345,7 +469,9 @@ pub fn get_contract_sheet(
     let found = optional(conn.query_row(
         "SELECT id, evaluation_id, project_title, professional_field_id,
                 professional_field_label, professional_subset, reference_activities,
-                target_careers
+                target_careers, activity_domain_id, activity_domain_label,
+                reference_activity_id, reference_activity_label, career_id,
+                career_label
            FROM contract_sheets
           WHERE evaluation_id = ?1",
         params![evaluation_id],
@@ -482,6 +608,40 @@ pub fn save_contract_sheet(
 
     let (field_id, field_label) = resolve_field(&tx, &sheet)?;
 
+    // L'ordre compte : le domaine se vérifie contre le champ professionnel,
+    // l'activité et le métier contre le domaine. Chaque cran lit le résultat
+    // du précédent, donc un lien perdu en haut se propage proprement en bas
+    // sans jamais refuser l'enregistrement.
+    let (domain_id, domain_label) = resolve_referential(
+        &tx,
+        "SELECT name, professional_field_id FROM activity_domains WHERE id = ?1",
+        "Lecture du domaine d'activité impossible",
+        "Ce domaine d'activité n'appartient pas au champ professionnel choisi.",
+        sheet.activity_domain_id.as_deref(),
+        &sheet.activity_domain_label,
+        field_id.as_deref(),
+    )?;
+
+    let (activity_id, activity_label) = resolve_referential(
+        &tx,
+        "SELECT name, activity_domain_id FROM reference_activities WHERE id = ?1",
+        "Lecture de l'activité de référence impossible",
+        "Cette activité de référence n'appartient pas au domaine d'activité choisi.",
+        sheet.reference_activity_id.as_deref(),
+        &sheet.reference_activity_label,
+        domain_id.as_deref(),
+    )?;
+
+    let (career_id, career_label) = resolve_referential(
+        &tx,
+        "SELECT name, activity_domain_id FROM careers WHERE id = ?1",
+        "Lecture du métier impossible",
+        "Ce métier n'appartient pas au domaine d'activité choisi.",
+        sheet.career_id.as_deref(),
+        &sheet.career_label,
+        domain_id.as_deref(),
+    )?;
+
     let existing_id = optional(tx.query_row(
         "SELECT id FROM contract_sheets WHERE evaluation_id = ?1",
         params![evaluation_id],
@@ -496,6 +656,9 @@ pub fn save_contract_sheet(
                     SET project_title = ?2, professional_field_id = ?3,
                         professional_field_label = ?4, professional_subset = ?5,
                         reference_activities = ?6, target_careers = ?7,
+                        activity_domain_id = ?8, activity_domain_label = ?9,
+                        reference_activity_id = ?10, reference_activity_label = ?11,
+                        career_id = ?12, career_label = ?13,
                         updated_at = datetime('now')
                   WHERE id = ?1",
                 params![
@@ -505,7 +668,13 @@ pub fn save_contract_sheet(
                     field_label,
                     sheet.professional_subset,
                     sheet.reference_activities,
-                    sheet.target_careers
+                    sheet.target_careers,
+                    domain_id,
+                    domain_label,
+                    activity_id,
+                    activity_label,
+                    career_id,
+                    career_label
                 ],
             )
             .map_err(sql("Enregistrement de la fiche contrat impossible"))?;
@@ -517,8 +686,10 @@ pub fn save_contract_sheet(
                 "INSERT INTO contract_sheets
                      (id, evaluation_id, project_title, professional_field_id,
                       professional_field_label, professional_subset,
-                      reference_activities, target_careers)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                      reference_activities, target_careers, activity_domain_id,
+                      activity_domain_label, reference_activity_id,
+                      reference_activity_label, career_id, career_label)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     id,
                     evaluation_id,
@@ -527,7 +698,13 @@ pub fn save_contract_sheet(
                     field_label,
                     sheet.professional_subset,
                     sheet.reference_activities,
-                    sheet.target_careers
+                    sheet.target_careers,
+                    domain_id,
+                    domain_label,
+                    activity_id,
+                    activity_label,
+                    career_id,
+                    career_label
                 ],
             )
             .map_err(sql("Création de la fiche contrat impossible"))?;
@@ -716,6 +893,12 @@ pub fn save_contract_sheet(
         professional_subset: sheet.professional_subset,
         reference_activities: sheet.reference_activities,
         target_careers: sheet.target_careers,
+        activity_domain_id: domain_id,
+        activity_domain_label: domain_label,
+        reference_activity_id: activity_id,
+        reference_activity_label: activity_label,
+        career_id,
+        career_label,
         rows: saved,
         requirements: saved_req,
     })
@@ -743,6 +926,99 @@ pub fn get_professional_fields(
         .map_err(sql(STEP))?;
 
     Ok(fields)
+}
+
+/// L'arbre du référentiel professionnel d'un champ : domaines, et sous chacun
+/// ses activités de référence et ses métiers.
+///
+/// **Rend une liste vide quand le champ n'a pas de référentiel**, et ce n'est
+/// pas une panne : seul Habitat est semé (palier 024, RA16), les quatre autres
+/// champs du palier 009 n'ont rien. C'est l'écran qui en tire la conséquence —
+/// il garde alors les champs de saisie libre, exactement comme
+/// `SelecteurDeGroupe` disparaît quand la classe n'a aucun groupe.
+///
+/// Les trois listes partent ensemble, triées par `position` puis par nom comme
+/// partout ailleurs : le nom départage deux entrées de même rang plutôt que de
+/// laisser SQLite choisir, ce qui ferait danser un menu d'un chargement à
+/// l'autre.
+#[tauri::command]
+pub fn get_activity_referential(
+    state: tauri::State<'_, AppState>,
+    professional_field_id: String,
+) -> Result<Vec<ActivityDomain>, String> {
+    const STEP: &str = "Lecture du référentiel professionnel impossible";
+
+    let conn = state.conn()?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, position
+               FROM activity_domains
+              WHERE professional_field_id = ?1
+              ORDER BY position, name",
+        )
+        .map_err(sql(STEP))?;
+
+    let mut domains = stmt
+        .query_map(params![professional_field_id], |row| {
+            Ok(ActivityDomain {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                position: row.get(2)?,
+                activities: Vec::new(),
+                careers: Vec::new(),
+            })
+        })
+        .map_err(sql(STEP))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql(STEP))?;
+
+    if domains.is_empty() {
+        return Ok(domains);
+    }
+
+    // Deux requêtes pour tout l'arbre, et non deux par domaine : le nombre de
+    // domaines est petit mais la forme « une requête par ligne lue » est celle
+    // qui finit par traîner, et elle n'économise rien ici.
+    for (query, careers) in [
+        (
+            "SELECT a.id, a.name, a.position, a.activity_domain_id
+               FROM reference_activities a
+               JOIN activity_domains d ON d.id = a.activity_domain_id
+              WHERE d.professional_field_id = ?1
+              ORDER BY a.position, a.name",
+            false,
+        ),
+        (
+            "SELECT c.id, c.name, c.position, c.activity_domain_id
+               FROM careers c
+               JOIN activity_domains d ON d.id = c.activity_domain_id
+              WHERE d.professional_field_id = ?1
+              ORDER BY c.position, c.name",
+            true,
+        ),
+    ] {
+        let mut stmt = conn.prepare(query).map_err(sql(STEP))?;
+        let rows = stmt
+            .query_map(params![professional_field_id], |row| {
+                Ok((read_item(row)?, row.get::<_, String>(3)?))
+            })
+            .map_err(sql(STEP))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(sql(STEP))?;
+
+        for (item, domain_id) in rows {
+            if let Some(domain) = domains.iter_mut().find(|d| d.id == domain_id) {
+                if careers {
+                    domain.careers.push(item);
+                } else {
+                    domain.activities.push(item);
+                }
+            }
+        }
+    }
+
+    Ok(domains)
 }
 
 #[tauri::command]

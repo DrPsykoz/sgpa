@@ -102,6 +102,43 @@ export interface Session {
 	year_start: number;
 	created_at: string;
 	student_count: number;
+	/** L'établissement où la classe se tient, ou `null` — palier 025.
+	 *
+	 *  `null` veut dire « comme avant le palier » : aucune compétence retirée
+	 *  des menus de saisie, et l'en-tête des PDF reste le nom saisi dans
+	 *  Réglages. C'est l'état de toute base migrée. */
+	establishment_id: string | null;
+	/** Son nom, relu à chaque lecture — donc un renommage se voit partout.
+	 *  Ce n'est PAS un libellé figé comme celui d'une fiche contrat : rien
+	 *  de ceci ne s'imprime. */
+	establishment_name: string | null;
+}
+
+// ---- Établissements (palier 025) ----
+
+/** Un établissement, avec ce qu'une suppression coûterait.
+ *
+ *  `session_count` est rendu par la lecture parce que la suppression **ne
+ *  refuse jamais** : les classes reviennent à « aucun établissement », ce qui
+ *  est leur état d'avant le palier. L'écran doit donc annoncer le prix
+ *  lui-même — personne d'autre ne l'arrêtera. Même geste que `activity_count`
+ *  pour un domaine de progression. */
+export interface Establishment {
+	id: string;
+	name: string;
+	position: number;
+	session_count: number;
+	disabled_count: number;
+}
+
+/** Combien d'établissements désactivent une compétence donnée.
+ *
+ *  Le revers du compte précédent : une compétence disparue des menus doit
+ *  pouvoir dire pourquoi, sinon l'enseignant la croit perdue. Seules les
+ *  compétences désactivées au moins une fois y figurent. */
+export interface DisabledCompetencyCount {
+	competency_id: string;
+	establishment_count: number;
 }
 
 // ---- Élèves ----
@@ -113,7 +150,53 @@ export interface Student {
 	enrolled_on: string;
 	left_on: string | null;
 	created_at: string;
+	/** Le groupe où l'élève est rangé, `null` s'il ne l'est nulle part.
+	 *
+	 *  **Ne s'écrit pas par `updateStudent`** mais par `setStudentGroup` : deux
+	 *  écritures qui ne concernent pas les mêmes colonnes sont deux commandes,
+	 *  et l'écran qui répartit la classe n'a aucun prénom à faire transiter. */
+	group_id: string | null;
+	/** Le nom du groupe, joint à la lecture. **Dérivé, jamais écrit.** */
+	group_name: string | null;
 }
+
+// ---- Groupes (palier 023) ----
+
+/** Un groupe d'élèves dans une classe : « Groupe 1 », « Atelier bois »…
+ *
+ *  **Autant de groupes que voulu, nommés librement, et un élève n'appartient
+ *  qu'à un seul** — choix de l'enseignant du 2026-11-12. Ce n'est pas une
+ *  sous-classe : le groupe vit dans sa classe, les bilans restent par classe,
+ *  et un élève en 4ᵉ puis en 3ᵉ est toujours deux lignes de `students`.
+ *
+ *  **Un élève sans groupe est convoqué partout**, y compris aux séances d'un
+ *  groupe nommé. C'est voulu : un élève non rangé est presque toujours un
+ *  oubli, et le faire disparaître des appels serait invisible. Le risque est
+ *  donc une ligne en trop à l'appel, qui se voit, et non une absence qui ne se
+ *  compte nulle part. */
+export interface StudentGroup {
+	id: string;
+	session_id: string;
+	name: string;
+	position: number;
+	/** Combien d'élèves y sont rangés — l'écran montre du même coup ceux qui ne
+	 *  le sont pas. */
+	student_count: number;
+	/** Séances tenues avec ce groupe, et évaluations qui le visent.
+	 *
+	 *  Rendus par la lecture pour que l'écran sache **avant** de proposer le
+	 *  bouton : les clés étrangères sont en RESTRICT, donc le refus viendrait de
+	 *  toute façon, mais dans les mots de SQLite. Même geste qu'`activity_count`
+	 *  pour les domaines de progression. */
+	seance_count: number;
+	evaluation_count: number;
+}
+
+/** Plafond de saisie du nom d'un groupe.
+ *
+ *  Le refus vient du backend (`clean_group_name`), seule implémentation de la
+ *  règle : ce nombre n'alimente qu'un `maxLength`. */
+export const GROUP_NAME_MAX = 40;
 
 /** Ce que la suppression d'un élève détruit réellement, compté AVANT le
  *  `DELETE` : tout part en cascade, et jusqu'ici rien ne l'annonçait.
@@ -216,6 +299,20 @@ export interface Seance {
 	 *  Ne pas le lire seul — une séance est réglée de trois façons : passer par
 	 *  `renduDeLaSeance` de `lib/contenu.ts`. */
 	has_attachment: boolean;
+
+	/** Le groupe que ce cours a réuni, `null` = toute la classe (palier 023).
+	 *
+	 *  **C'est un fait et non un réglage** : il décide qui a été appelé, et il
+	 *  retire la séance du dénominateur d'assiduité des élèves de l'autre
+	 *  groupe. Il est **recopié du créneau** à la naissance de l'occurrence et
+	 *  jamais relu de lui ensuite — corriger la semaine A de l'emploi du temps
+	 *  ne réécrit pas les appels déjà faits.
+	 *
+	 *  ⚠ `updateSeanceMeta` l'écrit **sans condition** : tout appelant le fait
+	 *  transiter inchangé, même piège que l'horaire et que le motif. */
+	group_id: string | null;
+	/** Le nom du groupe. **Dérivé, jamais écrit.** */
+	group_name: string | null;
 }
 
 // ---- Besoins particuliers des élèves ----
@@ -357,6 +454,19 @@ export interface TimetableSlot {
 	start_time: string;
 	end_time: string;
 	week_parity: WeekParity;
+	/** Le groupe convoqué par ce créneau, `null` = toute la classe.
+	 *
+	 *  **C'est un réglage, pas un fait** : supprimer le groupe le remet à `null`
+	 *  et le créneau redevient un cours de classe entière, exactement l'inverse
+	 *  du `RESTRICT` que porte `Seance.group_id`.
+	 *
+	 *  C'est aussi ce qui fait la **semaine A / semaine B par groupe** sans rien
+	 *  ajouter au schéma : deux créneaux au même horaire, de parités
+	 *  complémentaires, l'un au groupe 1 et l'autre au groupe 2. La porte est
+	 *  « Un autre cours à cet horaire » dans `SlotDialog`. */
+	group_id: string | null;
+	/** Le nom du groupe. **Dérivé, jamais écrit.** */
+	group_name: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -375,6 +485,10 @@ export interface TimetableSlotInput {
 	start_time: string;
 	end_time: string;
 	week_parity: WeekParity;
+	/** `null` = toute la classe. Un créneau sans classe ne peut pas porter de
+	 *  groupe : le backend le refuse en français, un groupe appartenant à une
+	 *  classe. */
+	group_id: string | null;
 }
 
 /** Une séance telle que la journée l'affiche : assez pour décider quoi montrer,
@@ -405,6 +519,18 @@ export interface DaySeance {
 	 *  **pas** un booléen : `attendance_taken_at` est posé dès le premier élève
 	 *  pointé, il ne prouve donc pas qu'un appel soit terminé. */
 	attendance_done: number;
+	/** Le nom du groupe réuni, `null` = toute la classe. Les deux compteurs
+	 *  ci-dessus sont déjà bornés à ce groupe par le backend : un atelier de six
+	 *  élèves tous pointés affiche « 6/6 » et non « 6/14 ». */
+	group_name: string | null;
+	/** Le groupe réuni, pour **comparer** — le nom ci-dessus sert à écrire.
+	 *
+	 *  C'est le groupe de la SÉANCE et non celui de son créneau, et les deux
+	 *  peuvent différer : l'occurrence recopie le groupe du créneau à sa
+	 *  naissance, et changer le créneau ensuite ne réécrit aucune séance passée.
+	 *  C'est lui que `absenceDuCreneau` compare, pour que la carte s'estompe
+	 *  d'après le même groupe que celui dont elle affiche le nom. */
+	group_id: string | null;
 }
 
 /** Un créneau du jour, et l'occurrence qui lui correspond si elle existe. */
@@ -521,11 +647,13 @@ export interface DaySchedule {
 	 *  fois la Toussaint et dans les vacances qui portent son nom. Le backend les
 	 *  rend toutes ; c'est l'affichage qui choisit quoi montrer. */
 	closures: DayClosure[];
-	/** Classes dont la classe ENTIÈRE est hors cours — un stage.
+	/** Classes hors cours — un stage —, et depuis le palier 023 les **groupes**
+	 *  hors cours de ces classes.
 	 *
 	 *  Une période nominative n'y figure jamais : la classe est là, un élève
 	 *  manque. Les confondre referait, à l'envers, le défaut que le palier 006 a
-	 *  corrigé. */
+	 *  corrigé. Un groupe, lui, y figure **avec son `group_id`** : c'est une
+	 *  demi-classe qui part, et l'autre moitié a cours. */
 	sessions_away: SessionAway[];
 	/** Dernier jour que le calendrier embarqué couvre, `null` si illisible.
 	 *
@@ -542,7 +670,7 @@ export interface DayClosure {
 	origin: "ferie" | "officiel" | "manuel";
 }
 
-/** Une classe entière hors cours, et pourquoi.
+/** Une classe — ou un seul de ses groupes — hors cours, et pourquoi.
  *
  *  Trois cas, et ils ne se dessinent pas pareil — c'est `absenceDuCreneau`
  *  (`pages/Timetable/journee.ts`) qui les départage, et les deux calendriers qui
@@ -569,6 +697,25 @@ export interface SessionAway {
 	attendance_expected: boolean;
 	/** C'est le professeur qui était absent, pas la classe. */
 	teacher_absent: boolean;
+	/** Le groupe visé, `null` = toute la classe (palier 023).
+	 *
+	 *  ⚠ **Le prédicat de l'écran n'est pas celui du bilan, et c'est voulu.**
+	 *  Un cours de classe entière pendant le stage du groupe 1 **a lieu** :
+	 *  l'autre moitié de l'atelier est là, l'appel se fait. L'estomper ferait
+	 *  disparaître à l'œil une séance dont on attend justement l'appel. Un
+	 *  créneau n'est donc écarté que si la période vise toute la classe, ou
+	 *  vise exactement son groupe — c'est ce qu'écrit `absenceDuCreneau` :
+	 *
+	 *      away.group_id === null || away.group_id === groupe du créneau
+	 *
+	 *  Le bilan, lui, retire bien cette séance de classe entière du
+	 *  dénominateur des élèves du groupe parti : `reports::ATTENDANCE_SQL`
+	 *  teste le groupe de l'**élève**, pas celui de la séance. Deux règles qui
+	 *  disent la même vérité depuis deux points de vue — les aligner en
+	 *  casserait une. */
+	group_id: string | null;
+	/** Le nom du groupe visé. **Dérivé, jamais écrit.** */
+	group_name: string | null;
 }
 
 export interface WeekSchedule {
@@ -579,6 +726,17 @@ export interface WeekSchedule {
 	show_parity: boolean;
 	/** Sept journées : `days[0]` = lundi … `days[6]` = dimanche. */
 	days: DaySchedule[];
+}
+
+/** Un élève absent de ses cours sur une période nominative (stage,
+ *  hospitalisation). Distinct de `SessionAway` : la classe est là, un élève
+ *  manque. */
+export interface StudentAway {
+	session_id: string;
+	student_id: string;
+	student_name: string;
+	reason: string;
+	attendance_expected: boolean;
 }
 
 /** Une semaine de l'année scolaire, telle que la vue annuelle la montre. */
@@ -614,6 +772,9 @@ export interface YearWeek {
 	/** Classes dont la classe ENTIÈRE est hors cours cette semaine — un stage.
 	 *  Jamais une période nominative : la classe est là, un élève manque. */
 	sessions_away: SessionAway[];
+	/** Les élèves en stage ou absents sur une période nominative cette semaine.
+	 *  Écran seulement : jamais imprimé, jamais journalisé. */
+	students_away: StudentAway[];
 }
 
 /** L'année scolaire entière, semaine par semaine.
@@ -705,6 +866,15 @@ export interface AbsencePeriod {
 	 *  Écrit par `createTeacherAbsencePeriods` et par rien d'autre, jamais
 	 *  modifiable ensuite : une absence du professeur se supprime et se repose. */
 	teacher_absent: boolean;
+	/** Le groupe visé, `null` = toute la classe (palier 023).
+	 *
+	 *  **Exclusif de `student_id`** : une période vise une classe, un groupe OU
+	 *  un élève. Un stage du groupe 1 n'écarte que les séances du groupe 1, et
+	 *  `seance_count` le dit déjà. Jamais posé sur une absence du professeur —
+	 *  il n'est pas absent pour une moitié de classe. */
+	group_id: string | null;
+	/** Le nom du groupe. **Dérivé, jamais écrit.** */
+	group_name: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -724,6 +894,9 @@ export interface AbsencePeriodInput {
 	/** « L'appel se fait quand même ». `false` reproduit le comportement d'avant
 	 *  le palier 020, et c'est ce que l'écran propose par défaut. */
 	attendance_expected: boolean;
+	/** `null` (ou `""`) = toute la classe. **Exclusif de `student_id`** : le
+	 *  backend refuse les deux à la fois, en français. */
+	group_id: string | null;
 }
 
 /** Saisie d'une **absence du professeur**, sur une ou plusieurs classes.
@@ -755,6 +928,19 @@ export interface Evaluation {
 	trimester_is_manual: boolean;
 	created_at: string;
 	competency_ids: string[];
+	/** Le groupe évalué, `null` = toute la classe (palier 023).
+	 *
+	 *  **C'est un fait** : la grille ne montre que les élèves concernés, et le
+	 *  compte de complétude de l'accueil se borne au même ensemble. Restreindre
+	 *  une évaluation à un groupe est **refusé** tant qu'un élève hors de ce
+	 *  groupe y porte une note ou un « non évalué » : une note que plus aucun
+	 *  écran n'affiche mais qui reste en base est la panne qu'on ne voit pas.
+	 *
+	 *  ⚠ `updateEvaluation` l'écrit sans condition : tout appelant le fait
+	 *  transiter inchangé. */
+	group_id: string | null;
+	/** Le nom du groupe. **Dérivé, jamais écrit.** */
+	group_name: string | null;
 }
 
 export interface CompetencyInfo {
@@ -790,22 +976,37 @@ export const MARK_MIN = 1;
 export const MARK_MAX = 20;
 
 /**
- * Les cinq degrés de maîtrise. **Ils ne se saisissent plus, ils se lisent.**
+ * Les quatre degrés de maîtrise. **Ils ne se saisissent plus, ils se lisent.**
  *
  * Jusqu'au palier 018, l'enseignant cliquait un degré et la note sur 20 en
  * était déduite. La chaîne est inversée : il saisit la note, et le degré n'est
  * plus qu'une façon de la nommer. Il n'y a donc plus de niveau `0` — « non
  * évalué » n'est pas un degré de maîtrise, c'est une case vide, et une case
  * vide n'a pas de libellé à porter.
+ *
+ * **Ils étaient cinq jusqu'au 2026-11-12.** « Presque maîtrisé » tenait le
+ * milieu de l'échelle, hérité du classeur d'origine ; l'auteur l'a retiré, et
+ * ce qui reste est mot pour mot l'échelle du LSU — celle que la famille lit
+ * déjà sur le bulletin. Retirer un degré oblige à recouper les vingt points,
+ * et c'est fait en tranches égales de cinq (décision du même jour, voir
+ * `MASTERY_BANDS`).
+ *
+ * **Aucune note en base n'a bougé** : `grades.mark` est la donnée, le degré
+ * n'en est que la lecture, et c'est précisément ce qui a rendu ce changement
+ * possible sans migration. Mais un 9 qui se lisait « Presque maîtrisé » se lit
+ * désormais « Maîtrise fragile » : un bilan imprimé avant cette date et le
+ * même bilan réimprimé aujourd'hui peuvent porter deux libellés différents
+ * pour la même note. C'est le prix du changement d'échelle, il a été dit, et
+ * il n'y a pas de façon de l'éviter sans figer le libellé dans la base — ce
+ * que le palier 018 a justement refusé de faire.
  */
-export type MasteryLevel = 1 | 2 | 3 | 4 | 5;
+export type MasteryLevel = 1 | 2 | 3 | 4;
 
 export const MASTERY_LABELS: Record<MasteryLevel, string> = {
 	1: "Maîtrise insuffisante",
 	2: "Maîtrise fragile",
-	3: "Presque maîtrisé",
-	4: "Maîtrise satisfaisante",
-	5: "Très bonne maîtrise",
+	3: "Maîtrise satisfaisante",
+	4: "Très bonne maîtrise",
 };
 
 /** Forme courte des mêmes libellés, là où la colonne est trop étroite.
@@ -814,14 +1015,18 @@ export const MASTERY_LABELS: Record<MasteryLevel, string> = {
 export const MASTERY_SHORT: Record<MasteryLevel, string> = {
 	1: "MI",
 	2: "MF",
-	3: "PM",
-	4: "MS",
-	5: "TBM",
+	3: "MS",
+	4: "TBM",
 };
 
-/** L'échelle dans l'ordre. Sert là où les cinq degrés se parcourent — une
- *  légende, l'axe d'un graphique. **Plus jamais une surface de saisie.** */
-export const MASTERY_LEVELS: MasteryLevel[] = [1, 2, 3, 4, 5];
+/** L'échelle dans l'ordre. Sert là où les quatre degrés se parcourent — une
+ *  légende, l'axe d'un graphique, les colonnes à cocher d'un PDF.
+ *  **Plus jamais une surface de saisie.**
+ *
+ *  Tout ce qui compte des colonnes les compte ici (`MASTERY_SCALE.length` dans
+ *  `pdf.ts`), jamais en écrivant « 5 » : c'est ce qui a fait passer la grille
+ *  imprimée de cinq colonnes à quatre sans qu'une seule largeur soit retouchée. */
+export const MASTERY_LEVELS: MasteryLevel[] = [1, 2, 3, 4];
 
 /**
  * Motifs d'annulation proposés en un clic, dans l'agenda comme sur la séance.
@@ -853,22 +1058,21 @@ export const CANCEL_REASON_SUGGESTIONS = [
 /**
  * Les tranches de notes, et le degré de maîtrise que chacune porte.
  *
- * **Découpage choisi par l'auteur le 2026-11-07 : quatre points par degré.**
+ * **Découpage choisi par l'auteur le 2026-11-12 : cinq points par degré.**
  *
  * ```text
- *       1 · 2 · 3 · 4   Maîtrise insuffisante
- *       5 · 6 · 7 · 8   Maîtrise fragile
- *    9 · 10 · 11 · 12   Presque maîtrisé
- *   13 · 14 · 15 · 16   Maîtrise satisfaisante
- *   17 · 18 · 19 · 20   Très bonne maîtrise
+ *    1 · 2 · 3 · 4 · 5   Maîtrise insuffisante
+ *    6 · 7 · 8 · 9 · 10  Maîtrise fragile
+ *   11 · 12 · 13 · 14 · 15  Maîtrise satisfaisante
+ *   16 · 17 · 18 · 19 · 20  Très bonne maîtrise
  * ```
  *
- * Ce tableau remplace `MASTERY_POINTS`, qui faisait le trajet inverse — niveau
- * × 4 ⇒ note — et dont la règle linéaire avait été retenue le 2026-10-13. Elle
- * n'est pas désavouée, elle est devenue l'autre sens du même barème : les cinq
- * valeurs qu'elle produisait (4, 8, 12, 16, 20) sont exactement les bornes
- * hautes des cinq tranches ci-dessus. C'est pour ça que le palier 018 a pu
- * convertir toute la base sans rien arbitrer.
+ * Il y avait cinq tranches de quatre points jusqu'à cette date — découpage du
+ * 2026-11-07, lui-même l'envers de la règle linéaire du 2026-10-13 où le degré
+ * DONNAIT la note à raison de quatre points. Le retrait de « Presque
+ * maîtrisé » a emporté ces bornes avec lui : quatre libellés ne se posent pas
+ * sur un découpage taillé pour cinq. Les notes, elles, n'ont pas bougé d'un
+ * point ; c'est leur lecture qui a changé, et elle seule.
  *
  * **C'EST LE SEUL ENDROIT OÙ CE DÉCOUPAGE EST ÉCRIT.** Ni le schéma, ni les
  * commandes Rust, ni un écran ne nomment un degré : le backend stocke et valide
@@ -876,15 +1080,14 @@ export const CANCEL_REASON_SUGGESTIONS = [
  * même note sur deux écrans — et l'un des deux finirait imprimé.
  */
 export const MASTERY_BANDS: Record<MasteryLevel, readonly [number, number]> = {
-	1: [1, 4],
-	2: [5, 8],
-	3: [9, 12],
-	4: [13, 16],
-	5: [17, 20],
+	1: [1, 5],
+	2: [6, 10],
+	3: [11, 15],
+	4: [16, 20],
 };
 
 /**
- * Le degré de maîtrise d'une note : `plafond(note / 4)`, borné à l'échelle.
+ * Le degré de maîtrise d'une note : `plafond(note / 5)`, borné à l'échelle.
  *
  * Accepte une note **fractionnaire** à dessein : une moyenne de 13,5 se lit
  * « Maîtrise satisfaisante » comme 14 le fait, et le bilan trimestriel n'a que
@@ -897,8 +1100,8 @@ export const MASTERY_BANDS: Record<MasteryLevel, readonly [number, number]> = {
  * serait une panne plus difficile à lire qu'un libellé de bord.
  */
 export function niveauDeNote(mark: number): MasteryLevel {
-	const degre = Math.ceil(mark / 4);
-	return Math.min(Math.max(degre, 1), 5) as MasteryLevel;
+	const degre = Math.ceil(mark / 5);
+	return Math.min(Math.max(degre, 1), 4) as MasteryLevel;
 }
 
 /** Le libellé d'une note : « 14 » ⇒ « Maîtrise satisfaisante ». */
@@ -933,9 +1136,8 @@ export function formatMark20(mark: number | null): string {
 export const MASTERY_COLORS: Record<MasteryLevel, string> = {
 	1: "bg-red-100 text-red-700",
 	2: "bg-orange-100 text-orange-700",
-	3: "bg-yellow-100 text-yellow-700",
-	4: "bg-green-100 text-green-700",
-	5: "bg-emerald-100 text-emerald-800",
+	3: "bg-green-100 text-green-700",
+	4: "bg-emerald-100 text-emerald-800",
 };
 
 export interface Grade {
@@ -945,6 +1147,23 @@ export interface Grade {
 	/** Note entière de 1 à 20. Le libellé de maîtrise ne voyage pas avec elle :
 	 *  il se lit par `labelDeNote`, et une seule fois. */
 	mark: number;
+}
+
+/** Une case déclarée « cet élève ne sera pas évalué sur cette compétence »
+ *  (palier 022).
+ *
+ *  **Le second sens de la ligne absente de `grades`.** Cette absence disait
+ *  deux choses que rien ne distinguait : « je n'ai pas encore noté » et « je
+ *  ne noterai jamais ». La première reste l'absence pure — la case est **en
+ *  attente** ; la seconde est maintenant une ligne ici.
+ *
+ *  Pas de champ « motif » : la déclaration dit qu'il n'y aura pas de note,
+ *  elle n'a pas à dire pourquoi. Et pas de note non plus — une case déclarée
+ *  sort de la moyenne précisément parce qu'elle n'en porte aucune. */
+export interface GradeWaiver {
+	evaluation_id: string;
+	student_id: string;
+	competency_id: string;
 }
 
 // ---- Trimestres ----
@@ -973,6 +1192,83 @@ export interface ProfessionalField {
 	id: string;
 	name: string;
 	position: number;
+}
+
+/** Une entrée du référentiel professionnel : activité de référence, ou métier.
+ *  Les deux ont la même forme et le même parent. */
+export interface ReferentialItem {
+	id: string;
+	name: string;
+	position: number;
+}
+
+/** Un domaine d'activité du référentiel RA16, et tout ce qui en dépend.
+ *
+ *  `getActivityReferential` rend l'arbre entier d'un champ professionnel en une
+ *  fois — il tient en quelques dizaines de lignes —, donc changer de domaine
+ *  dans l'écran ne recharge rien : on filtre sur place.
+ *
+ *  **Une liste vide n'est pas une panne.** Seul Habitat est semé (palier 024) ;
+ *  les quatre autres champs du palier 009 n'ont pas de référentiel, et l'écran
+ *  y garde ses champs de saisie libre. */
+export interface ActivityDomain {
+	id: string;
+	name: string;
+	position: number;
+	activities: ReferentialItem[];
+	careers: ReferentialItem[];
+}
+
+/** Les trois niveaux du référentiel RA16 que l'enseignant peut modifier.
+ *
+ *  Le **champ professionnel** n'en fait pas partie, et c'est une décision :
+ *  sa liste appartient à l'auteur (« ne pas en ajouter ni en retirer sans
+ *  l'auteur »), parce qu'une fiche contrat garde le libellé **figé** du champ
+ *  qu'elle cite — renommer ou supprimer un champ se verrait sur des documents
+ *  déjà remis. L'écran les affiche donc en en-têtes, sans geste d'écriture.
+ *
+ *  Les trois valeurs voyagent telles quelles vers Rust (`Ra16Kind`, sérialisé
+ *  en `snake_case`) : ne pas les traduire ici. */
+export type Ra16Kind = "domain" | "activity" | "career";
+
+export const RA16_LABELS: Record<Ra16Kind, { one: string; many: string }> = {
+	domain: { one: "domaine d'activité", many: "domaines d'activité" },
+	activity: { one: "activité de référence", many: "activités de référence" },
+	career: { one: "métier", many: "métiers" },
+};
+
+/** Une entrée du référentiel RA16, vue de l'écran qui le règle.
+ *
+ *  `sheet_count` est **rendu à la lecture** et non demandé au moment du clic.
+ *  La suppression d'une entrée citée par une fiche contrat **réussit
+ *  toujours** — `ON DELETE SET NULL` à côté d'un libellé figé, donc rien
+ *  d'imprimé ne change —, et c'est exactement pourquoi il faut l'annoncer
+ *  avant : un bouton qui échoue se comprend, un bouton qui réussit en
+ *  silence laisse l'enseignant découvrir plus tard qu'une fiche a perdu son
+ *  lien. */
+export interface Ra16Item {
+	id: string;
+	name: string;
+	position: number;
+	sheet_count: number;
+}
+
+/** Un domaine d'activité et ses **deux listes sœurs**. Elles ne sont pas
+ *  imbriquées l'une dans l'autre : un métier n'appartient pas à une activité
+ *  de référence, les deux pendent du domaine. */
+export interface Ra16Domain extends Ra16Item {
+	activities: Ra16Item[];
+	careers: Ra16Item[];
+}
+
+/** Un champ professionnel et ses domaines. **Les cinq champs sortent**, y
+ *  compris les quatre que le palier 024 n'a pas semés : un champ sans domaine
+ *  n'est pas une panne, c'est l'endroit où en ajouter. */
+export interface Ra16Field {
+	id: string;
+	name: string;
+	position: number;
+	domains: Ra16Domain[];
 }
 
 export interface ContractRow {
@@ -1021,6 +1317,20 @@ export interface ContractSheet {
 	professional_subset: string;
 	reference_activities: string;
 	target_careers: string;
+	/** Les trois couples (clé, libellé figé) du palier 024, sur le modèle de
+	 *  `professional_field_id` / `professional_field_label` : le libellé est ce
+	 *  qui s'imprime, et il survit au retrait de l'entrée du référentiel.
+	 *
+	 *  Ils ne remplacent pas les trois champs libres ci-dessus, ils s'y
+	 *  ajoutent : un champ professionnel sans référentiel continue de se saisir
+	 *  à la main, et ce qui a déjà été tapé reste affiché et imprimé jusqu'à ce
+	 *  que l'enseignant l'efface lui-même. */
+	activity_domain_id: string | null;
+	activity_domain_label: string;
+	reference_activity_id: string | null;
+	reference_activity_label: string;
+	career_id: string | null;
+	career_label: string;
 	rows: ContractRow[];
 	requirements: ContractRequirement[];
 }
@@ -1060,6 +1370,19 @@ export interface AttendanceStats {
 	 *  qui est un élève absent d'une séance qui compte — ici, c'est la séance
 	 *  elle-même qui sort du dénominateur. */
 	seances_neutralisees: number;
+	/** Séances tenues avec un **autre groupe** de la classe (palier 023).
+	 *
+	 *  Quatrième compteur, et il devait l'être pour la raison exacte qui avait
+	 *  séparé le troisième du deuxième : une séance de l'atelier bois n'est ni
+	 *  « hors de la période d'inscription » d'un élève inscrit depuis
+	 *  septembre, ni une « absence justifiée » d'un élève qui n'était pas
+	 *  absent — elle ne lui était pas destinée. Ces deux phrases s'impriment
+	 *  telles quelles sur un document remis à une famille, donc l'y ranger
+	 *  aurait fait mentir le bilan.
+	 *
+	 *  Vaut 0 tant qu'aucun groupe n'existe, c'est-à-dire sur toute base
+	 *  migrée : la ligne ne s'affiche que lorsqu'elle a quelque chose à dire. */
+	seances_autre_groupe: number;
 	present: number;
 	absent: number;
 	retard: number;
@@ -1188,6 +1511,36 @@ export interface HomeOverview {
 
 // ---- Progression annuelle ----
 
+/** Les trois sortes de lignes d'une progression.
+ *
+ *  Closes, à la différence de la catégorie d'un rendez-vous : ce n'est pas un
+ *  vocabulaire d'établissement, c'est la forme des documents de l'auteur, et
+ *  du code la lit pour composer le préfixe imprimé. Le backend refuse en
+ *  français toute autre valeur, et le CHECK du schéma le redit. */
+export type NatureDActivite = "analyse" | "activite" | "tp";
+
+/** Le mot imprimé devant l'intitulé d'une ligne, par nature.
+ *
+ *  **Un seul endroit**, partagé par l'écran de la progression et le PDF : deux
+ *  rédactions auraient fini par imprimer deux mots pour la même ligne. Ce
+ *  n'est pas une pastille de couleur — `PastilleCategorie` reste le seul aplat
+ *  de l'application. */
+export const MOTS_DE_NATURE: Record<NatureDActivite, string> = {
+	analyse: "Analyse de la situation",
+	activite: "Activité",
+	tp: "TP",
+};
+
+/** Les trois natures **dans l'ordre d'une séquence** : on analyse la situation,
+ *  on mène des activités, on met en œuvre. C'est l'ordre des documents, et
+ *  c'est celui du sélecteur — un menu rangé autrement se lirait comme une
+ *  liste alphabétique et ferait chercher. */
+export const NATURES_DACTIVITE: NatureDActivite[] = [
+	"analyse",
+	"activite",
+	"tp",
+];
+
 /** Un domaine à explorer dans l'année — « Réaliser le clos », « Recyclage de
  *  palettes ».
  *
@@ -1207,7 +1560,14 @@ export interface ProgressionDomaine {
 	activity_count: number;
 }
 
-/** Une activité : ce qu'on fait, rattaché à une étape et à un domaine. */
+/** Une ligne de progression : ce qu'on fait, rattaché à une étape et à un
+ *  domaine.
+ *
+ *  **Trois natures depuis le palier 026**, et elles ne sont pas le vocabulaire
+ *  de l'enseignant : ce sont les trois sortes de lignes de ses deux documents,
+ *  répétées à l'identique de la première séquence à la dernière. C'est pour
+ *  cela qu'elles sont closes là où une catégorie de rendez-vous est libre —
+ *  l'écran et le PDF en tirent le préfixe imprimé de la ligne. */
 export interface ProgressionActivite {
 	id: string;
 	etape_id: string;
@@ -1216,6 +1576,26 @@ export interface ProgressionActivite {
 	domaine_id: string | null;
 	position: number;
 	libelle: string;
+	/** La sorte de ligne : `'analyse'` (« Analyse de la situation »),
+	 *  `'activite'` (« Activité n »), `'tp'` (« TP : … »).
+	 *
+	 *  **`'activite'` est la valeur de toute ligne d'avant le palier 026** —
+	 *  c'est ce qu'elles étaient, le modèle ne connaissait rien d'autre —, donc
+	 *  une progression migrée s'imprime exactement comme la veille. */
+	nature: NatureDActivite;
+	/** L'objectif de la ligne, une phrase. Toujours introduit par
+	 *  « Objectif : » dans les documents. Vide est le cas normal. */
+	objectif: string;
+	/** Les compétences évaluées par CETTE ligne, **dans l'ordre du
+	 *  référentiel**.
+	 *
+	 *  L'activité les **gagne** au palier 026, elle ne les **prend pas** à
+	 *  l'étape : les deux niveaux coexistent, parce que la colonne
+	 *  « Compétences évaluées » des documents est remplie ligne par ligne alors
+	 *  que l'auteur avait rattaché les compétences à l'étape le 2026-11-07. Une
+	 *  progression saisie avant ce palier a donc toutes ses compétences à
+	 *  l'étape et aucune ici, et c'est une lecture valide, pas un trou. */
+	competences_ref: CompetencyInfo[];
 	/** Rang de l'activité dans l'ANNÉE, calculé par le backend en parcourant les
 	 *  étapes puis les activités de chacune.
 	 *
@@ -1252,6 +1632,21 @@ export interface ProgressionEtape {
 	competences: string;
 	connaissances: string;
 	priorites: string;
+	/** Les objectifs de la séquence — « réaliser une boîte ».
+	 *
+	 *  Palier 026, et volontairement **à part de `connaissances`** : un but n'est
+	 *  pas un savoir, et les loger ensemble les ferait imprimer sous un intitulé
+	 *  faux sur un document punaisé au mur. */
+	objectifs: string;
+	/** Le métier et le CAP découverts pendant la séquence — « Découvrir le métier
+	 *  et le CAP de dessinateur industriel ».
+	 *
+	 *  **Du texte libre, et non une clé vers le référentiel des métiers** : les
+	 *  vingt-et-un métiers semés au palier 024 sont ceux de la roue du champ
+	 *  Habitat, et la séquence qui a motivé la colonne nomme « dessinateur
+	 *  industriel », qui n'en est pas. Le lien au référentiel a sa place dans la
+	 *  fiche contrat, qui est nominative ; une étape est un plan de classe. */
+	metier_cap: string;
 	/** Ses activités, dans l'ordre. L'étape détient les activités, **pas les
 	 *  semaines** : une activité peut revenir en janvier sans que l'étape se
 	 *  dédouble. */

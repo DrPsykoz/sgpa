@@ -29,6 +29,7 @@ import {
 	LEVEL_LABELS,
 	MASTERY_LABELS,
 	MASTERY_LEVELS,
+	MOTS_DE_NATURE,
 	schoolYearLabel,
 	type AttendanceStats,
 	type ContractRow,
@@ -37,7 +38,6 @@ import {
 	type MasteryLevel,
 	type Progression,
 	type ProgressionActivite,
-	type ProgressionDomaine,
 	type ProgressionEtape,
 	type Session,
 	type SessionReport,
@@ -131,6 +131,20 @@ function attendanceLines(attendance: AttendanceStats): string[] {
 				attendance.seances_neutralisees,
 			)} pendant une absence justifiée, non comptabilisée${plural(
 				attendance.seances_neutralisees,
+			)}`,
+		);
+	}
+	// Quatrième et dernier terme de la partition, né au palier 023 et nul sur
+	// toute classe non dédoublée. Même raison que les deux précédents : sans
+	// lui, l'en-tête annonce 26 séances au trimestre et l'élève affiche 16/16.
+	if (attendance.seances_autre_groupe > 0) {
+		lines.push(
+			`${attendance.seances_autre_groupe} séance${plural(
+				attendance.seances_autre_groupe,
+			)} tenue${plural(
+				attendance.seances_autre_groupe,
+			)} avec un autre groupe, non comptabilisée${plural(
+				attendance.seances_autre_groupe,
 			)}`,
 		);
 	}
@@ -748,27 +762,34 @@ function renderContractSheet(
 	// première grille de son classeur. Le tableau s'imprime même vide : c'est
 	// une trame, et ses trois cases se remplissent aussi à la main.
 	//
-	// « Domaine du socle » est son libellé, conservé tel quel pour qu'il
-	// reconnaisse sa fiche. La colonne qu'il désigne s'appelle
-	// `professional_subset` dans la base, parce que ce qu'on y écrit est un
-	// sous-ensemble du champ professionnel — « aménagement agencement
-	// finition » sous « habitat » — et non un domaine du socle commun, lequel
-	// a sa propre colonne dans la grille du dessous.
+	// Son classeur intitulait la première « domaine du socle », à tort : ce
+	// qu'il y écrivait — « AMENAGEMENT AGENCEMENT FINITION » — est un
+	// sous-ensemble du champ professionnel, et les vrais domaines du socle ont
+	// leur colonne dans la grille du dessous. Le palier 024 lui rend son nom,
+	// celui de RA16 : **domaine d'activité**. C'est l'enseignant qui l'a
+	// demandé le 2026-11-12, donc le renommage ne lui fait pas perdre sa
+	// fiche — il la lui rend juste exacte.
 	autoTable(doc, {
 		startY: y,
 		margin: tableMargin,
 		head: [
 			[
-				"Domaine du socle",
-				"Activités de référence",
+				"Domaine d'activité",
+				"Activité de référence",
 				"Parcours / métiers ciblés",
 			],
 		],
 		body: [
 			[
-				sheet.professional_subset,
-				sheet.reference_activities,
-				sheet.target_careers,
+				identiteDuProjet(
+					sheet.activity_domain_label,
+					sheet.professional_subset,
+				),
+				identiteDuProjet(
+					sheet.reference_activity_label,
+					sheet.reference_activities,
+				),
+				identiteDuProjet(sheet.career_label, sheet.target_careers),
 			],
 		],
 		theme: "grid",
@@ -975,8 +996,8 @@ export async function exportContractSheetPDF(
  *  calcul, un seul nombre.
  *
  *  **Et c'est la SEULE note que ce document porte.** L'élève lit un libellé de
- *  maîtrise par compétence — une croix dans l'une des cinq colonnes — et sa
- *  moyenne sur l'évaluation, jamais le 11/20 qui a produit la croix. Décision
+ *  maîtrise par compétence — une croix dans l'une des colonnes de l'échelle —
+ *  et sa moyenne sur l'évaluation, jamais le 9/20 qui a produit la croix. Décision
  *  de l'auteur du 2026-11-07, et elle est tenue par la FORME de ce type :
  *  `levels` ne porte que des degrés, la note par compétence n'arrive même pas
  *  jusqu'ici. Ne pas y ajouter un champ qui la ferait venir. */
@@ -992,10 +1013,42 @@ export interface EvaluationSheetStudent {
 	 *  Depuis le palier 018 il n'y a plus de degré `0` : l'absence d'évaluation
 	 *  est l'absence de clé dans cet objet, et nulle part une valeur basse. */
 	levels: Record<string, MasteryLevel>;
+	/** Les compétences sur lesquelles cet élève **ne sera pas évalué**, par
+	 *  identifiant (palier 022).
+	 *
+	 *  **Ce n'est pas une note, et ce n'est pas non plus l'absence de note.**
+	 *  Une compétence qui n'est ni ici ni dans `levels` est *en attente* : ses
+	 *  cases restent vierges, à cocher au stylo pendant la séquence. Une
+	 *  compétence citée ici reçoit, à la place des colonnes de l'échelle, un
+	 *  « non évalué » écrit en toutes lettres — c'est le seul moyen qu'une
+	 *  ligne volontairement laissée de côté ne se lise pas comme un oubli de
+	 *  l'enseignant, et c'est exactement ce que l'auteur a demandé le
+	 *  2026-11-12.
+	 *
+	 *  Une liste d'identifiants, donc toujours **aucune note par compétence**
+	 *  dans ce type : la règle du 2026-11-07 tient par sa forme. */
+	waived: string[];
 	/** `null` = aucune compétence notée. La case reste alors **vide**, pas à
 	 *  « — » : la fiche est un formulaire, et une case vide se remplit au stylo
 	 *  pendant la séquence. L'écran, lui, dit qui n'a pas encore de note. */
 	mark20: number | null;
+}
+
+/** Une case de l'identité du projet : le libellé du référentiel, la saisie
+ *  libre, ou les deux.
+ *
+ *  **Les deux, quand les deux existent**, et c'est voulu. Le palier 024 ne
+ *  vide pas les trois colonnes de texte libre du palier 001 ; tant que
+ *  l'enseignant ne les a pas effacées lui-même d'un bouton, elles font partie
+ *  de sa fiche et doivent sortir de l'imprimante — même règle qu'au
+ *  palier 021 pour les compétences de progression saisies à la main. Les
+ *  escamoter dès qu'une entrée du référentiel est choisie ferait disparaître
+ *  d'un document déjà distribué une phrase que personne n'a demandé à
+ *  retirer. */
+function identiteDuProjet(libelleDuReferentiel: string, saisi: string): string {
+	return [libelleDuReferentiel.trim(), saisi.trim()]
+		.filter((part) => part !== "")
+		.join("\n");
 }
 
 /** Ce que la fiche d'évaluation imprime de la fiche contrat.
@@ -1010,22 +1063,33 @@ export interface EvaluationSheetInput {
 	project_title: string;
 	professional_field_label: string;
 	professional_subset: string;
+	/** Le domaine d'activité du référentiel, quand le champ professionnel en a
+	 *  un (palier 024). Il passe DEVANT `professional_subset`, qui est la
+	 *  saisie libre d'avant et reste le repli. */
+	activity_domain_label: string;
 	rows: ContractRow[];
 }
 
-/** Les cinq niveaux, dans l'ordre de l'échelle. Non évalué n'a pas de colonne :
- *  il n'y a rien à cocher, et depuis le palier 018 ce n'est plus un niveau.
+/** Les quatre niveaux, dans l'ordre de l'échelle. Non évalué n'a pas de
+ *  colonne : il n'y a rien à cocher, et depuis le palier 018 ce n'est plus un
+ *  niveau.
  *
  *  **L'ordre est celui de `MASTERY_LABELS`**, donc celui de `MASTERY_BANDS` :
- *  insuffisante, fragile, presque, satisfaisante, très bonne — tranches 1-4,
- *  5-8, 9-12, 13-16, 17-20. **Confirmé par l'auteur le 2026-11-06.**
+ *  insuffisante, fragile, satisfaisante, très bonne — tranches 1-5, 6-10,
+ *  11-15, 16-20. **Ils étaient cinq jusqu'au 2026-11-12**, « presque
+ *  maîtrisé » occupant le milieu ; l'auteur l'a retiré ce jour-là, et ce qui
+ *  reste est l'échelle du LSU. Rien n'a été retouché ici pour autant : ce
+ *  tableau n'est que `MASTERY_LEVELS`, et tout ce qui dessine la grille compte
+ *  ses colonnes par `MASTERY_SCALE.length`.
  *
- *  Son classeur source range « presque maîtrisé » avant « maîtrise fragile », ce
- *  qui inverserait les niveaux 2 et 3 ; la question lui a été posée et il a
- *  retenu l'ordre ci-dessus. Ne pas le réaligner sur le classeur : une échelle
- *  imprimée se lit de gauche à droite dans l'ordre où elle compte, et inverser
- *  deux colonnes ferait valoir 8 points la croix qui en vaut 12 — sur un
- *  document déjà remis à une famille. */
+ *  Son classeur source range « presque maîtrisé » avant « maîtrise fragile »,
+ *  ce qui inversait les niveaux 2 et 3 ; la question lui avait été posée le
+ *  2026-11-06 et il avait retenu l'ordre ci-dessus — le degré litigieux ayant
+ *  disparu, la question ne se repose plus. L'ordre des quatre restants, lui,
+ *  ne se touche pas : une échelle imprimée se lit de gauche à droite dans
+ *  l'ordre où elle compte, et intervertir deux colonnes ferait valoir dix
+ *  points la croix qui en vaut quinze — sur un document déjà remis à une
+ *  famille. */
 const MASTERY_SCALE: MasteryLevel[] = MASTERY_LEVELS;
 
 /** Une ligne s'imprime si elle dit quelque chose dans l'une des colonnes de CE
@@ -1065,7 +1129,8 @@ function renderEvaluationSheets(
 	const levelLabel = LEVEL_LABELS[context.level_code] ?? context.level_code;
 	const yearLabel = schoolYearLabel(context.year_start);
 	const title = sheet.project_title.trim() || context.evaluation_title.trim();
-	const subset = sheet.professional_subset.trim();
+	const subset =
+		sheet.activity_domain_label.trim() || sheet.professional_subset.trim();
 	const champ = sheet.professional_field_label.trim();
 	const classe = [
 		context.session_name,
@@ -1111,9 +1176,14 @@ function renderEvaluationSheets(
 	};
 
 	// Largeurs : les quatre colonnes de texte valent 2-2-2-3 unités, comme
-	// chez lui, et les cinq colonnes de maîtrise sont fixes. Une colonne à
-	// cocher n'a pas besoin de s'élargir avec la page — elle a besoin de tenir
-	// son libellé sur trois lignes et d'accueillir une croix.
+	// chez lui, et les colonnes de maîtrise sont fixes. Une colonne à cocher
+	// n'a pas besoin de s'élargir avec la page — elle a besoin de tenir son
+	// libellé sur trois lignes et d'accueillir une croix.
+	//
+	// Le 9 du diviseur est la somme de ces quatre unités de texte (2+2+2+3) et
+	// n'a rien à voir avec le nombre de degrés : celui-ci est lu de
+	// `MASTERY_SCALE.length`, ce qui a fait passer la grille de cinq colonnes à
+	// quatre le 2026-11-12 sans qu'une largeur soit retouchée.
 	const tick = 15;
 	const unit = (contentWidth - tick * MASTERY_SCALE.length) / 9;
 
@@ -1121,7 +1191,7 @@ function renderEvaluationSheets(
 	// Mêmes fusions que la fiche contrat, par `socleMergeKey` : ce que l'écran
 	// montre comme un bloc est ce que les deux PDF impriment comme une cellule.
 	//
-	// Les cinq colonnes de maîtrise suivent EXACTEMENT ces fusions : une
+	// Les colonnes de maîtrise suivent EXACTEMENT ces fusions : une
 	// compétence, un niveau, une croix. Son classeur coupe parfois les croix
 	// plus fin que la compétence qui les couvre (le domaine 3 de sa feuille a
 	// une compétence sur deux lignes d'activité, mais deux lignes de croix) ;
@@ -1277,6 +1347,10 @@ function renderEvaluationSheets(
 		// trame, et une feuille vierge sert à la remplir au stylo pendant la
 		// séquence. C'est d'ailleurs ainsi que son classeur est rangé : huit
 		// onglets identiques, aucun rempli.
+		// Monté une fois par élève : `waived` est une liste, et la parcourir
+		// pour chacune des lignes de la grille referait le même travail.
+		const sansNote = new Set(student.waived);
+
 		const body: RowInput[] = rows.map((row, index) => {
 			const cells: CellInput[] = [
 				{ content: row.student_activity },
@@ -1290,16 +1364,34 @@ function renderEvaluationSheets(
 				);
 				// La croix vient du niveau de CETTE compétence. Sans identifiant
 				// de référentiel, la ligne ne porte qu'un libellé : aucune note
-				// ne lui est rattachable, et les cinq cases restent à cocher.
+				// ne lui est rattachable, et les cases restent toutes à cocher.
 				const level = row.competency_id
 					? student.levels[row.competency_id]
 					: undefined;
-				for (const step of MASTERY_SCALE) {
+				if (row.competency_id && sansNote.has(row.competency_id)) {
+					// Un mot en travers des quatre colonnes, et non quatre cases
+					// barrées : la ligne doit se lire du premier coup d'œil
+					// comme « il n'y avait rien à évaluer ici », pas comme une
+					// grille qu'on aurait oublié de cocher. En italique et en
+					// gris, parce que ce n'est pas un résultat.
 					cells.push({
-						content: level === step ? "X" : "",
+						content: "non évalué",
+						colSpan: MASTERY_SCALE.length,
 						rowSpan: span,
-						styles: { fontStyle: "bold" },
+						styles: {
+							halign: "center",
+							fontStyle: "italic",
+							textColor: GREY,
+						},
 					});
+				} else {
+					for (const step of MASTERY_SCALE) {
+						cells.push({
+							content: level === step ? "X" : "",
+							rowSpan: span,
+							styles: { fontStyle: "bold" },
+						});
+					}
 				}
 			}
 			return cells;
@@ -1327,7 +1419,7 @@ function renderEvaluationSheets(
  * C'est le second rendu du tableau saisi dans la fiche contrat, celui que son
  * classeur appelle « evaluation sequence 1.xls » : huit onglets pour huit
  * élèves, la même grille sur chacun. Les colonnes sont les siennes —
- * ON DEMANDE | ON EXIGE | DOMAINES | COMPÉTENCES, puis les cinq niveaux de
+ * ON DEMANDE | ON EXIGE | DOMAINES | COMPÉTENCES, puis les niveaux de
  * maîtrise — et « on demande » est mot pour mot l'« activité de l'élève » de la
  * fiche contrat. D'où la règle que le palier 010 a posée dans le schéma :
  * l'enseignant saisit une fois, et imprime les deux documents.
@@ -1448,7 +1540,6 @@ export interface ProgressionPdfInput {
 	/** Les semaines réelles de l'année, celles que l'écran affiche. Fournies et
 	 *  non relues ici : la frise imprimée doit être celle qu'on a vue. */
 	calendar: YearCalendar;
-	domaines: readonly ProgressionDomaine[];
 	schoolName: string;
 	openAfter?: boolean;
 }
@@ -1699,13 +1790,26 @@ function dessinerFrise(
 	return ligneY;
 }
 
-/** Une ligne du tableau : une activité, et l'étape qui la porte. Une étape sans
- *  activité garde sa ligne — ses compétences valent d'être lues même si rien
- *  n'est encore posé en face. */
-interface LigneDeProgression {
-	etape: ProgressionEtape;
-	activite: ProgressionActivite | null;
-}
+/** Une ligne du tableau : soit l'en-tête d'une étape, soit une de ses lignes.
+ *
+ *  **Deux sortes de lignes et non une cellule fusionnée**, et c'est le palier
+ *  026 qui l'a imposé : l'étape porte maintenant six textes — intitulé,
+ *  objectifs, métier et CAP, compétences, connaissances, priorités —, et six
+ *  colonnes fusionnées sur 267 mm ne laissaient plus rien aux activités. Les
+ *  deux documents de l'auteur font exactement cela : un bandeau qui ouvre la
+ *  séquence, puis ses lignes en dessous.
+ *
+ *  Une étape sans activité garde donc son bandeau — ses compétences valent
+ *  d'être lues même si rien n'est encore posé en face. */
+type LigneDeProgression =
+	| { sorte: "etape"; etape: ProgressionEtape }
+	| { sorte: "activite"; activite: ProgressionActivite };
+
+/** Le nombre de colonnes du tableau, nommé parce qu'un bandeau les couvre
+ *  toutes : un `colSpan` écrit en chiffre à deux endroits se serait
+ *  désaccordé de la liste des largeurs au premier ajout de colonne, et
+ *  `autoTable` aurait dessiné un bandeau trop court sans rien signaler. */
+const COLONNES_DE_PROGRESSION = 5;
 
 /**
  * Produit la progression annuelle d'une classe, l'enregistre dans
@@ -1720,6 +1824,15 @@ interface LigneDeProgression {
  * l'appuie et ne porte rien seule : une progression finit punaisée au mur après
  * un passage par un photocopieur en noir et blanc.
  *
+ * **Le tableau du bas a changé de forme au palier 026**, et c'est la forme des
+ * documents de l'auteur : un **bandeau** ouvre l'étape et porte ses six textes,
+ * puis chacune de ses lignes tient une rangée à elle, avec sa nature, son
+ * objectif et ses propres compétences. Le dessin d'avant fusionnait les
+ * colonnes de l'étape sur toute la hauteur du groupe ; six textes d'étape dans
+ * une cellule fusionnée ne laissaient plus rien aux activités qu'elle annonce.
+ * Une étape sans activité garde son bandeau — ses compétences valent d'être
+ * lues même si rien n'est encore posé en face.
+ *
  * Volontairement pas de `doc.save()`, pour la même raison que les bilans : le
  * téléchargement navigateur déposait les documents dans le dossier
  * Téléchargements du poste hôte. Et `openAfter` est faux par défaut — ouvrir le
@@ -1729,7 +1842,6 @@ export async function exportProgressionPDF({
 	progression,
 	session,
 	calendar,
-	domaines,
 	schoolName,
 	openAfter = false,
 }: ProgressionPdfInput): Promise<string> {
@@ -1821,24 +1933,19 @@ export async function exportProgressionPDF({
 	}
 
 	// ---- Le tableau ----
-	const nomDeDomaine = new Map(
-		domaines.map((domaine) => [domaine.id, domaine.name] as const),
-	);
 	const parLundi = new Map(
 		calendar.weeks.map((week, index) => [week.monday, index] as const),
 	);
 
-	/** La cellule « Compétences » d'une étape : celles du référentiel, puis le
-	 *  texte libre d'avant le palier 021 tant qu'il reste.
+	/** Les compétences d'une étape, telles que le bandeau les imprime : celles du
+	 *  référentiel, puis le texte libre d'avant le palier 021 tant qu'il reste.
 	 *
-	 *  Les deux dans la MÊME colonne et non deux colonnes : le tableau tient déjà
-	 *  huit colonnes sur une A4 paysage, et l'enseignant qui relit son année n'a
-	 *  pas à savoir par quel écran la phrase est arrivée là. Le nom seul, sans le
-	 *  champ ni le socle — la colonne fait 44 mm, et le plan de l'année nomme ce
-	 *  qu'on travaille, là où la fiche contrat doit situer la compétence dans le
-	 *  socle. Le texte libre passe en dernier parce qu'il est en voie de
-	 *  disparition : il s'effacera d'un bouton, et la cellule n'aura plus qu'une
-	 *  moitié. */
+	 *  Les deux dans la MÊME ligne et non deux lignes : l'enseignant qui relit son
+	 *  année n'a pas à savoir par quel écran la phrase est arrivée là. Le nom
+	 *  seul, sans le champ ni le socle — le plan de l'année nomme ce qu'on
+	 *  travaille, là où la fiche contrat doit situer la compétence dans le socle.
+	 *  Le texte libre passe en dernier parce qu'il est en voie de disparition :
+	 *  il s'effacera d'un bouton, et il ne restera que la première moitié. */
 	const competencesDeEtape = (etape: ProgressionEtape): string => {
 		const lignesDeCellule = etape.competences_ref.map((c) => c.name);
 		const libre = etape.competences.trim();
@@ -1846,11 +1953,34 @@ export async function exportProgressionPDF({
 		return lignesDeCellule.join("\n");
 	};
 
+	/** L'en-tête d'une étape, telle que le bandeau l'imprime.
+	 *
+	 *  Une ligne par texte renseigné, chacune préfixée de son intitulé : sans ce
+	 *  préfixe, « réaliser une boîte » et « Vocabulaire du dessin technique » se
+	 *  liraient comme deux phrases de la même liste, alors que l'une est un but et
+	 *  l'autre un savoir. Un texte vide ne laisse pas de ligne vide — le bandeau
+	 *  d'une étape à peine commencée ne fait alors qu'un mot. */
+	const enTeteDeEtape = (etape: ProgressionEtape): string => {
+		const parts: string[] = [];
+		const ajouter = (titre: string, valeur: string) => {
+			const texte = valeur.trim();
+			if (texte !== "") parts.push(`${titre} : ${texte}`);
+		};
+		ajouter("Objectifs", etape.objectifs);
+		ajouter("Métier et CAP", etape.metier_cap);
+		ajouter("Compétences", competencesDeEtape(etape));
+		ajouter("Connaissances", etape.connaissances);
+		ajouter("Priorités", etape.priorites);
+		return parts.join("\n");
+	};
+
 	const lignes: LigneDeProgression[] = progression.etapes.flatMap(
-		(etape): LigneDeProgression[] =>
-			etape.activites.length === 0
-				? [{ etape, activite: null }]
-				: etape.activites.map((activite) => ({ etape, activite })),
+		(etape): LigneDeProgression[] => [
+			{ sorte: "etape", etape },
+			...etape.activites.map(
+				(activite): LigneDeProgression => ({ sorte: "activite", activite }),
+			),
+		],
 	);
 
 	if (lignes.length === 0) {
@@ -1859,35 +1989,40 @@ export async function exportProgressionPDF({
 		doc.setTextColor(...GREY);
 		doc.text("Aucune étape n'est encore définie pour cette année.", MARGIN_X, y);
 	} else {
-		// Une cellule d'étape couvre ses activités. La clé est l'IDENTIFIANT et
-		// non le libellé : deux étapes nommées pareil restent deux étapes.
-		const spans = mergeSpans(
-			lignes.length,
-			(index) => `etape:${lignes[index].etape.id}`,
-		);
-
-		const body: RowInput[] = lignes.map((ligne, index) => {
-			const cells: CellInput[] = [];
-			if (spans[index] > 0) {
-				const span = spans[index];
-				cells.push({
-					content: ligne.etape.libelle,
-					rowSpan: span,
-					styles: { fontStyle: "bold" },
-				});
-				cells.push({
-					content: competencesDeEtape(ligne.etape),
-					rowSpan: span,
-				});
-				cells.push({ content: ligne.etape.connaissances, rowSpan: span });
-				cells.push({ content: ligne.etape.priorites, rowSpan: span });
+		const body: RowInput[] = lignes.flatMap((ligne): RowInput[] => {
+			if (ligne.sorte === "etape") {
+				// Le bandeau : l'intitulé en gras sur sa ligne, les textes en
+				// dessous. Deux lignes et non une cellule, parce qu'`autoTable` ne
+				// sait pas mettre deux styles dans une cellule — un bandeau tout en
+				// gras écraserait les activités qu'il annonce.
+				const entete = enTeteDeEtape(ligne.etape);
+				const rows: RowInput[] = [
+					[
+						{
+							content: ligne.etape.libelle,
+							colSpan: COLONNES_DE_PROGRESSION,
+							styles: {
+								fontStyle: "bold",
+								fontSize: 9,
+								fillColor: [238, 238, 238],
+							},
+						},
+					],
+				];
+				if (entete !== "") {
+					rows.push([
+						{
+							content: entete,
+							colSpan: COLONNES_DE_PROGRESSION,
+							styles: { fillColor: [248, 248, 248] },
+						},
+					]);
+				}
+				return rows;
 			}
 
 			const activite = ligne.activite;
-			if (activite === null) {
-				cells.push("", "", "", "");
-				return cells;
-			}
+			const cells: CellInput[] = [];
 			// La pastille du numéro porte la teinte de l'activité : la même couleur
 			// que son trait sur la frise, prise au même endroit.
 			cells.push({
@@ -1898,35 +2033,35 @@ export async function exportProgressionPDF({
 					fontStyle: "bold",
 				},
 			});
-			cells.push(activite.libelle);
-			cells.push(
-				activite.domaine_id === null
-					? ""
-					: (nomDeDomaine.get(activite.domaine_id) ?? ""),
-			);
+			// La nature devant l'intitulé, du même mot qu'à l'écran et pris au même
+			// endroit (`MOTS_DE_NATURE`) : deux rédactions auraient fini par
+			// imprimer « TP » d'un côté et « Travaux pratiques » de l'autre.
+			cells.push(`${MOTS_DE_NATURE[activite.nature]} · ${activite.libelle}`);
+			cells.push(activite.objectif);
+			// Les compétences de CETTE ligne. Le nom seul, sans le champ ni le
+			// socle, pour la même raison que dans le bandeau : le plan de l'année
+			// nomme ce qu'on travaille, là où la fiche contrat doit le situer.
+			cells.push(activite.competences_ref.map((c) => c.name).join("\n"));
 			cells.push(
 				phraseDesSemaines(activite.id, progression, calendar.weeks, parLundi),
 			);
-			return cells;
+			return [cells];
 		});
 
-		// Largeurs, en millimètres, pour les 267 mm utiles d'une A4 paysage. Les
-		// trois colonnes de texte libre de l'étape en prennent la moitié : ce sont
-		// elles qui portent les phrases.
-		const largeurs = [28, 44, 44, 34, 7, 46, 30, 34];
+		// Largeurs, en millimètres, pour les 267 mm utiles d'une A4 paysage. La
+		// colonne des compétences est la plus large : ce sont des phrases entières,
+		// et c'est la colonne que l'enseignant relit ligne par ligne.
+		const largeurs = [8, 70, 64, 86, 39];
 
 		autoTable(doc, {
 			startY: y,
 			margin: { left: MARGIN_X, right: MARGIN_X, bottom: MARGIN_BOTTOM },
 			head: [
 				[
-					"Étape",
-					"Compétences",
-					"Connaissances",
-					"Priorités",
 					"N°",
-					"Activité",
-					"Domaine",
+					"Séance",
+					"Objectif",
+					"Compétences évaluées",
 					"Semaines",
 				],
 			],
@@ -1952,14 +2087,11 @@ export async function exportProgressionPDF({
 				valign: "middle",
 			},
 			columnStyles: {
-				0: { cellWidth: largeurs[0] },
+				0: { cellWidth: largeurs[0], halign: "center" },
 				1: { cellWidth: largeurs[1] },
 				2: { cellWidth: largeurs[2] },
 				3: { cellWidth: largeurs[3] },
 				4: { cellWidth: largeurs[4], halign: "center" },
-				5: { cellWidth: largeurs[5] },
-				6: { cellWidth: largeurs[6] },
-				7: { cellWidth: largeurs[7], halign: "center" },
 			},
 		});
 	}

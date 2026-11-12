@@ -55,6 +55,23 @@ pub struct Seance {
     /// Un compte et non un booléen aurait été une seconde vérité à côté de
     /// `list_seance_attachments`, et celle-ci serait périmée la moitié du temps.
     pub has_attachment: bool,
+    /// Le groupe que ce cours a réuni, ou `None` pour « toute la classe ».
+    ///
+    /// **C'est un fait et non un réglage** (palier 023) : il décide qui a été
+    /// appelé, et il retire la séance du dénominateur d'assiduité des élèves de
+    /// l'autre groupe. D'où le `RESTRICT` du schéma — un groupe supprimé
+    /// n'efface pas cette colonne, sans quoi un bilan déjà rendu changerait de
+    /// chiffres sans que personne ne l'ait demandé.
+    ///
+    /// Il est **recopié du créneau** à la naissance d'une occurrence, et jamais
+    /// relu de lui ensuite : l'enseignant qui corrige la semaine A de son
+    /// emploi du temps ne réécrit pas les appels déjà faits.
+    pub group_id: Option<String>,
+    /// Le nom du groupe, joint à la lecture pour que l'écran n'ait pas à
+    /// recroiser la liste des groupes pour afficher trois caractères.
+    ///
+    /// **Dérivé, jamais écrit**, comme `has_attachment`.
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,7 +100,10 @@ const SEANCE_COLUMNS: &str = "id, session_id, title, date, trimester, trimester_
                               cancelled, content_html, attendance_taken_at, created_at, \
                               slot_id, start_time, end_time, cancel_reason, content_waived_at, \
                               EXISTS (SELECT 1 FROM seance_attachments sat \
-                                      WHERE sat.seance_id = seances.id)";
+                                      WHERE sat.seance_id = seances.id), \
+                              group_id, \
+                              (SELECT g.name FROM student_groups g \
+                                WHERE g.id = seances.group_id)";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,6 +152,8 @@ fn map_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<Seance> {
         cancel_reason: row.get(13)?,
         content_waived_at: row.get(14)?,
         has_attachment: row.get(15)?,
+        group_id: row.get(16)?,
+        group_name: row.get(17)?,
     })
 }
 
@@ -250,8 +272,16 @@ fn mark_attendance_taken(conn: &rusqlite::Connection, seance_id: &str) -> Result
 }
 
 /// Ce qu'un créneau apporte à la séance fabriquée depuis lui : classe
-/// (facultative), libellé, heure de début, heure de fin, nom de la classe.
-type SlotForSeance = (Option<String>, String, String, String, Option<String>);
+/// (facultative), libellé, heure de début, heure de fin, nom de la classe,
+/// groupe (facultatif).
+type SlotForSeance = (
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+);
 
 /// Traduit la violation de l'index unique `(slot_id, date)`.
 ///
@@ -327,6 +357,7 @@ pub fn get_seances(
 /// donne pas, la grille de l'emploi du temps en donne un — et sans ces deux
 /// paramètres, une séance tracée de 14h à 16h perdait ses heures en route.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn create_seance(
     state: tauri::State<'_, AppState>,
     session_id: String,
@@ -335,6 +366,9 @@ pub fn create_seance(
     start_time: Option<String>,
     end_time: Option<String>,
     trimester: Option<i32>,
+    // Absent comme nul, il vaut « toute la classe » : un front qui ne connaît
+    // pas encore les groupes continue de créer des séances de classe entière.
+    group_id: Option<String>,
 ) -> Result<Seance, String> {
     let mut conn = state.conn()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -347,6 +381,7 @@ pub fn create_seance(
         start_time.as_deref().unwrap_or_default(),
         end_time.as_deref().unwrap_or_default(),
         trimester,
+        group_id.as_deref(),
     )?;
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -355,6 +390,7 @@ pub fn create_seance(
 
 /// Le corps de `create_seance`, appelable sur une transaction — c'est ce qui
 /// permet de l'éprouver sans harnais Tauri, comme `seance_from_slot`.
+#[allow(clippy::too_many_arguments)]
 fn insert_seance(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -363,10 +399,16 @@ fn insert_seance(
     start_time: &str,
     end_time: &str,
     trimester: Option<i32>,
+    group_id: Option<&str>,
 ) -> Result<Seance, String> {
     let title = clean_title(title)?;
     let jour = check_date(date)?;
     check_forced_trimester(trimester)?;
+    // La clé étrangère ne pointe que `student_groups(id)` : elle accepterait le
+    // groupe d'une AUTRE classe, et cette séance-là viderait le dénominateur de
+    // tout le monde sans qu'aucune contrainte ne proteste. Le contrôle vit donc
+    // en Rust, en un seul endroit, partagé par tout ce qui écrit un groupe.
+    super::groups::check_group_belongs(conn, session_id, group_id)?;
     // Mêmes règles d'horaire que `update_seance_meta` et que l'emploi du temps,
     // par les mêmes fonctions : deux implémentations de la même règle
     // divergeraient au premier ajustement.
@@ -381,9 +423,19 @@ fn insert_seance(
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO seances (id, session_id, title, date, start_time, end_time,
-                              trimester, trimester_is_manual)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![id, session_id, title, date, start_time, end_time, trimester, is_manual],
+                              trimester, trimester_is_manual, group_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            id,
+            session_id,
+            title,
+            date,
+            start_time,
+            end_time,
+            trimester,
+            is_manual,
+            group_id
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -404,7 +456,17 @@ fn insert_seance(
 /// L'horaire est ici et pas ailleurs : c'est la même famille de colonnes et le
 /// même écran d'en-tête. Sans lui, une séance créée avec un mauvais horaire le
 /// garderait pour toujours.
-// Huit paramètres : ce sont les champs d'un formulaire, et la signature d'une
+///
+/// Le **groupe** l'est aussi, et il s'écrit **sans condition** — contrairement à
+/// l'horaire, que la fiche ne laisse corriger que pour un cours ponctuel. Une
+/// occurrence née d'un créneau tient son heure du modèle hebdomadaire, qui se
+/// corrige à l'emploi du temps et pour toutes les semaines à la fois ; son
+/// groupe, lui, est un **fait** de cette séance-là — « cette semaine, le groupe
+/// 2 n'est pas venu » ne doit pas réécrire toutes les autres. Corollaire
+/// identique à celui de l'horaire : **tout appelant le fait transiter
+/// inchangé**, sans quoi un simple renommage rendrait la séance à la classe
+/// entière et rouvrirait l'appel de l'autre groupe.
+// Neuf paramètres : ce sont les champs d'un formulaire, et la signature d'une
 // commande Tauri EST le contrat du front. Les regrouper en structure rendrait
 // l'appel plus opaque qu'il ne l'est.
 #[allow(clippy::too_many_arguments)]
@@ -419,6 +481,7 @@ pub fn update_seance_meta(
     trimester: Option<i32>,
     cancelled: bool,
     cancel_reason: String,
+    group_id: Option<String>,
 ) -> Result<Seance, String> {
     let title = clean_title(&title)?;
     let jour = check_date(&date)?;
@@ -445,6 +508,8 @@ pub fn update_seance_meta(
             other => other.to_string(),
         })?;
 
+    super::groups::check_group_belongs(&tx, &session_id, group_id.as_deref())?;
+
     let (trimester, is_manual) = resolve_or_explain(&tx, &session_id, &date, jour, trimester)?;
 
     // Le motif ne survit pas à la levée de l'annulation : « ce cours a bien eu
@@ -457,9 +522,9 @@ pub fn update_seance_meta(
     tx.execute(
         "UPDATE seances
             SET title = ?1, date = ?2, start_time = ?3, end_time = ?4, trimester = ?5,
-                trimester_is_manual = ?6, cancelled = ?7, cancel_reason = ?8,
+                trimester_is_manual = ?6, cancelled = ?7, cancel_reason = ?8, group_id = ?9,
                 updated_at = datetime('now')
-          WHERE id = ?9",
+          WHERE id = ?10",
         params![
             title,
             date,
@@ -469,6 +534,7 @@ pub fn update_seance_meta(
             is_manual,
             cancelled,
             cancel_reason,
+            group_id,
             id
         ],
     )
@@ -525,7 +591,7 @@ fn seance_from_slot(
 
     let creneau: Option<SlotForSeance> = conn
         .query_row(
-            "SELECT ts.session_id, ts.label, ts.start_time, ts.end_time, s.name
+            "SELECT ts.session_id, ts.label, ts.start_time, ts.end_time, s.name, ts.group_id
                FROM timetable_slots ts
                LEFT JOIN sessions s ON s.id = ts.session_id
               WHERE ts.id = ?1",
@@ -537,13 +603,17 @@ fn seance_from_slot(
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| e.to_string())?;
 
-    let (session_id, label, start_time, end_time, session_name) =
+    // Le groupe est **recopié**, comme l'horaire, et pour la même raison : il
+    // appartient au dossier historique et non au modèle. Corriger la semaine A
+    // en février ne doit pas rouvrir l'appel des occurrences de septembre.
+    let (session_id, label, start_time, end_time, session_name, group_id) =
         creneau.ok_or_else(|| "Créneau introuvable".to_string())?;
 
     let session_id = session_id.ok_or_else(|| {
@@ -564,8 +634,8 @@ fn seance_from_slot(
     // elle, SQLite refuse la requête dès la préparation.
     conn.execute(
         "INSERT INTO seances (id, session_id, slot_id, title, date, start_time, end_time,
-                              trimester, trimester_is_manual, cancelled, cancel_reason)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                              trimester, trimester_is_manual, cancelled, cancel_reason, group_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(slot_id, date) WHERE slot_id IS NOT NULL DO NOTHING",
         params![
             id,
@@ -583,7 +653,8 @@ fn seance_from_slot(
             // n'écrase RIEN. C'est voulu — deux clics sur « ce cours n'a pas
             // lieu » ne doivent pas se contredire en silence, et le motif se
             // corrige depuis la séance elle-même.
-            motif_retenu(cancelled, cancel_reason)
+            motif_retenu(cancelled, cancel_reason),
+            group_id
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -670,30 +741,46 @@ pub fn delete_seance(state: tauri::State<'_, AppState>, id: String) -> Result<()
 // Appel
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-pub fn get_attendance(
-    state: tauri::State<'_, AppState>,
-    seance_id: String,
-) -> Result<Vec<AttendanceWithStudent>, String> {
-    let conn = state.conn()?;
+/// Qui est appelé sur une séance.
+///
+/// La liste est bornée par la période d'inscription : un élève arrivé en
+/// janvier n'a pas à figurer dans l'appel d'une séance d'octobre. Et l'absence
+/// d'enregistrement vaut 'non_fait', plus jamais 'present' — ce défaut-là
+/// fabriquait de l'assiduité parfaite à partir de rien.
+///
+/// ⚠ **CE PRÉDICAT DE GROUPE EST LE MODÈLE DE SES JUMEAUX**, et ils doivent
+/// tous dire exactement la même chose — seuls les alias de table changent d'un
+/// appelant à l'autre, jamais la forme. Ils vivent dans cinq modules :
+/// `reports.rs` (les deux points d'`ATTENDANCE_SQL`), `timetable.rs`
+/// (`SEANCES_DE_LA_PERIODE`, deux fois), `home.rs` (`SEANCES_PASSEES` et
+/// `EVALUATIONS_PASSEES`, deux fois chacune) et `absences.rs` (le comptage des
+/// séances écartées). Un écran qui appellerait un élève que le bilan ne compte
+/// pas — ou l'inverse — donnerait deux vérités sur la même absence.
+///
+/// Ses deux `IS NULL` ne disent pas la même chose, et c'est voulu : une séance
+/// **sans groupe** réunit toute la classe, donc elle appelle tout le monde ; un
+/// élève **sans groupe** n'est rangé nulle part, donc il est appelé partout. Le
+/// risque d'un élève oublié à la rentrée est ainsi une ligne en trop à l'appel,
+/// visible, et non une absence qui ne se compte nulle part.
+const APPEL_DE_LA_SEANCE: &str =
+    "SELECT st.id, st.first_name, st.last_name, COALESCE(ar.status, 'non_fait')
+       FROM seances se
+       JOIN students st ON st.session_id = se.session_id
+                       AND st.enrolled_on <= se.date
+                       AND (st.left_on IS NULL OR se.date <= st.left_on)
+                       AND (se.group_id IS NULL OR st.group_id IS NULL OR se.group_id = st.group_id)
+       LEFT JOIN attendance_records ar ON ar.student_id = st.id
+                                      AND ar.seance_id = se.id
+      WHERE se.id = ?1
+      ORDER BY st.last_name, st.first_name";
 
-    // La liste est bornée par la période d'inscription : un élève arrivé en
-    // janvier n'a pas à figurer dans l'appel d'une séance d'octobre. Et l'absence
-    // d'enregistrement vaut 'non_fait', plus jamais 'present' — ce défaut-là
-    // fabriquait de l'assiduité parfaite à partir de rien.
-    let mut stmt = conn
-        .prepare(
-            "SELECT st.id, st.first_name, st.last_name, COALESCE(ar.status, 'non_fait')
-               FROM seances se
-               JOIN students st ON st.session_id = se.session_id
-                               AND st.enrolled_on <= se.date
-                               AND (st.left_on IS NULL OR se.date <= st.left_on)
-               LEFT JOIN attendance_records ar ON ar.student_id = st.id
-                                              AND ar.seance_id = se.id
-              WHERE se.id = ?1
-              ORDER BY st.last_name, st.first_name",
-        )
-        .map_err(|e| e.to_string())?;
+/// Le corps de `get_attendance`, appelable sur une connexion — c'est ce qui
+/// permet d'éprouver le prédicat de groupe sans harnais Tauri.
+fn attendance_rows(
+    conn: &rusqlite::Connection,
+    seance_id: &str,
+) -> Result<Vec<AttendanceWithStudent>, String> {
+    let mut stmt = conn.prepare(APPEL_DE_LA_SEANCE).map_err(|e| e.to_string())?;
 
     let records = stmt
         .query_map(params![seance_id], |row| {
@@ -709,6 +796,15 @@ pub fn get_attendance(
         .map_err(|e| e.to_string())?;
 
     Ok(records)
+}
+
+#[tauri::command]
+pub fn get_attendance(
+    state: tauri::State<'_, AppState>,
+    seance_id: String,
+) -> Result<Vec<AttendanceWithStudent>, String> {
+    let conn = state.conn()?;
+    attendance_rows(&conn, &seance_id)
 }
 
 #[tauri::command]
@@ -931,6 +1027,7 @@ mod tests {
             "14:00",
             "16:00",
             None,
+            None,
         )
         .unwrap();
         assert_eq!(avec.title, "Remplacement de M. Durand", "titre nettoyé");
@@ -944,7 +1041,7 @@ mod tests {
         // La fiche de classe n'a pas de champ horaire : elle ne doit pas en
         // hériter d'un par accident.
         let sans =
-            insert_seance(&conn, "s1", "Séance du jour", "2026-11-18", "", "", None).unwrap();
+            insert_seance(&conn, "s1", "Séance du jour", "2026-11-18", "", "", None, None).unwrap();
         assert_eq!(sans.start_time, "");
         assert_eq!(sans.end_time, "");
 
@@ -958,17 +1055,18 @@ mod tests {
             "",
             "",
             None,
+            None,
         )
         .unwrap();
         assert_eq!(compte(&conn), 3);
 
         let err =
-            insert_seance(&conn, "s1", "Bancal", "2026-11-19", "14h", "16:00", None).unwrap_err();
+            insert_seance(&conn, "s1", "Bancal", "2026-11-19", "14h", "16:00", None, None).unwrap_err();
         assert!(err.contains("L'heure de début"), "message : {err}");
         assert!(err.contains("HH:MM"), "message : {err}");
 
         let err =
-            insert_seance(&conn, "s1", "Bancal", "2026-11-19", "16:00", "14:00", None).unwrap_err();
+            insert_seance(&conn, "s1", "Bancal", "2026-11-19", "16:00", "14:00", None, None).unwrap_err();
         assert!(err.starts_with("L'heure de fin"), "message : {err}");
 
         assert_eq!(
@@ -991,7 +1089,7 @@ mod tests {
         let conn = migrated_db("annee-hors-bornes");
 
         // Trop tard d'un an : la classe est en 2026-2027.
-        let err = insert_seance(&conn, "s1", "Égaré", "2028-05-01", "", "", None).unwrap_err();
+        let err = insert_seance(&conn, "s1", "Égaré", "2028-05-01", "", "", None, None).unwrap_err();
         assert!(err.contains("2026-2027"), "l'année de la classe : {err}");
         assert!(err.contains("2028-05-01"), "la date reçue : {err}");
         // Mai 2028 appartient à l'année scolaire 2027-2028 : la bascule est au
@@ -999,12 +1097,12 @@ mod tests {
         assert!(err.contains("2027-2028"), "l'année de la date : {err}");
 
         // L'année tapée chiffre par chiffre passe par des valeurs bien formées.
-        let err = insert_seance(&conn, "s1", "Égaré", "0202-11-17", "", "", None).unwrap_err();
+        let err = insert_seance(&conn, "s1", "Égaré", "0202-11-17", "", "", None, None).unwrap_err();
         assert!(err.contains("2026-2027"), "message : {err}");
 
         // Le 31 février a la bonne forme et n'existe pas : le GLOB du schéma le
         // laissait passer.
-        let err = insert_seance(&conn, "s1", "Égaré", "2026-02-31", "", "", None).unwrap_err();
+        let err = insert_seance(&conn, "s1", "Égaré", "2026-02-31", "", "", None, None).unwrap_err();
         assert!(err.contains("n'est pas une date valide"), "message : {err}");
 
         // L'occurrence d'un créneau est gardée par la même fonction.
@@ -1020,9 +1118,9 @@ mod tests {
         // Les deux bords de l'année scolaire restent ouverts : `year_start_for`
         // bascule au 1er août, et `trimester_for` range volontairement la
         // prérentrée d'août en T1 et le rattrapage de juillet en T3.
-        let aout = insert_seance(&conn, "s1", "Prérentrée", "2026-08-25", "", "", None).unwrap();
+        let aout = insert_seance(&conn, "s1", "Prérentrée", "2026-08-25", "", "", None, None).unwrap();
         assert_eq!(aout.trimester, 1);
-        let juillet = insert_seance(&conn, "s1", "Rattrapage", "2027-07-20", "", "", None).unwrap();
+        let juillet = insert_seance(&conn, "s1", "Rattrapage", "2027-07-20", "", "", None, None).unwrap();
         assert_eq!(juillet.trimester, 3);
         assert_eq!(compte(&conn), 2);
 
@@ -1055,5 +1153,110 @@ mod tests {
             "message : {message}"
         );
         assert!(message.contains("ouvrez la séance existante"));
+    }
+
+    /// Le cœur du palier 023 : une séance de groupe n'appelle que son groupe,
+    /// et l'élève que personne n'a rangé reste appelé partout.
+    ///
+    /// Les deux `IS NULL` du prédicat ne disent pas la même chose, et c'est ce
+    /// que ce test fige. Une séance sans groupe réunit toute la classe ; un
+    /// élève sans groupe n'est rangé nulle part. Les intervertir ferait
+    /// disparaître de l'appel l'élève oublié à la rentrée, c'est-à-dire
+    /// exactement celui qu'il faut voir.
+    #[test]
+    fn une_seance_de_groupe_n_appelle_que_son_groupe() {
+        let conn = migrated_db("appel-par-groupe");
+        for instruction in [
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g1', 's1', 'Groupe 1', 1)",
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g2', 's1', 'Groupe 2', 2)",
+            "INSERT INTO students (id, session_id, first_name, last_name, enrolled_on, group_id)
+                  VALUES ('e1', 's1', 'A', 'Un', '2026-09-01', 'g1')",
+            "INSERT INTO students (id, session_id, first_name, last_name, enrolled_on, group_id)
+                  VALUES ('e2', 's1', 'B', 'Deux', '2026-09-01', 'g2')",
+            "INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e3', 's1', 'C', 'Trois', '2026-09-01')",
+        ] {
+            conn.execute_batch(instruction).unwrap();
+        }
+
+        let toute_la_classe =
+            insert_seance(&conn, "s1", "Cours commun", "2026-11-17", "", "", None, None).unwrap();
+        assert_eq!(toute_la_classe.group_id, None);
+        assert_eq!(toute_la_classe.group_name, None);
+        let appel = attendance_rows(&conn, &toute_la_classe.id).unwrap();
+        assert_eq!(
+            appel.iter().map(|a| a.student_id.as_str()).collect::<Vec<_>>(),
+            vec!["e2", "e3", "e1"],
+            "sans groupe, la séance réunit toute la classe (triée par nom)"
+        );
+
+        let atelier = insert_seance(
+            &conn,
+            "s1",
+            "Atelier du groupe 1",
+            "2026-11-18",
+            "",
+            "",
+            None,
+            Some("g1"),
+        )
+        .unwrap();
+        assert_eq!(atelier.group_id.as_deref(), Some("g1"));
+        assert_eq!(
+            atelier.group_name.as_deref(),
+            Some("Groupe 1"),
+            "le nom est joint à la lecture, l'écran n'a pas à le recroiser"
+        );
+        let appel = attendance_rows(&conn, &atelier.id).unwrap();
+        assert_eq!(
+            appel.iter().map(|a| a.student_id.as_str()).collect::<Vec<_>>(),
+            vec!["e3", "e1"],
+            "le groupe 2 n'est pas concerné ; l'élève sans groupe, si"
+        );
+    }
+
+    /// Le groupe est **recopié** du créneau, et le groupe d'une autre classe est
+    /// refusé en français avant toute écriture.
+    ///
+    /// La clé étrangère ne pointe que `student_groups(id)` : sans ce contrôle en
+    /// Rust, une séance portant le groupe d'une autre classe passerait, et son
+    /// appel serait vide — tous ses élèves étant « d'un autre groupe ».
+    #[test]
+    fn l_occurrence_recopie_le_groupe_du_creneau_et_refuse_celui_d_une_autre_classe() {
+        let conn = migrated_db("groupe-du-creneau");
+        for instruction in [
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s2', '3ème B', '3eme', 2026)",
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g1', 's1', 'Groupe 1', 1)",
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('ailleurs', 's2', 'Groupe 1', 1)",
+            "UPDATE timetable_slots SET group_id = 'g1' WHERE id = 't1'",
+        ] {
+            conn.execute_batch(instruction).unwrap();
+        }
+
+        let occurrence = seance_from_slot(&conn, "t1", "2026-11-17", false, "").unwrap();
+        assert_eq!(
+            occurrence.group_id.as_deref(),
+            Some("g1"),
+            "l'occurrence tient le groupe du créneau dont elle naît"
+        );
+
+        let err = insert_seance(
+            &conn,
+            "s1",
+            "Égarée",
+            "2026-11-19",
+            "",
+            "",
+            None,
+            Some("ailleurs"),
+        )
+        .unwrap_err();
+        assert!(err.contains("autre classe"), "message : {err}");
+        assert_eq!(compte(&conn), 1, "rien n'a été écrit");
     }
 }

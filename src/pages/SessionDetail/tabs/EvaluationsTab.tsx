@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardList, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { schoolYearLabel } from "@/types";
-import type { Evaluation, Session, Student, TrimesterBounds } from "@/types";
+import type {
+  Evaluation,
+  Session,
+  Student,
+  StudentGroup,
+  TrimesterBounds,
+} from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CompetencyPicker } from "@/components/CompetencyPicker";
+import { PastilleDeGroupe, SelecteurDeGroupe } from "@/components/Groupes";
 import { DataState } from "@/components/DataState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvaluationDetail } from "@/pages/SessionDetail/evaluation/EvaluationDetail";
@@ -30,6 +37,8 @@ import { EvaluationDetail } from "@/pages/SessionDetail/evaluation/EvaluationDet
 interface EvaluationsTabProps {
   session: Session;
   students: Student[];
+  /** Les groupes de la classe, détenus par le parent (règle 1). */
+  groups: StudentGroup[];
   /** Évaluation à ouvrir d'emblée, quand on arrive depuis un rappel de
    *  l'accueil. Même contrat que `SeancesTab.openId` : lu une seule fois, le
    *  parent remonte l'instance quand la cible change. */
@@ -68,6 +77,7 @@ function deduceTrimester(
 export function EvaluationsTab({
   session,
   students,
+  groups,
   openId,
 }: EvaluationsTabProps) {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
@@ -86,6 +96,9 @@ export function EvaluationsTab({
   const [date, setDate] = useState(todayISO());
   const [trimesterChoice, setTrimesterChoice] = useState("auto");
   const [competencyIds, setCompetencyIds] = useState<string[]>([]);
+  // `null` = toute la classe. Décision de l'enseignant du 2026-11-12 : évaluer
+  // un groupe sans avoir à trier les élèves à la main.
+  const [groupId, setGroupId] = useState<string | null>(null);
 
   const [toDelete, setToDelete] = useState<Evaluation | null>(null);
 
@@ -139,7 +152,10 @@ export function EvaluationsTab({
     [evaluations, selectedEvaluationId],
   );
 
-  const groups = useMemo(
+  // Nommé `parTrimestre` et non `groups` : depuis le palier 023, un groupe est
+  // une moitié de classe, et deux sens pour un même mot dans un même fichier se
+  // confondraient à la première relecture.
+  const parTrimestre = useMemo(
     () =>
       TRIMESTERS.map((trimester) => ({
         trimester,
@@ -155,6 +171,7 @@ export function EvaluationsTab({
     setDate(todayISO());
     setTrimesterChoice("auto");
     setCompetencyIds([]);
+    setGroupId(null);
     setFormError(null);
     setActionError(null);
     setCreateOpen(true);
@@ -178,6 +195,7 @@ export function EvaluationsTab({
         date,
         trimesterChoice === "auto" ? null : Number(trimesterChoice),
         competencyIds,
+        groupId,
       );
       setCreateOpen(false);
       await reload();
@@ -216,6 +234,7 @@ export function EvaluationsTab({
           key={selected.id}
           evaluation={selected}
           students={students}
+          groups={groups}
           onBack={() => setSelectedEvaluationId(null)}
           onChanged={reload}
         />
@@ -243,7 +262,7 @@ export function EvaluationsTab({
             onRetry={load}
           >
             <div className="space-y-6">
-              {groups.map((group) => (
+              {parTrimestre.map((group) => (
                 <div key={group.trimester} className="space-y-2">
                   {/* L'année scolaire AVANT le trimestre. Une classe n'en
                       couvre qu'une, donc l'année est la même partout dans cet
@@ -279,9 +298,15 @@ export function EvaluationsTab({
                             <ClipboardList className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">
-                              {evaluation.title}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-medium">
+                                {evaluation.title}
+                              </p>
+                              <PastilleDeGroupe
+                                groupName={evaluation.group_name}
+                                className="text-muted-foreground"
+                              />
+                            </div>
                             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                               <span>{formatDate(evaluation.date)}</span>
                               <Badge variant="outline" className="font-normal">
@@ -375,6 +400,14 @@ export function EvaluationsTab({
                 </Select>
               </div>
             </div>
+            <SelecteurDeGroupe
+              id="evaluation-group"
+              groups={groups}
+              value={groupId}
+              onChange={setGroupId}
+              disabled={creating}
+              aide="Seuls les élèves de ce groupe apparaîtront dans la grille de notation."
+            />
             <div className="space-y-2">
               <Label>
                 Compétences évaluées ({competencyIds.length} sélectionnée
@@ -383,6 +416,7 @@ export function EvaluationsTab({
               <CompetencyPicker
                 selected={competencyIds}
                 onChange={setCompetencyIds}
+                sessionId={session.id}
               />
               <p className="text-xs text-muted-foreground">
                 Les compétences restent modifiables après la création.

@@ -7,6 +7,7 @@ import {
 } from "react";
 import { AlertTriangle, CopyPlus, Trash2 } from "lucide-react";
 
+import { SelecteurDeGroupe } from "@/components/Groupes";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useGroupesDeClasse } from "@/hooks/useGroupes";
 import {
   schoolYearLabel,
   WEEK_PARITIES,
@@ -140,7 +142,9 @@ function pariteComplementaire(parity: WeekParity): WeekParity {
 
 /** Ce que la porte « un autre cours à cet horaire » transmet à l'hôte : la case
  *  de grille, et la périodicité proposée. Rien de plus — le reste du créneau
- *  (classe, intitulé, salle) est précisément ce qui va différer. */
+ *  (classe, groupe, intitulé, salle) est précisément ce qui va différer, et le
+ *  groupe plus que tout : c'est lui qu'on vient changer quand on pose le second
+ *  créneau d'une semaine A / semaine B. */
 export interface AutreCreneauAuMemeHoraire {
   weekday: number;
   startTime: string;
@@ -203,6 +207,7 @@ export function SlotDialog({
   onAddAnother,
 }: SlotDialogProps): ReactElement {
   const [sessionId, setSessionId] = useState(AUCUNE_CLASSE);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [weekday, setWeekday] = useState("1");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -225,6 +230,7 @@ export function SlotDialog({
   useEffect(() => {
     if (!open) return;
     setSessionId(slot?.session_id ?? AUCUNE_CLASSE);
+    setGroupId(slot?.group_id ?? null);
     setWeekday(String(slot?.weekday ?? defaultWeekday ?? 1));
     setStartTime(slot?.start_time ?? defaultStartTime ?? "");
     setEndTime(slot?.end_time ?? defaultEndTime ?? "");
@@ -243,6 +249,21 @@ export function SlotDialog({
     defaultParity,
   ]);
 
+  /**
+   * Changer de classe efface le groupe choisi.
+   *
+   * Un groupe appartient à une classe : garder son identifiant en passant de la
+   * 4ᵉ A à la 3ᵉ B enverrait au backend un couple qu'il refuse — en français,
+   * mais à l'enregistrement, c'est-à-dire longtemps après le geste qui l'a
+   * produit. Le sélecteur se recharge de toute façon sur la nouvelle classe :
+   * sans cet effacement, il afficherait une valeur qui n'est dans aucune de ses
+   * deux listes.
+   */
+  const changerDeClasse = (valeur: string) => {
+    setSessionId(valeur);
+    setGroupId(null);
+  };
+
   const classesDeLAnnee = useMemo(
     () => sessions.filter((s) => s.year_start === yearStart),
     [sessions, yearStart],
@@ -260,6 +281,17 @@ export function SlotDialog({
       ? [...classesDeLAnnee, attachee]
       : classesDeLAnnee;
   }, [classesDeLAnnee, sessions, slot]);
+
+  /**
+   * Les groupes de la classe **choisie dans ce dialogue**, et non de celle du
+   * créneau enregistré : le sélecteur doit suivre le champ « Classe » pendant
+   * la saisie, pas l'état d'avant.
+   *
+   * `null` quand le créneau n'a pas de classe — une coordination n'a pas de
+   * groupe, et le crochet ne lit alors rien du tout.
+   */
+  const classeChoisie = sessionId === AUCUNE_CLASSE ? null : sessionId;
+  const { groupes, erreur: erreurGroupes } = useGroupesDeClasse(classeChoisie);
 
   const joursProposes = useMemo(() => {
     const jour = slot?.weekday;
@@ -332,6 +364,11 @@ export function SlotDialog({
     try {
       await onSubmit({
         session_id: sessionId === AUCUNE_CLASSE ? null : sessionId,
+        // Jamais de groupe sans classe : le backend le refuse, et le sélecteur
+        // a déjà disparu de l'écran. La condition est tout de même écrite ici,
+        // parce qu'elle est la règle et non une conséquence de l'ordre des
+        // gestes — lequel peut changer, pas elle.
+        group_id: sessionId === AUCUNE_CLASSE ? null : groupId,
         label: intitule,
         room: room.trim(),
         weekday: Number(weekday),
@@ -450,7 +487,7 @@ export function SlotDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="slot-session">Classe</Label>
-            <Select value={sessionId} onValueChange={setSessionId}>
+            <Select value={sessionId} onValueChange={changerDeClasse}>
               <SelectTrigger id="slot-session">
                 <SelectValue />
               </SelectTrigger>
@@ -493,6 +530,32 @@ export function SlotDialog({
               </p>
             )}
           </div>
+
+          {/* Le groupe, juste sous la classe dont il dépend, et absent tant
+              qu'elle n'en a aucun — `SelecteurDeGroupe` rend `null` de
+              lui-même, il n'y a rien à tester ici. Un créneau sans classe n'en
+              propose jamais : `classeChoisie` vaut alors `null`, le crochet ne
+              lit rien, et la liste reste vide.
+
+              Le créneau porte un **réglage** et non un fait : il ne convoque
+              personne par lui-même, il décide seulement du groupe que portera
+              chaque séance créée depuis lui. C'est pour cela que la clé
+              étrangère est en SET NULL de ce côté-ci et en RESTRICT sur
+              `seances`. */}
+          <SelecteurDeGroupe
+            id="slot-group"
+            groups={groupes}
+            value={groupId}
+            onChange={setGroupId}
+            disabled={pending}
+            nomDeSecours={slot?.group_name ?? null}
+            aide="Les séances créées depuis ce créneau ne convoqueront que ce groupe, et sortiront de l'assiduité des autres élèves. Pour une semaine A / semaine B, posez deux créneaux au même horaire, de périodicités complémentaires, et donnez un groupe à chacun."
+          />
+          {erreurGroupes && (
+            <p className="text-xs text-destructive">
+              Les groupes de cette classe n'ont pas pu être lus : {erreurGroupes}
+            </p>
+          )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
@@ -649,6 +712,10 @@ export function SlotDialog({
               seul chemin au clavier. Il est aussi le seul à prérégler la
               périodicité complémentaire : c'est le seul des deux gestes qui
               dise « l'autre semaine », un glissé ne disant que l'horaire.
+              C'est enfin par elle que passe la semaine A / semaine B **par
+              groupe** : rien n'a été ajouté au schéma pour ça, deux créneaux au
+              même horaire de parités complémentaires, un groupe à chacun, et
+              l'atelier tourne.
               Elle n'enregistre rien et ne touche pas au créneau ouvert : elle
               ferme ce dialogue et en ouvre un de création, préréglé sur la même
               case et sur la périodicité complémentaire. Le brouillon en cours
@@ -684,6 +751,14 @@ export function SlotDialog({
                 ].toLowerCase()}
                 . Ce créneau-ci n'est pas modifié, et ce que vous venez de
                 saisir ici sans l'enregistrer ne sera pas repris.
+                {groupes.length > 0 && (
+                  <>
+                    {" "}
+                    C'est aussi le chemin de la semaine A / semaine B par
+                    groupe : donnez l'autre groupe au nouveau créneau, et chaque
+                    semaine ne convoquera que la moitié de la classe.
+                  </>
+                )}
               </p>
             </div>
           )}

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, Pencil, Plus, Trash2, Users } from "lucide-react";
+import {
+  CalendarDays,
+  Pencil,
+  Plus,
+  School,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import { DataState } from "@/components/DataState";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +33,7 @@ import {
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LEVEL_CODES, LEVEL_LABELS, schoolYearLabel } from "@/types";
-import type { LevelCode, Session } from "@/types";
+import type { Establishment, LevelCode, Session } from "@/types";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -56,10 +63,21 @@ function yearOptions(keep?: number): number[] {
   return [...years].sort((a, b) => b - a);
 }
 
+/**
+ * Sentinelle « aucun établissement », même raison que `TOUTE_LA_CLASSE` :
+ * Radix refuse la chaîne vide comme valeur d'un `SelectItem`, et `null` ne
+ * traverse pas un `<Select>`. Elle ne quitte jamais le front —
+ * `establishment_id` part toujours à `null`.
+ */
+const AUCUN_ETABLISSEMENT = "aucun-etablissement";
+
 interface SessionFormValues {
   name: string;
   levelCode: LevelCode;
   yearStart: number;
+  /** `null` = aucun établissement, ce qui est le cas normal et l'état de
+   *  toute classe d'avant le palier 025. */
+  establishmentId: string | null;
 }
 
 interface SessionFormDialogProps {
@@ -67,6 +85,10 @@ interface SessionFormDialogProps {
   onOpenChange: (open: boolean) => void;
   /** `null` = création. */
   session: Session | null;
+  /** Les établissements, détenus par le parent (première règle
+   *  d'architecture) : un établissement supprimé dans Réglages disparaît
+   *  d'ici au rechargement suivant, sans que ce dialogue ait à le savoir. */
+  establishments: Establishment[];
   onSubmit: (values: SessionFormValues) => Promise<void>;
 }
 
@@ -74,6 +96,7 @@ function SessionFormDialog({
   open,
   onOpenChange,
   session,
+  establishments,
   onSubmit,
 }: SessionFormDialogProps) {
   const [name, setName] = useState(session?.name ?? "");
@@ -82,6 +105,9 @@ function SessionFormDialog({
   );
   const [yearStart, setYearStart] = useState(
     session?.year_start ?? currentYearStart(),
+  );
+  const [establishmentId, setEstablishmentId] = useState<string | null>(
+    session?.establishment_id ?? null,
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -97,7 +123,7 @@ function SessionFormDialog({
     setSaving(true);
     setError(null);
     try {
-      await onSubmit({ name: trimmed, levelCode, yearStart });
+      await onSubmit({ name: trimmed, levelCode, yearStart, establishmentId });
       onOpenChange(false);
     } catch (err) {
       setError(errorMessage(err));
@@ -176,6 +202,59 @@ function SessionFormDialog({
             </div>
           </div>
 
+          {/* Caché quand aucun établissement n'existe et que la classe n'en
+              porte aucun : un champ qui ne sait répondre que « Aucun »
+              n'apprend rien et allonge le formulaire de tout le monde —
+              même règle que `SelecteurDeGroupe` pour une classe non
+              dédoublée, et que `ChampDuReferentiel` pour un champ
+              professionnel sans référentiel. Il paraît dès qu'un
+              établissement est créé dans Réglages. */}
+          {(establishments.length > 0 || establishmentId !== null) && (
+            <div className="space-y-2">
+              <Label htmlFor="classe-etablissement">Établissement</Label>
+              <Select
+                value={establishmentId ?? AUCUN_ETABLISSEMENT}
+                onValueChange={(valeur) =>
+                  setEstablishmentId(
+                    valeur === AUCUN_ETABLISSEMENT ? null : valeur,
+                  )
+                }
+              >
+                <SelectTrigger id="classe-etablissement">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUCUN_ETABLISSEMENT}>Aucun</SelectItem>
+                  {establishments.map((etablissement) => (
+                    <SelectItem
+                      key={etablissement.id}
+                      value={etablissement.id}
+                    >
+                      {etablissement.name}
+                    </SelectItem>
+                  ))}
+                  {/* L'établissement choisi n'est plus dans la liste — il a
+                      été supprimé depuis Réglages. Sans cette entrée, Radix
+                      afficherait un champ vide, et l'enseignant ne pourrait
+                      ni lire ni retirer la valeur posée. Même geste
+                      qu'`OptionsDeGroupe`. */}
+                  {establishmentId !== null &&
+                    !establishments.some((e) => e.id === establishmentId) && (
+                      <SelectItem value={establishmentId}>
+                        {session?.establishment_name ??
+                          "Établissement supprimé"}
+                      </SelectItem>
+                    )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Sert à retirer de cette classe les compétences que
+                l'établissement n'emploie pas. Les notes déjà saisies ne
+                bougent pas, et aucun document imprimé ne change.
+              </p>
+            </div>
+          )}
+
           {error && (
             <p className="text-sm text-destructive" role="alert">
               {error}
@@ -207,6 +286,7 @@ function SessionFormDialog({
 export default function Sessions() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Le formulaire et la confirmation ne retiennent qu'un identifiant : la
@@ -218,7 +298,12 @@ export default function Sessions() {
     setLoading(true);
     setLoadError(null);
     try {
-      setSessions(await api.getSessions());
+      const [classes, etablissements] = await Promise.all([
+        api.getSessions(),
+        api.getEstablishments(),
+      ]);
+      setSessions(classes);
+      setEstablishments(etablissements);
     } catch (err) {
       setLoadError(errorMessage(err));
     } finally {
@@ -262,8 +347,27 @@ export default function Sessions() {
         values.levelCode,
         values.yearStart,
       );
+      // Deux écritures et non une, parce qu'elles ne concernent pas les
+      // mêmes colonnes : `update_session` ne touche JAMAIS à
+      // l'établissement (troisième règle d'architecture). Le bénéfice est
+      // direct — aucun autre appelant d'`updateSession` n'a d'établissement
+      // à faire transiter, donc aucun ne peut l'effacer en l'omettant,
+      // contrairement à l'horaire d'`update_seance_meta`. Et seulement si
+      // la valeur a changé : un renommage ne doit pas écrire une colonne
+      // qu'il ne regarde pas.
+      if (values.establishmentId !== editing.establishment_id) {
+        await api.setSessionEstablishment(
+          editing.id,
+          values.establishmentId,
+        );
+      }
     } else {
-      await api.createSession(values.name, values.levelCode, values.yearStart);
+      await api.createSession(
+        values.name,
+        values.levelCode,
+        values.yearStart,
+        values.establishmentId,
+      );
     }
     await load();
   };
@@ -368,10 +472,24 @@ export default function Sessions() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Users className="h-4 w-4" />
-                        {session.student_count} élève
-                        {session.student_count === 1 ? "" : "s"}
+                      <div className="space-y-1.5 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          {session.student_count} élève
+                          {session.student_count === 1 ? "" : "s"}
+                        </div>
+                        {/* Écrit seulement quand il y en a un : « Aucun
+                            établissement » est le cas normal, et le dire sur
+                            chaque carte ferait du bruit sur toute base
+                            migrée. Même doctrine que `PastilleDeGroupe`. */}
+                        {session.establishment_name && (
+                          <div className="flex min-w-0 items-center gap-2">
+                            <School className="h-4 w-4 shrink-0" />
+                            <span className="truncate">
+                              {session.establishment_name}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -393,6 +511,7 @@ export default function Sessions() {
             if (!open) setFormTarget(null);
           }}
           session={editing}
+          establishments={establishments}
           onSubmit={handleSubmit}
         />
       )}

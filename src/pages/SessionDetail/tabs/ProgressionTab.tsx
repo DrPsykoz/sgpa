@@ -5,7 +5,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import { CalendarRange, Download, FileText, Tags } from "lucide-react";
+import { CalendarRange, Download, FileText } from "lucide-react";
 
 import { DataState } from "@/components/DataState";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { DomainesDialog } from "@/pages/SessionDetail/progression/DomainesDialog";
 import { EnteteDialog } from "@/pages/SessionDetail/progression/EnteteDialog";
 import { EtapesEditor } from "@/pages/SessionDetail/progression/EtapesEditor";
 import { FriseProgression } from "@/pages/SessionDetail/progression/FriseProgression";
@@ -25,7 +24,6 @@ import { exportProgressionPDF } from "@/lib/pdf";
 import { schoolYearLabel } from "@/types";
 import type {
   Progression,
-  ProgressionDomaine,
   Session,
   YearCalendar,
 } from "@/types";
@@ -55,7 +53,6 @@ function messageOf(err: unknown): string {
  */
 export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
   const [progression, setProgression] = useState<Progression | null>(null);
-  const [domaines, setDomaines] = useState<ProgressionDomaine[]>([]);
   const [annee, setAnnee] = useState<YearCalendar | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -63,7 +60,6 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
   const [pending, setPending] = useState(false);
 
   const [enteteOpen, setEnteteOpen] = useState(false);
-  const [domainesOpen, setDomainesOpen] = useState(false);
 
   /** Le nom de l'établissement, en tête du PDF. Lu une fois (voir `load`). */
   const [schoolName, setSchoolName] = useState("");
@@ -83,13 +79,11 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
    * semaine suivante.
    */
   const recharger = useCallback(async () => {
-    const [p, d, a] = await Promise.all([
+    const [p, a] = await Promise.all([
       api.getProgression(session.id),
-      api.getProgressionDomaines(),
       api.getYearCalendar(session.year_start),
     ]);
     setProgression(p);
-    setDomaines(d);
     setAnnee(a);
   }, [session.id, session.year_start]);
 
@@ -133,7 +127,6 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
         // Le calendrier déjà chargé, celui que la frise affiche : le document
         // imprimé doit être la frise qu'on a sous les yeux, pas une relecture.
         calendar: annee,
-        domaines,
         schoolName,
         openAfter: openAfterExport,
       });
@@ -165,7 +158,7 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
           <div className="space-y-1.5">
             <CardTitle>Progression {schoolYearLabel(session.year_start)}</CardTitle>
             <CardDescription>
-              Les domaines explorés dans l'année, découpés en étapes, posés sur
+              Les séquences de l'année, découpées en activités, posées sur
               les semaines réelles du calendrier. Un plan, et non un
               enregistrement : rien ici ne touche une séance, un appel ou un
               bilan.
@@ -173,14 +166,6 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
           </div>
           {progression !== null && (
             <div className="flex shrink-0 items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDomainesOpen(true)}
-              >
-                <Tags className="h-4 w-4" />
-                Domaines
-              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -238,7 +223,6 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
                   </div>
                   <EtapesEditor
                     progression={progression}
-                    domaines={domaines}
                     semainesParActivite={semainesParActivite}
                     onChanged={recharger}
                   />
@@ -335,13 +319,6 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
               );
               await recharger();
             }}
-          />
-
-          <DomainesDialog
-            open={domainesOpen}
-            onOpenChange={setDomainesOpen}
-            domaines={domaines}
-            onChanged={recharger}
           />
         </>
       )}

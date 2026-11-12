@@ -8,17 +8,17 @@ import { EtapeDialog } from "@/pages/SessionDetail/progression/EtapeDialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { styleTeinteActivite } from "@/lib/teintes";
+import { MOTS_DE_NATURE } from "@/types";
 import type {
   CompetencyInfo,
+  NatureDActivite,
   Progression,
   ProgressionActivite,
-  ProgressionDomaine,
   ProgressionEtape,
 } from "@/types";
 
 export interface EtapesEditorProps {
   progression: Progression;
-  domaines: ProgressionDomaine[];
   /** Combien de semaines portent cette activité, par identifiant d'activité. */
   semainesParActivite: ReadonlyMap<string, number>;
   /** Le parent recharge la progression entière après chaque écriture. */
@@ -29,6 +29,18 @@ function messageOf(err: unknown): string {
   return err instanceof Error
     ? err.message
     : "Une erreur inattendue est survenue.";
+}
+
+/** Les compétences d'une ligne, **comptées et non listées**.
+ *
+ *  La ligne tient sur deux ou trois lignes de texte dans une liste qui peut en
+ *  compter trente : huit phrases entières y feraient perdre la lecture de
+ *  l'année, qui est ce que cet écran sert. Le détail est dans le formulaire,
+ *  et en entier sur le document imprimé — c'est lui qu'on relit compétence par
+ *  compétence. Rend `""` à zéro, donc rien à tester chez l'appelant. */
+function phraseCompetences(count: number): string {
+  if (count === 0) return "";
+  return ` · ${count} compétence${count > 1 ? "s" : ""}`;
 }
 
 function phraseSemaines(count: number): string {
@@ -121,7 +133,6 @@ function Champ({
  */
 export function EtapesEditor({
   progression,
-  domaines,
   semainesParActivite,
   onChanged,
 }: EtapesEditorProps): ReactElement {
@@ -162,8 +173,6 @@ export function EtapesEditor({
     (activiteASupprimer ? toutesLesActivites.get(activiteASupprimer) : null) ??
     null;
 
-  const nomDuDomaine = (id: string | null): string | null =>
-    id === null ? null : (domaines.find((d) => d.id === id)?.name ?? null);
 
   /** Une écriture, un rechargement complet, une erreur montrée dans la page.
    *  Les dialogues portent eux-mêmes l'erreur de leur propre soumission. */
@@ -209,6 +218,8 @@ export function EtapesEditor({
     competences: string;
     connaissances: string;
     priorites: string;
+    objectifs: string;
+    metierCap: string;
     competencyIds: string[];
   }) => {
     const id =
@@ -220,6 +231,8 @@ export function EtapesEditor({
       champs.competences,
       champs.connaissances,
       champs.priorites,
+      champs.objectifs,
+      champs.metierCap,
       champs.competencyIds,
     );
     await onChanged();
@@ -229,18 +242,27 @@ export function EtapesEditor({
     libelle: string;
     domaineId: string | null;
     etapeId: string;
+    nature: NatureDActivite;
+    objectif: string;
+    competencyIds: string[];
   }) => {
     if (activiteEditee === null) {
       await api.createProgressionActivite(
         champs.etapeId,
         champs.libelle,
         champs.domaineId,
+        champs.nature,
+        champs.objectif,
+        champs.competencyIds,
       );
     } else {
       await api.updateProgressionActivite(
         activiteEditee.id,
         champs.libelle,
         champs.domaineId,
+        champs.nature,
+        champs.objectif,
+        champs.competencyIds,
       );
       // Le déplacement est une seconde commande : elle ne touche pas les mêmes
       // colonnes, et c'est elle qui refuse l'étape d'une autre progression.
@@ -340,6 +362,11 @@ export function EtapesEditor({
                   titre="Compétences saisies à la main"
                   valeur={etape.competences}
                 />
+                <Champ titre="Objectifs" valeur={etape.objectifs} />
+                <Champ
+                  titre="Métier et CAP découverts"
+                  valeur={etape.metier_cap}
+                />
                 <Champ titre="Connaissances" valeur={etape.connaissances} />
                 <Champ titre="Priorités" valeur={etape.priorites} />
 
@@ -352,7 +379,6 @@ export function EtapesEditor({
                   ) : (
                     <ul className="space-y-2">
                       {etape.activites.map((activite, rangLocal) => {
-                        const domaine = nomDuDomaine(activite.domaine_id);
                         const posees =
                           semainesParActivite.get(activite.id) ?? 0;
                         return (
@@ -365,13 +391,29 @@ export function EtapesEditor({
                             )}
                           >
                             <div className="min-w-0">
+                              {/* La nature est écrite devant l'intitulé, pas
+                                  derrière : c'est elle qui dit de quelle sorte
+                                  de ligne il s'agit, et le document l'imprime
+                                  au même endroit. En clair et non en pastille
+                                  — la pastille de catégorie reste le seul aplat
+                                  de couleur de l'application. */}
                               <p className="truncate text-sm font-medium">
+                                <span className="font-normal opacity-70">
+                                  {MOTS_DE_NATURE[activite.nature]} ·{" "}
+                                </span>
                                 {activite.libelle}
                               </p>
                               <p className="truncate text-xs opacity-80">
-                                {domaine ?? "Sans domaine"} ·{" "}
                                 {phraseSemaines(posees)}
+                                {phraseCompetences(
+                                  activite.competences_ref.length,
+                                )}
                               </p>
+                              {activite.objectif.trim() !== "" && (
+                                <p className="truncate text-xs opacity-80">
+                                  Objectif : {activite.objectif}
+                                </p>
+                              )}
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
                               <Button
@@ -488,7 +530,7 @@ export function EtapesEditor({
         activite={activiteEditee}
         etapeParDefaut={etapeDAccueil}
         etapes={etapes}
-        domaines={domaines}
+        sessionId={progression.session_id}
         onSubmit={soumettreActivite}
       />
 

@@ -51,12 +51,16 @@ pub struct CompetencyAverage {
 /// Les compteurs s'additionnent exactement, et deux lignes le disent :
 ///
 /// ```text
-/// seances_applicables + hors_inscription + seances_neutralisees == seances_trimestre
-/// present + absent + retard + excuse + non_renseigne            == seances_applicables
+/// seances_applicables + hors_inscription + seances_neutralisees
+///                     + seances_autre_groupe == seances_trimestre
+/// present + absent + retard + excuse + non_renseigne == seances_applicables
 /// ```
 ///
 /// Un bilan qui cesserait de vérifier l'une des deux serait un document faux
-/// remis à une famille : c'est ce que gardent les tests de ce module.
+/// remis à une famille : c'est ce que gardent les tests de ce module. Le
+/// quatrième terme est né au palier 023 et vaut zéro sur toute base sans
+/// groupe, donc la première ligne est celle d'avant tant que l'enseignant n'a
+/// pas dédoublé une classe.
 #[derive(Debug, Clone, Serialize)]
 pub struct AttendanceStats {
     pub seances_trimestre: i32,
@@ -75,6 +79,20 @@ pub struct AttendanceStats {
     /// séance qui compte. Ici, c'est la séance elle-même qui sort du
     /// dénominateur.
     pub seances_neutralisees: i32,
+    /// Séances tenues avec UN AUTRE GROUPE de la classe (palier 023).
+    ///
+    /// Quatrième compteur, et il devait l'être pour la raison exacte qui avait
+    /// séparé le troisième du deuxième. Une séance de l'atelier bois n'est ni
+    /// « hors de la période d'inscription » d'un élève inscrit depuis
+    /// septembre, ni une « absence justifiée » d'un élève qui n'était pas
+    /// absent : elle ne lui était pas destinée. Les deux phrases existantes
+    /// étant imprimées telles quelles sur un document remis à une famille,
+    /// ranger ces séances dans l'un des deux seaux aurait fait mentir le
+    /// bilan.
+    ///
+    /// Vaut 0 partout tant qu'aucun groupe n'existe, donc sur toute base
+    /// migrée : la ligne ne s'affiche que lorsqu'elle a quelque chose à dire.
+    pub seances_autre_groupe: i32,
     pub present: i32,
     pub absent: i32,
     pub retard: i32,
@@ -171,9 +189,43 @@ pub struct AttendanceStats {
 /// Parce que c'est un seul `COUNT(*)`, une séance couverte à la fois par un
 /// placement et par une période nominative est comptée UNE SEULE FOIS.
 ///
+/// **⚠ LE GROUPE SE LIT AUX TROIS POINTS, OU À AUCUN** (palier 023). Même
+/// avertissement que ci-dessus, avec une branche de plus : le `LEFT JOIN`, la
+/// sous-requête `neutralisees` ET la sous-requête `autre_groupe`. La partition
+/// imprimée est devenue
+///   `applicable + hors_inscription + neutralisees + autre_groupe == seances_trimestre`
+/// et elle n'est exacte que parce que les quatre termes se lisent dans un ordre
+/// de priorité fixé :
+///
+/// ```text
+///   ¬inscrit                        → hors_inscription  (LE RESTE, pas un calcul)
+///   inscrit ∧ autre groupe          → autre_groupe
+///   inscrit ∧ son groupe ∧ écartée  → neutralisees
+///   inscrit ∧ son groupe ∧ sinon    → applicable
+/// ```
+///
+/// LE GROUPE PASSE AVANT LA NEUTRALISATION, d'où le filtre de groupe ajouté
+/// AUSSI dans `neutralisees` : une séance de l'autre groupe pendant le stage de
+/// l'élève est comptée une seule fois, et du bon côté — elle ne lui a pas été
+/// retirée par son stage, elle ne lui était pas destinée. Oublier ce filtre-là
+/// la compterait deux fois et ferait dépasser la somme ; oublier celui du
+/// `LEFT JOIN` la laisserait dans le dénominateur. Aucun des deux défauts ne se
+/// voit sur une base sans groupe, c'est-à-dire sur toute base migrée.
+///
+/// **LES DEUX SENS DE « SANS GROUPE » SONT OPPOSÉS, ET C'EST VOULU.** Un élève
+/// sans groupe (`st.group_id IS NULL`) est convoqué à TOUTES les séances, parce
+/// qu'un élève non rangé est presque toujours un oubli de rangement et que le
+/// faire disparaître des appels serait invisible. Mais il n'est PAS couvert par
+/// une période qui vise un groupe nommé (`p.group_id = st.group_id` est NULL
+/// donc faux), parce qu'une période RETIRE des séances : un oubli de rangement
+/// ne doit jamais excuser une absence par accident. Chaque règle penche du côté
+/// où l'erreur se voit.
+///
 /// `pub(crate)` pour une seule raison : le test de migration
 /// `une_base_v5_peuplee_traverse_le_palier_006_intacte` compare cette requête à
 /// celle qui a été livrée au palier 005, sur une base peuplée et sans placement.
+/// `une_base_v22_peuplee_traverse_le_palier_023_intacte` fait de même avec celle
+/// du palier 022.
 pub(crate) const ATTENDANCE_SQL: &str = "\
 SELECT st.id,
        COUNT(se.id) AS applicable,
@@ -189,9 +241,12 @@ SELECT st.id,
            AND sx.cancelled = 0
            AND sx.date >= st.enrolled_on
            AND (st.left_on IS NULL OR sx.date <= st.left_on)
+           AND (sx.group_id IS NULL OR st.group_id IS NULL
+                OR sx.group_id = st.group_id)
            AND (EXISTS (SELECT 1 FROM absence_periods p
                          WHERE p.session_id = st.session_id
                            AND (p.student_id IS NULL OR p.student_id = st.id)
+                           AND (p.group_id IS NULL OR p.group_id = st.group_id)
                            AND p.attendance_expected = 0
                            AND sx.date BETWEEN p.start_date AND p.end_date
                            AND NOT EXISTS (SELECT 1 FROM stage_placements sp
@@ -199,19 +254,33 @@ SELECT st.id,
                                             WHERE sp.absence_period_id = p.id
                                               AND sv.session_id = p.session_id
                                               AND (p.student_id IS NULL
-                                                OR sp.student_id = p.student_id)))
+                                                OR sp.student_id = p.student_id)
+                                              AND (p.group_id IS NULL
+                                                OR sv.group_id = p.group_id)))
              OR EXISTS (SELECT 1 FROM stage_placements sp
                          WHERE sp.student_id = st.id
-                           AND sx.date BETWEEN sp.start_date AND sp.end_date))) AS neutralisees
+                           AND sx.date BETWEEN sp.start_date AND sp.end_date))) AS neutralisees,
+       (SELECT COUNT(*) FROM seances sx
+         WHERE sx.session_id = st.session_id
+           AND sx.trimester = ?2
+           AND sx.cancelled = 0
+           AND sx.date >= st.enrolled_on
+           AND (st.left_on IS NULL OR sx.date <= st.left_on)
+           AND sx.group_id IS NOT NULL
+           AND st.group_id IS NOT NULL
+           AND sx.group_id <> st.group_id) AS autre_groupe
   FROM students st
   LEFT JOIN seances se ON se.session_id = st.session_id
                       AND se.trimester = ?2
                       AND se.cancelled = 0
                       AND se.date >= st.enrolled_on
                       AND (st.left_on IS NULL OR se.date <= st.left_on)
+                      AND (se.group_id IS NULL OR st.group_id IS NULL
+                           OR se.group_id = st.group_id)
                       AND NOT EXISTS (SELECT 1 FROM absence_periods p
                                        WHERE p.session_id = st.session_id
                                          AND (p.student_id IS NULL OR p.student_id = st.id)
+                                         AND (p.group_id IS NULL OR p.group_id = st.group_id)
                                          AND p.attendance_expected = 0
                                          AND se.date BETWEEN p.start_date AND p.end_date
                                          AND NOT EXISTS (SELECT 1 FROM stage_placements sp
@@ -219,7 +288,9 @@ SELECT st.id,
                                                           WHERE sp.absence_period_id = p.id
                                                             AND sv.session_id = p.session_id
                                                             AND (p.student_id IS NULL
-                                                              OR sp.student_id = p.student_id)))
+                                                              OR sp.student_id = p.student_id)
+                                                            AND (p.group_id IS NULL
+                                                              OR sv.group_id = p.group_id)))
                       AND NOT EXISTS (SELECT 1 FROM stage_placements sp
                                        WHERE sp.student_id = st.id
                                          AND se.date BETWEEN sp.start_date AND sp.end_date)
@@ -438,19 +509,31 @@ fn load_attendance(
             let student_id: String = row.get(0)?;
             let applicable: i32 = row.get(1)?;
             let neutralisees: i32 = row.get(7)?;
+            let autre_groupe: i32 = row.get(8)?;
             Ok((
                 student_id,
                 AttendanceStats {
                     seances_trimestre: seance_count,
                     seances_applicables: applicable,
-                    // Ce qui reste une fois les séances neutralisées mises de
-                    // côté : les séances tenues avant l'arrivée de l'élève ou
-                    // après son départ, et elles seules. Sans ce retrait, un
-                    // stage de janvier atterrirait ici, et le bilan imprimerait
-                    // « hors de sa période d'inscription » à un élève inscrit
-                    // depuis septembre.
-                    hors_inscription: (seance_count - applicable - neutralisees).max(0),
+                    // Ce qui reste une fois les séances neutralisées ET celles
+                    // de l'autre groupe mises de côté : les séances tenues
+                    // avant l'arrivée de l'élève ou après son départ, et elles
+                    // seules. Sans ces retraits, un stage de janvier ou
+                    // l'atelier de l'autre groupe atterrirait ici, et le bilan
+                    // imprimerait « hors de sa période d'inscription » à un
+                    // élève inscrit depuis septembre.
+                    //
+                    // ⚠ C'EST LE RESTE, PAS UN CALCUL. Tout terme nouveau
+                    // retranché du dénominateur doit donc être soustrait ICI
+                    // aussi, sans quoi il retombe en silence dans ce seau — et
+                    // le document remis à la famille annonce une raison fausse.
+                    hors_inscription: (seance_count
+                        - applicable
+                        - neutralisees
+                        - autre_groupe)
+                        .max(0),
                     seances_neutralisees: neutralisees,
+                    seances_autre_groupe: autre_groupe,
                     present: row.get(2)?,
                     absent: row.get(3)?,
                     retard: row.get(4)?,
@@ -543,6 +626,7 @@ fn empty_attendance(seance_count: i32) -> AttendanceStats {
         seances_applicables: 0,
         hors_inscription: seance_count,
         seances_neutralisees: 0,
+        seances_autre_groupe: 0,
         present: 0,
         absent: 0,
         retard: 0,
@@ -644,9 +728,12 @@ mod tests {
     /// Les deux invariants du contrat, vérifiés sur chaque élève de chaque test.
     fn invariants(a: &AttendanceStats) {
         assert_eq!(
-            a.seances_applicables + a.hors_inscription + a.seances_neutralisees,
+            a.seances_applicables
+                + a.hors_inscription
+                + a.seances_neutralisees
+                + a.seances_autre_groupe,
             a.seances_trimestre,
-            "le trimestre doit se partager exactement en trois"
+            "le trimestre doit se partager exactement en quatre"
         );
         assert_eq!(
             a.present + a.absent + a.retard + a.excuse + a.non_renseigne,
@@ -1402,6 +1489,118 @@ mod tests {
         }
         assert_eq!(stats["hugo"].present, 19);
         assert_eq!(stats["hugo"].absent, 1, "la seule absence hors fenêtre");
+
+        drop(conn);
+    }
+
+    /// Deux groupes, deux élèves rangés chacun dans le sien.
+    ///
+    /// Nadia reste SANS groupe, et ce n'est pas un oubli : c'est l'autre
+    /// moitié du prédicat. Un élève non rangé est convoqué partout.
+    fn dedoubler(conn: &Connection) {
+        conn.execute_batch(
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g1', 's1', 'Atelier bois', 0),
+                         ('g2', 's1', 'Atelier cuisine', 1)",
+        )
+        .unwrap();
+        conn.execute_batch("UPDATE students SET group_id = 'g1' WHERE id = 'e1'")
+            .unwrap();
+    }
+
+    /// Range `n` séances du scénario dans le groupe 2.
+    fn au_groupe_2(conn: &Connection, jours: &[u32]) {
+        for n in jours {
+            conn.execute(
+                "UPDATE seances SET group_id = 'g2' WHERE id = ?1",
+                params![format!("c{n}")],
+            )
+            .unwrap();
+        }
+    }
+
+    /// LE QUATRIÈME SEAU, ET POURQUOI IL EXISTE.
+    ///
+    /// Une séance de l'atelier cuisine n'est, pour un élève de l'atelier bois,
+    /// ni « hors de sa période d'inscription » — il est inscrit depuis
+    /// septembre — ni « une absence justifiée » — il n'était pas absent. Ces
+    /// deux phrases s'impriment telles quelles sur le bilan remis à la
+    /// famille : la ranger dans l'un des deux seaux existants aurait fait
+    /// mentir le document. D'où `seances_autre_groupe`, et d'où ce test.
+    ///
+    /// Sans lui, le bilan annoncerait 26 séances au trimestre et imprimerait
+    /// 22/22 sans expliquer les quatre manquantes.
+    #[test]
+    fn une_classe_dedoublee_partage_le_trimestre_en_quatre() {
+        let conn = migrated_db("023-partition");
+        peupler(&conn);
+        dedoubler(&conn);
+        // Quatre séances après la fenêtre du stage, donc hors de tout autre
+        // compteur : ce test ne mesure que le groupe.
+        au_groupe_2(&conn, &[19, 20, 21, 22]);
+
+        let stats = stats(&conn);
+        for a in stats.values() {
+            invariants(a);
+        }
+
+        let hugo = &stats["e1"];
+        assert_eq!(hugo.seances_autre_groupe, 4, "les quatre de l'autre atelier");
+        assert_eq!(hugo.seances_applicables, 22);
+        assert_eq!(hugo.hors_inscription, 0, "inscrit depuis septembre");
+        assert_eq!(hugo.seances_neutralisees, 0, "aucune période saisie");
+        assert_eq!(hugo.present, 16, "vingt présences moins les quatre retirées");
+        assert_eq!(hugo.absent, 6);
+
+        // Nadia n'est rangée nulle part : elle reste convoquée aux séances des
+        // deux ateliers, et son compteur de groupe vaut zéro. Faire
+        // disparaître un élève non rangé des appels serait invisible.
+        let nadia = &stats["e2"];
+        assert_eq!(nadia.seances_autre_groupe, 0);
+        assert_eq!(
+            nadia.seances_applicables, 11,
+            "les onze séances depuis son arrivée, groupe 2 compris"
+        );
+        assert_eq!(nadia.hors_inscription, 15);
+
+        drop(conn);
+    }
+
+    /// LE GROUPE PASSE AVANT LA NEUTRALISATION — l'erreur qui dépasse 100 %.
+    ///
+    /// Le filtre de groupe est posé DEUX FOIS, dans le `LEFT JOIN` et dans la
+    /// sous-requête `neutralisees`. L'oublier dans la seconde compte deux fois
+    /// une séance de l'autre groupe tenue pendant le stage : une fois écartée,
+    /// une fois rangée ailleurs. Mesuré sans le filtre : Hugo sortait à
+    /// 20 + 0 + 6 + 3 = 29 séances sur un trimestre qui en compte 26.
+    ///
+    /// Le défaut est invisible sur une base sans groupe, c'est-à-dire sur
+    /// toute base migrée : seul ce test le voit.
+    #[test]
+    fn une_seance_de_l_autre_groupe_pendant_le_stage_ne_compte_qu_une_fois() {
+        let conn = migrated_db("023-double-compte");
+        peupler(&conn);
+        dedoubler(&conn);
+        // Trois des six séances de la fenêtre du stage sont à l'autre atelier.
+        au_groupe_2(&conn, &[13, 14, 15]);
+        poser_le_stage(&conn, None);
+
+        let stats = stats(&conn);
+        for a in stats.values() {
+            invariants(a);
+        }
+
+        let hugo = &stats["e1"];
+        assert_eq!(
+            hugo.seances_neutralisees, 3,
+            "seules les trois séances de SON atelier lui ont été retirées"
+        );
+        assert_eq!(
+            hugo.seances_autre_groupe, 3,
+            "les trois autres ne lui étaient pas destinées"
+        );
+        assert_eq!(hugo.seances_applicables, 20);
+        assert_eq!(hugo.present, 20, "toutes hors de la fenêtre du stage");
 
         drop(conn);
     }

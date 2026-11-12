@@ -26,24 +26,34 @@ La base est **chiffrée** — une clé USB perdue ne livre aucun nom d'élève.
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Verrou & réglages** | Un seul mot de passe, qui **chiffre la base** : il n'ouvre pas un écran, il déballe la clé maître (voir [Chiffrement](#chiffrement)). Phrase de récupération, indice, nom de l'enseignant, nom de l'établissement (en-tête des PDF), règles de calcul. |
 | **Classes**           | Une classe = un niveau (`6eme`, `5eme`, `4eme`, `3eme`, `3eme_prepa`) pour une année scolaire. Le niveau et l'année ne sont stockés nulle part ailleurs.                                                     |
+| **Groupes**           | Une classe se dédouble en autant de groupes que voulu, librement nommés (atelier cuisine, atelier bois, groupe de besoin). Un élève n'appartient qu'à un seul. Un créneau, une séance, une évaluation et une période d'absence peuvent viser un groupe ; **« groupe 1 semaine A, groupe 2 semaine B » se pose avec deux créneaux de parité complémentaire**, le mécanisme existait déjà. Un élève qu'aucun groupe ne réclame reste convoqué partout : un oubli de répartition se voit à l'appel au lieu de disparaître des calculs. |
+| **Établissements**    | Une classe peut nommer l'établissement où elle se tient. La liste est **vide à la livraison** — c'est le vocabulaire de l'enseignant —, et un établissement porte un premier réglage : les **compétences qu'il n'emploie pas**, retirées des menus de saisie de ses classes. C'est un filtre de saisie et jamais un masque : une note déjà posée reste visible, comptée et imprimée, et aucun document imprimé ne change. |
 | **Élèves**            | Ajout unitaire ou collage multi-lignes depuis un tableur. `enrolled_on` / `left_on` bornent l'assiduité : un élève arrivé en janvier n'est pas compté absent de septembre à décembre.                        |
 | **Séances**           | Titre, date, trimestre déduit de la date et corrigeable à la main, indicateur « annulée » (sortie, jour férié) qui garde la séance au cahier de texte mais la sort des statistiques. Cahier de texte TipTap, **pièces jointes** (image, PDF, audio, docx — 10 Mo par fichier, images redimensionnées à 1600 px, stockées **dans la base chiffrée**), et un « rien à écrire » daté pour les séances qui n'ont pas de compte rendu à produire. |
 | **Emploi du temps**  | La grille hebdomadaire : créneaux récurrents, toutes les semaines ou **une semaine sur deux** (parité du numéro ISO), **plusieurs cours sur la même case** quand ils alternent, cours ponctuels et rendez-vous datés. Elle **définit** et ne contient aucun écran de séance : l'appel et le cahier de texte vivent à l'accueil et dans la fiche de classe. Vue « Semaine » par défaut, vue « Année » pour comparer les progressions de toutes les classes. |
 | **Absences & sorties** | Une période nomme les jours où une classe, ou un seul élève, n'est pas en cours : stage, hospitalisation, séjour. Trois cas distincts — elle **retire** ses séances du dénominateur d'assiduité (stage), ou l'**appel se fait quand même** (sortie scolaire, CDI), ou c'est le **professeur** qui manquait (formation, maladie), auquel cas l'accueil ne réclame ni appel ni cahier de texte. |
 | **Besoins particuliers** | Étiquettes de l'enseignant (dysorthographie, dyscalculie, AESH, PAP…) et une note libre par élève. L'application **n'en livre aucune** : les libellés justes sont ceux des notifications et des PAP de l'établissement. Affichés à l'appel, dans les grilles de notation, dans la liste de la classe et dans les bilans à l'écran — **sur aucun document imprimé**, et un test le vérifie. |
 | **Appel**             | Cinq états : `non_fait`, `present`, `absent`, `retard`, `excuse`. « Non fait » est un état réel : rien n'est pré-rempli à « présent », et l'appel oublié se voit.                                             |
-| **Référentiel**       | Arbre Cycle → Domaine → Champ → Compétence en 6 commandes, saisie par collage multi-lignes, archivage plutôt que suppression d'une compétence déjà notée, retenue par une évaluation ou citée par une progression — les trois sont comptées avant le refus. Livré pré-rempli avec les 5 domaines du socle.      |
-| **Évaluations**       | Grille compétences × élèves, note entière de 1 à 20 avec son libellé de maîtrise affiché à côté (case vide = non évalué), trimestre déduit de la date. Retirer une compétence d'une évaluation demande confirmation avant de toucher aux notes.                         |
-| **Fiches contrat**    | Une trame par évaluation (projet, champ professionnel et son sous-ensemble, activités de référence, métiers visés), des lignes d'activités ordonnées dont chacune peut pointer une compétence du référentiel, un tableau donné / demandé / exigé **ligne par ligne**, et une couche nominative par élève. Composable en un clic depuis les compétences de l'évaluation. |
-| **Progression**       | La planification de l'année d'une classe : les **domaines** explorés, découpés en **étapes** (compétences cochées dans le **référentiel**, connaissances et priorités avec ses mots) qui portent des **activités**, posées à la souris sur les **vraies semaines** du calendrier — deux bandes, vacances et stages lus du calendrier officiel. Une par classe. Vue « Année » de l'emploi du temps pour comparer toutes les classes d'un coup d'œil, export PDF en paysage. |
-| **Bilans**            | Par classe et par trimestre : moyennes par compétence, moyenne générale, statistiques d'assiduité (dont les séances hors période d'inscription), commentaire enseignant.                                      |
+| **Référentiel**       | **Deux arbres, deux onglets.** « Compétences » : Cycle → Domaine → Champ → Compétence en 6 commandes. « Activités » : Champ professionnel → Domaine d'activité → activités de référence et métiers, soit le RA16, modifiable et extensible comme le reste. Les deux partagent leur composant de ligne et leur vocabulaire, et les mêmes gestes : saisie par collage multi-lignes, renommage, déplacement, et un décompte annoncé **avant** la suppression — une compétence déjà notée, retenue par une évaluation ou citée par une progression s'archive au lieu de disparaître, et les trois sont comptées avant le refus. Livré pré-rempli avec les 5 domaines du socle et le RA16 du champ Habitat.      |
+| **Évaluations**       | Grille compétences × élèves, note entière de 1 à 20 avec son libellé de maîtrise affiché à côté. Une case sans note dit laquelle des deux choses elle veut dire — *en attente*, ou *ne sera pas évaluée*, déclaré d'un clic et réversible. Trimestre déduit de la date. Retirer une compétence d'une évaluation demande confirmation avant de toucher aux notes.                         |
+| **Fiches contrat**    | Une trame par évaluation (projet, champ professionnel, **domaine d'activité**, **activité de référence**, **métier visé** — les trois derniers choisis dans le référentiel RA16 quand le champ en a un, saisis à la main sinon), des lignes d'activités ordonnées dont chacune peut pointer une compétence du référentiel, un tableau donné / demandé / exigé **ligne par ligne**, et une couche nominative par élève. Composable en un clic depuis les compétences de l'évaluation. |
+| **Progression**       | La planification de l'année d'une classe : les **domaines** explorés, découpés en **séquences** (objectifs, métier et CAP) qui portent des **activités** (nom, objectif et compétences du **référentiel** obligatoires), posées à la souris sur les **vraies semaines** du calendrier (avec les stages et absences des élèves) — deux bandes, vacances et stages lus du calendrier officiel. Une par classe. Vue « Année » de l'emploi du temps pour comparer toutes les classes d'un coup d'œil, export PDF en paysage. |
+| **Bilans**            | Par classe et par trimestre : moyennes par compétence, moyenne générale, statistiques d'assiduité (dont les séances hors période d'inscription, celles d'une absence justifiée et celles tenues **avec un autre groupe**, chacune avec sa propre phrase), commentaire enseignant.                                      |
 | **Export PDF**        | Bilan trimestriel, fiche contrat du projet et **progression annuelle** (`src/lib/pdf.ts`), déposés dans `exports/` à côté de l'exécutable. La **fiche nominative par élève** n'a toujours pas d'export : c'est sa maquette qui n'est pas arrêtée, pas celle de la trame. |
 | **Sauvegarde**        | Copie complète à la demande dans `data/backups/`, les 10 plus récentes conservées. Copie automatique avant toute migration de schéma. `VACUUM INTO` hérite de la clé : **les sauvegardes sont chiffrées elles aussi**.                                        |
 
 ### Visible dans l'interface, mais pas encore actif
 
-- **Champs professionnels** : la table `professional_fields` est volontairement vide à la
-  livraison. Ils se créent à la main depuis l'éditeur de fiche contrat.
+- **Champs professionnels** : les **cinq** champs SEGPA sont semés par le palier 009, et
+  l'éditeur de fiche contrat permet d'en ajouter. Ce qui reste en attente n'est pas le
+  semis mais la **référence réglementaire** : deux listes circulent, à 4 ou 5 entrées, et
+  c'est celle à 5 qui a été retenue — voir « Décisions en attente ».
+- **Référentiel RA16** : seul le champ **Habitat** en a un (palier 024) — trois domaines
+  d'activité, trente-quatre activités de référence, vingt-et-un métiers, lus du référentiel
+  national. Les autres champs n'en ont pas, et l'éditeur y garde ses champs de saisie libre.
+  L'onglet « Activités » du Référentiel les montre et permet d'en ajouter : un champ sans
+  référentiel s'y remplit comme le reste, et c'est le seul moyen d'y voir autre chose que
+  Habitat.
 - **Domaines de progression** : `progression_domaines` est vide elle aussi, pour la même
   raison — c'est le vocabulaire de l'enseignant, pas celui de l'application. Ils se créent
   depuis la fiche de classe, onglet « Progression » → « Domaines ».
@@ -276,7 +286,7 @@ La variable d'environnement `SGPA_DATA_DIR` impose un autre emplacement pour `da
 
 ```powershell
 pnpm exec tsc --noEmit            # typecheck du front
-cd src-tauri ; cargo test --lib   # 188 tests
+cd src-tauri ; cargo test --lib   # 222 tests
 cd src-tauri ; cargo clippy       # doit rester à zéro avertissement
 ```
 
@@ -459,15 +469,23 @@ ensuite dans `AppState` sous `Mutex` et est partagée par toutes les commandes v
 `tauri::State`. `PRAGMA user_version` vit dans l'en-tête, qui est chiffré : le mécanisme de
 migration fonctionne inchangé, simplement après le mot de passe.
 
-### Les 37 tables
+### Les 45 tables
 
 ```
 app_settings                     ligne unique — remplace l'ancienne table users
 trimester_bounds                 bornes contiguës d'une année scolaire
-professional_fields              vide à la livraison
+professional_fields              les cinq champs SEGPA, semés au palier 009
+└── activity_domains             domaines d'activité RA16 — semés pour le seul champ Habitat
+    ├── reference_activities     ce qu'on y fait, tel que le référentiel national le nomme
+    └── careers                  les métiers de la roue RA16 — pas les CAP, qui sont des diplômes
 school_holidays                  vacances et jours fériés, origine officielle ou manuelle
 student_need_tags                vocabulaire des besoins particuliers — vide à la livraison
 progression_domaines             domaines explorés dans l'année — vide à la livraison, et global
+establishments                   établissements — vide à la livraison (palier 025)
+└── establishment_disabled_competencies
+                                 (establishment_id, competency_id) → les compétences que cet
+                                 établissement n'emploie pas : un filtre de saisie, jamais
+                                 un masque sur une note déjà posée
 
 savoir_groups
 └── savoirs                      savoirs techniques rattachables à une fiche contrat
@@ -477,15 +495,20 @@ cycles
     └── fields
         └── competencies         archived_at plutôt qu'une suppression destructrice
 
-sessions                         une classe pour une année (level_code + year_start)
-├── students                     enrolled_on / left_on, needs_note
+sessions                         une classe pour une année (level_code + year_start) ;
+│                                establishment_id facultatif, SET NULL (palier 025)
+├── student_groups               groupes de la classe, librement nommés (palier 023) ;
+│                                SET NULL pour les réglages qui le citent, RESTRICT pour les faits
+├── students                     enrolled_on / left_on, needs_note, group_id (NULL = partout)
 │   ├── report_comments          (student_id, trimester)
 │   └── student_needs            (student_id, tag_id) → étiquettes posées sur l'élève
-├── timetable_slots              créneaux récurrents ; session_id NULL = occupation sans classe
+├── timetable_slots              créneaux récurrents ; session_id NULL = occupation sans classe,
+│                                group_id NULL = le cours de toute la classe
 ├── agenda_entries               rendez-vous datés ; session_id et student_id facultatifs,
 │   │                            content_waived_at comme une séance, category en texte libre
 │   └── agenda_entry_attachments BLOB — jumelle de seance_attachments, pas une colonne « porteur »
-├── absence_periods              absence justifiée, collective (student_id NULL) ou nominative ;
+├── absence_periods              absence justifiée, collective (student_id NULL), nominative
+│   │                            ou de groupe (group_id, palier 023) ;
 │   │                            attendance_expected = l'appel se fait quand même,
 │   │                            teacher_absent = c'est le professeur qui manquait
 │   └── stage_placements         un placement désarme la période pour l'élève concerné
@@ -495,21 +518,31 @@ sessions                         une classe pour une année (level_code + year_s
 │   │   ├── progression_etape_competences  les compétences, cochées dans le référentiel
 │   │   │                        (palier 021) — sans position : l'ordre est celui du référentiel
 │   │   └── progression_activites  ce qu'on fait ; domaine_id facultatif vers progression_domaines
+│   │       │                    nature (analyse|activite|tp) et objectif depuis le palier 026
+│   │       └── progression_activite_competences  les compétences de CETTE ligne (palier 026) :
+│   │                            elles s'ajoutent à celles de l'étape, elles ne les remplacent pas
 │   └── progression_plages       une case de frise : (week_monday, voie 0|1) → activite_id
 ├── seances                      trimester, trimester_is_manual, cancelled, content_html,
-│   │                            content_waived_at (« rien à écrire », daté)
+│   │                            content_waived_at (« rien à écrire », daté), group_id recopié
+│   │                            du créneau à la naissance et jamais relu — un fait, pas un réglage
 │   ├── attendance_records       (seance_id, student_id) → non_fait | present | absent | retard | excuse
 │   └── seance_attachments       BLOB dans la base : les sauvegardes les emportent
-└── evaluations                  trimester, trimester_is_manual
+└── evaluations                  trimester, trimester_is_manual, group_id (NULL = toute la classe)
     ├── evaluation_competencies  compétences retenues, RESTRICT vers competencies
     ├── grades                   (evaluation_id, competency_id, student_id) → mark 1 à 20,
-    │                             le libellé de maîtrise n'est que sa lecture ; pas de ligne = non évalué
+    │                             le libellé de maîtrise n'est que sa lecture ; pas de ligne = pas de note
+    ├── grade_waivers            (evaluation_id, competency_id, student_id) : « ne sera pas évalué »,
+    │                             miroir de grades sans la note — l'autre sens de la ligne absente
     └── contract_sheets          une trame par évaluation
         ├── contract_sheet_rows          lignes d'activités, id stable d'un enregistrement à l'autre,
         │                                competency_id facultatif vers competencies
         ├── contract_sheet_requirements  tableau on donne / on demande / on exige, une ligne = trois cases alignées
         ├── contract_sheet_savoirs       savoirs associés à la fiche
         └── contract_sheet_students      couche nominative : rôle, appréciation, dates
+
+            trois couples (clé, libellé figé) depuis le palier 024 :
+            activity_domain_id / _label, reference_activity_id / _label,
+            career_id / _label — SET NULL vers le référentiel, le libellé reste
 ```
 
 L'arbre dit la **composition**, pas la totalité des clés : `timetable_slots` et
@@ -520,11 +553,14 @@ créneau ne doit jamais emporter un appel déjà fait.
 
 `ON DELETE CASCADE` sur les liens de composition ; `ON DELETE RESTRICT` vers `competencies` :
 supprimer une compétence déjà notée est refusé par SQLite, et la commande traduit le refus en
-proposition d'archivage. Trois tables la retiennent ainsi — `grades`,
-`evaluation_competencies` et, depuis le palier 021, `progression_etape_competences` — et
-`delete_node` compte les **trois** avant de supprimer : une table ajoutée en `RESTRICT` sans
-l'être ici rendrait le message faux par omission, « 0 évaluation, 0 note » suivi d'un refus
-que plus rien n'explique.
+proposition d'archivage. Quatre tables la retiennent ainsi — `grades`,
+`evaluation_competencies`, `progression_etape_competences` (palier 021) et `grade_waivers`
+(palier 022) — et `delete_node` compte les **quatre** avant de supprimer : une table ajoutée
+en `RESTRICT` sans l'être ici rendrait le message faux par omission, « 0 évaluation, 0 note »
+suivi d'un refus que plus rien n'explique. La cinquième table qui cite `competencies`,
+`establishment_disabled_competencies` (palier 025), est volontairement en **`CASCADE`** et
+non en `RESTRICT` : elle ne porte pas un fait mais un réglage, et ranger au référentiel une
+compétence que personne n'a notée ne doit pas se heurter à un refus.
 
 ### Migrations
 
@@ -554,6 +590,11 @@ liste ordonnée des paliers, chacun étant un fichier de `db/sql/` :
 | 19     | `019_progression.sql`          | `progression_domaines`, `progressions`, `progression_etapes`, `progression_activites`, `progression_plages` : la planification de l'année, une progression par classe (`session_id UNIQUE`), une plage désignée par le **lundi** de sa semaine |
 | 20     | `020_appel_et_categorie.sql`   | `absence_periods.attendance_expected` (l'appel se fait quand même : sortie scolaire, séjour, CDI), `absence_periods.teacher_absent` (c'est le professeur qui manquait, pas la classe) et `agenda_entries.category` (texte libre, affichée en pastille). Aucune table nouvelle, trois `DEFAULT` qui reproduisent le comportement de la veille — l'ordre des deux `ALTER` n'est pas interchangeable, le CHECK du second cite le premier |
 | 21     | `021_competences_de_progression.sql` | `progression_etape_competences` : les compétences d'une étape viennent du **référentiel** et non plus d'un champ texte. Miroir d'`evaluation_competencies` — CASCADE sur l'étape, RESTRICT sur la compétence, index inverse — à une colonne près : **pas de `position`**, l'ordre étant celui du référentiel. Rien n'est migré et `progression_etapes.competences` n'est ni vidée ni supprimée : aucun rattachement ne peut être deviné d'une suite de phrases écrites à la main |
+| 22     | `022_case_non_evaluee.sql`     | `grade_waivers` : « cet élève ne sera pas évalué sur cette compétence », l'autre sens de la ligne absente de `grades`. Miroir de `grades` à la colonne de note près — mêmes cascades, même RESTRICT, mêmes index. La table naît **vide** : toute case aujourd'hui vierge reste « en attente », et aucune moyenne ne change. L'exclusion mutuelle avec `grades` n'est pas dans le schéma — SQLite ne sait pas poser un CHECK sur une autre table — mais dans les deux commandes, chacune dans son sens |
+| 23     | `023_groupes.sql`              | `student_groups` et cinq colonnes `group_id` : l'élève, le créneau, la séance, l'évaluation, la période d'absence. Toutes nullables, et `NULL` veut dire « comme avant » partout — sauf sur l'élève, où il veut dire « convoqué à tout », parce qu'un élève non rangé est un oubli et non une décision. `SET NULL` sur les **réglages**, `RESTRICT` sur les **faits** (une séance tenue, une évaluation notée). L'assiduité gagne un quatrième terme, `seances_autre_groupe`, plutôt que de mentir dans l'un des trois existants. « Groupe 1 semaine A, groupe 2 semaine B » n'a rien coûté : deux créneaux de parité complémentaire, mécanisme du palier 004 |
+| 24     | `024_referentiel_ra16.sql`     | `activity_domains`, `reference_activities`, `careers`, et six colonnes sur `contract_sheets` : l'en-tête de la fiche puise dans le référentiel RA16 au lieu de se taper à la main. Trois couples (clé, libellé figé) sur le modèle de `professional_field_id` / `_label` — `SET NULL` vers le référentiel, le libellé survit. Semé pour le **seul champ Habitat** : les quatre autres n'ont pas de référentiel, et l'écran y garde ses champs de saisie libre. Les trois colonnes de texte libre du palier 001 ne sont **ni vidées ni supprimées** — mêmes précautions qu'au palier 021, elles s'affichent en lecture seule sous le menu, s'impriment encore, et un bouton les efface |
+| 25     | `025_etablissements.sql`       | `establishments`, `sessions.establishment_id` et `establishment_disabled_competencies` : une classe nomme l'établissement où elle se tient, et un établissement dit quelles compétences il n'emploie pas. Le lien vit sur la **classe** et non sur l'année — il n'existe aucune entité « année » dans ce schéma, et le plus général des deux se replie sur l'autre, pas l'inverse. Nullable, `SET NULL`, et `NULL` veut dire « comme avant » partout : aucune compétence retirée d'un menu, aucun document imprimé qui change. La désactivation est un **filtre de saisie** — les lectures qui portent des faits ne la consultent pas, et une compétence déjà notée reste visible et comptée |
+| 26     | `026_progression_des_documents.sql` | `progression_etapes.objectifs` et `.metier_cap`, `progression_activites.nature` et `.objectif`, et `progression_activite_competences` : la progression prend la forme de ses propres documents. **Purement additif** — quatre `DEFAULT` qui reproduisent le comportement de la veille (`nature` naît à `'activite'`), une table qui naît vide, et l'étape garde ses compétences : l'activité **gagne** les siennes, elle ne les lui prend pas. `nature` est la seule liste close du palier, et son CHECK ne fait que redire ce que `verifier_nature` refuse en français — ces trois valeurs sont la forme du document, et c'est du code qui les lit pour composer le mot imprimé. Rien n'est migré : aucun rattachement d'activité ne peut être deviné des compétences de son étape |
 
 Le palier 3 vide la base de tout ce qui touchait au verrou. Le condensat bcrypt n'a plus de
 vérificateur — le mot de passe se prouve en déballant la clé maître — et un condensat resté là
@@ -734,7 +775,9 @@ La règle vit dans la **requête du bilan** (`reports::ATTENDANCE_SQL`) et nulle
 stockage : rien n'est recopié, donc décocher la case rend les séances au calcul sans rien
 reconstruire. Elle se lit **aux deux points symétriques** de cette requête, celui de
 `neutralisees` et celui du `LEFT JOIN`, ou à aucun : ne l'ajouter qu'à l'un des deux casse
-l'invariant imprimé `applicable + hors_inscription + neutralisees == seances_trimestre`.
+l'invariant imprimé `applicable + hors_inscription + neutralisees == seances_trimestre`
+(quatre termes depuis le palier 023, qui y ajoute `autre_groupe` — voir
+[Groupes d'élèves](#groupes-délèves-dans-une-classe)).
 
 `teacher_absent` ne change **aucun calcul**, et c'est voulu : une période écarte déjà ses
 séances, donc « l'enseignant n'était pas là » n'a rien de plus à retirer. Ce qu'il apporte, c'est
@@ -853,6 +896,148 @@ n'auraient rien à prendre. Et l'adresse vit **à un seul endroit**, `adresseDeL
 `journee.ts`, partagée avec les deux appels de l'accueil : trois gabarits d'URL auraient divergé au
 premier paramètre ajouté.
 
+### Groupes d'élèves dans une classe
+
+Palier 023, demandé le 2026-11-12 : « pouvoir ajouter un système de groupe 1 et groupe 2 dans
+les classes, pour pouvoir faire les évaluations sur les deux groupes facilement. Prendre en
+compte les stages et absences et l'emploi du temps pour les groupes, pouvoir définir groupe 1
+pour semaine A et groupe 2 semaine B par exemple. »
+
+Deux points de forme ont été tranchés le même jour, et ce sont eux qui donnent sa tête au
+palier. **Autant de groupes que voulu, librement nommés** : un atelier cuisine, un atelier
+bois, un groupe de besoin — le vocabulaire appartient à l'enseignant, comme les domaines de
+progression et les champs professionnels. D'où une table `student_groups` et non une colonne
+`groupe INTEGER CHECK (groupe IN (1, 2))`. Et **un élève n'appartient qu'à un seul groupe** :
+d'où une colonne sur `students`, non une table de rattachement, qui aurait permis d'écrire ce
+que le modèle interdit et obligé chaque lecture à redécider quoi faire d'un élève présent deux
+fois.
+
+**« Groupe 1 semaine A, groupe 2 semaine B » n'a rien demandé de neuf**, et c'est ce qui rend
+ce palier bon marché. Le schéma le permettait déjà, personne ne l'avait vu : deux groupes au
+même horaire sont **deux créneaux de parité complémentaire** (voir la section précédente), un
+`group_id` chacun. La porte qui les crée existait depuis la révision de `SlotDialog` — « Un
+autre cours à cet horaire », qui préréglait justement la parité complémentaire. Le groupe est
+un attribut du créneau, pas une seconde dimension de la grille. Conséquence qui compte en
+production : `ux_seances_slot_date UNIQUE(slot_id, date)`, que le palier 004 décrit comme « le
+point le plus irréversible du palier », **reste valide** — deux groupes ne demandent jamais
+deux séances du même créneau le même jour, ils demandent deux créneaux, et il n'y a rien eu à
+reconstruire.
+
+**Les cinq colonnes ajoutées naissent toutes à `NULL`, et `NULL` veut dire « comme avant ».**
+Une séance sans groupe convoque toute la classe, une évaluation sans groupe note toute la
+classe, un créneau sans groupe est le cours de toute la classe, une période sans groupe vise
+qui elle visait déjà. Une base migrée se comporte exactement comme la veille, au chiffre près
+— y compris les bilans d'assiduité déjà imprimés, dont le test de migration vérifie qu'ils ne
+bougent pas d'une unité.
+
+#### Les deux sens de « sans groupe », qui vont dans des directions opposées
+
+C'est délibéré, et toute la justesse du calcul d'assiduité y tient :
+
+- `students.group_id IS NULL` → l'élève est convoqué à **toutes** les séances, y compris
+  celles d'un groupe nommé. Parce qu'un élève non rangé est le plus souvent un **oubli**, pas
+  une décision : l'enseignant crée ses deux groupes en novembre, inscrit un nouvel élève en
+  janvier et ne pense pas à le ranger. Le faire disparaître des séances de groupe le
+  retirerait en silence des appels et des bilans — exactement le défaut que corrigeait le
+  palier 006. Le faire apparaître partout est visible, corrigible, et ne coûte qu'un
+  « non fait » que l'écran signale déjà. Le dialogue des groupes l'écrit en toutes
+  lettres, dès qu'un groupe existe, pour que la règle ne se devine pas.
+- Mais un élève sans groupe n'est **pas** couvert par une période qui vise un groupe nommé.
+  Parce qu'une période **retire** des séances du dénominateur : un oubli de rangement ne doit
+  jamais excuser une absence par accident.
+
+Les deux erreurs possibles sont asymétriques, donc les deux règles le sont aussi. Chacune
+penche du côté où l'erreur se voit.
+
+#### L'assiduité : un quatrième seau, et surtout pas un seau existant
+
+Une séance tenue avec l'autre groupe doit sortir du dénominateur de l'élève. La ranger dans
+`hors_inscription` ferait imprimer « hors de sa période d'inscription » sur le bilan d'un
+enfant inscrit depuis septembre ; la ranger dans `seances_neutralisees` ferait imprimer
+« pendant une absence justifiée » d'un enfant qui n'était pas absent. **Ces deux phrases
+s'impriment telles quelles sur un document remis à une famille**, et une phrase fausse sur un
+tel document est le défaut que ce projet refuse le plus.
+
+D'où `seances_autre_groupe`, quatrième terme, avec sa propre phrase — « tenue avec un autre
+groupe, non comptabilisée » — à l'écran comme au PDF. L'invariant imprimé devient :
+
+```
+applicable + hors_inscription + neutralisees + autre_groupe == seances_trimestre
+```
+
+et la partition reste exacte parce que les quatre termes se lisent dans un ordre de priorité
+fixé : non inscrit → `hors_inscription` (qui est **le reste**, pas un calcul) ; inscrit mais
+autre groupe → `autre_groupe` ; inscrit, son groupe, écartée → `neutralisees` ; sinon →
+`applicable`. **Le groupe passe donc avant la neutralisation** : une séance de l'autre groupe
+tenue pendant le stage de l'élève est comptée une seule fois, et du bon côté — elle ne lui a
+pas été retirée par son stage, elle ne lui était pas destinée.
+
+⚠ Le filtre de groupe se lit aux **trois** points de `ATTENDANCE_SQL` — le `LEFT JOIN`, la
+sous-requête `neutralisees`, la sous-requête `autre_groupe` — ou à aucun. C'est l'avertissement
+du palier 020 avec une branche de plus : n'en servir que deux casse l'invariant en silence, et
+le défaut est **invisible sur toute base où personne n'a créé de groupe**, c'est-à-dire sur
+toute base migrée. Deux tests de `commands/reports.rs` le tiennent, et le test de migration
+`une_base_v22_peuplee_traverse_le_palier_023_intacte` vérifie que la somme des quatre termes
+retombe sur le compte de séances du trimestre.
+
+#### Deux sorts de suppression, parce que deux rôles
+
+⚠ Irréversible : une action `ON DELETE` ne se change pas par `ALTER TABLE`.
+
+- **`SET NULL`** sur `students.group_id`, `timetable_slots.group_id` et
+  `absence_periods.group_id` — ce sont des **réglages**. Perdre le groupe rend l'élève, le
+  créneau ou la période à toute la classe : l'état d'avant le palier, lisible et corrigible.
+- **`RESTRICT`** sur `seances.group_id` et `evaluations.group_id` — ce sont des **faits**.
+  Cette séance-là a eu lieu avec ce groupe-là et son bilan d'assiduité en dépend ; cette
+  évaluation-là a noté ces élèves-là. Les rendre rétroactivement « toute la classe »
+  changerait des chiffres déjà imprimés sans qu'une ligne ne le dise. `delete_student_group`
+  compte donc **avant** de supprimer et refuse en français, et la liste des groupes rend ce
+  compte à l'écran : présenter un bouton qui échoue vaut moins que l'annoncer.
+
+Le geste qui reste quand un groupe est devenu intouchable est le **renommage**, libre et qui
+ne ment sur rien : c'est le même ensemble d'élèves, il change de nom. Réorganiser les groupes
+en janvier se fait en créant les nouveaux, pas en effaçant les anciens — les séances de
+novembre ont bien eu lieu avec ceux de novembre.
+
+Même partage entre le fait et le réglage à la lecture : `create_seance_from_slot` **recopie**
+le groupe du créneau au moment où l'occurrence naît et ne le relit jamais, exactement comme
+`start_time` / `end_time` depuis le palier 004. Changer le créneau ne réécrit donc aucune
+séance passée, et les calendriers choisissent en un seul endroit (`groupeDuCours`) : le groupe
+de la séance quand elle existe, celui du créneau sinon.
+
+#### Une évaluation sur un seul groupe
+
+C'est la demande littérale. La grille n'affiche alors que les élèves du groupe, et le compte de
+complétude de l'accueil prend le **même** dénominateur — sans quoi une évaluation de groupe
+serait réclamée pour toujours, l'accueil attendant des notes d'élèves qui n'étaient pas là.
+Restreindre après coup une évaluation à un groupe est **refusé en français** si des élèves hors
+de ce groupe y ont déjà une note ou une mention « non évalué » : refuser plutôt que supprimer —
+les notes appartiennent à l'élève, et un bouton « supprimer ces notes » dans un formulaire de
+titre et de date serait une perte de données à un clic d'un renommage — et refuser plutôt que
+cacher, une note qui existe encore mais que plus aucun écran n'affiche étant la panne qu'on ne
+voit pas. Élargir à toute la classe ne cache jamais rien, donc ne déclenche rien.
+
+#### Une troisième portée pour les périodes d'absence
+
+En SEGPA, les groupes partent en stage en alternance : c'est le cas qui a motivé la colonne. La
+portée d'une période se lit maintenant ainsi — `student_id` non nul vise cet élève, `group_id`
+non nul vise les élèves de ce groupe, les deux nuls visent toute la classe. Deux périodes de
+groupes **différents** se chevauchent sans conflit (les déclarer en conflit aurait interdit la
+saisie du cas même que le palier sert) ; deux périodes du **même** groupe se gênent comme deux
+périodes de la même classe. Le CHECK du schéma redit deux impossibilités que la commande refuse
+déjà en français : un groupe **et** un élève nommé, un groupe **et** une absence du professeur —
+il n'est pas absent pour un groupe, et quand il manque, il manque à tous ceux qu'il devait
+avoir. Pour la même raison qu'au palier 020, **l'ordre des `ALTER` de ce fichier n'est pas
+interchangeable** : le CHECK est porté par la colonne et cite ses deux voisines.
+
+Sur les calendriers, enfin, le prédicat n'est **pas** celui du bilan, et les aligner casserait
+l'un des deux. Un cours de classe entière pendant le stage du groupe 1 **a lieu** : l'autre
+moitié est là, et estomper sa carte ferait disparaître à l'œil la séance dont on attend
+justement l'appel. Le bilan, lui, neutralise bien cette séance pour les élèves du groupe 1,
+parce qu'`ATTENDANCE_SQL` teste le groupe de **l'élève** et non celui de la séance. La carte
+parle du cours, le bilan parle de l'élève : deux vérités du même fait, selon d'où on le
+regarde.
+
 ### Progression annuelle
 
 Palier 019. C'est la mise au propre d'un classeur papier : l'année d'une classe, les domaines
@@ -870,9 +1055,12 @@ Trois niveaux, et c'est le milieu qui compte :
   se **cochent dans le référentiel** depuis le palier 021
   (`progression_etape_competences`), avec le même sélecteur que les évaluations, pour que la
   même compétence s'écrive du même mot dans le plan de l'année et dans le bulletin. Les
-  connaissances et les priorités restent en texte libre ;
+  connaissances et les priorités restent en texte libre. Elle porte aussi, depuis le palier
+  026, les **objectifs** de la séquence et le **métier et le CAP** qu'elle fait découvrir ;
 - l'**activité** (`progression_activites`) est ce qu'on fait, rattachée à une étape et
-  éventuellement à un **domaine** ;
+  éventuellement à un **domaine**. Elle porte depuis le palier 026 sa **nature** (analyse de la
+  situation, activité, TP), son **objectif** et **ses propres compétences** — celles que cette
+  ligne met à l'épreuve, qui s'ajoutent à celles de l'étape sans les remplacer ;
 - la **plage** (`progression_plages`) est une case de frise : un **lundi**, une bande (`voie`,
   0 ou 1), une activité. La semaine se désigne par sa date et **jamais par un numéro ISO** — un
   numéro n'a pas d'année, et la semaine 1 de 2027 suit la 53 de 2026.
@@ -937,7 +1125,188 @@ L'**export PDF** est en **paysage** : quarante-cinq semaines sur une feuille por
 des colonnes de quatre millimètres, où le numéro de semaine ne tient plus. Le document dit deux
 fois la même année — la frise, puis le tableau des étapes — et c'est le **numéro** de l'activité
 qui relie les deux ; la couleur ne fait que l'appuyer, parce qu'une progression finit punaisée
-au mur après un passage par un photocopieur en noir et blanc.
+au mur après un passage par un photocopieur en noir et blanc. **Le tableau du bas a changé de forme au palier 026** : un **bandeau** ouvre
+l'étape et porte ses six textes — intitulé, objectifs, métier et CAP, compétences,
+connaissances, priorités —, puis chacune de ses lignes tient une rangée à elle, avec sa nature,
+son objectif, ses propres compétences, son domaine et ses semaines. Le dessin d'avant fusionnait
+les colonnes de l'étape sur toute la hauteur de son groupe, et six textes dans une cellule
+fusionnée sur 267 mm ne laissaient plus rien aux activités qu'elle annonce ; les documents de
+l'auteur font exactement cela — un bandeau qui ouvre la séquence, puis ses lignes en dessous.
+Une étape **sans** activité garde son bandeau : ses compétences valent d'être lues même si rien
+n'est encore posé en face.
+
+#### Ce que le palier 026 ajoute : la forme des documents
+
+Les deux progressions de l'auteur (une 4ᵉ, une 3ᵉ) ouvrent chaque séquence par deux lignes
+qu'aucune colonne du palier 019 ne pouvait accueillir — ce que la séquence **vise**, et le
+**métier et le CAP** qu'elle fait découvrir — et chacune de leurs lignes porte une **nature**
+(analyse de la situation, activité, TP), un **objectif**, et **ses propres compétences** dans la
+troisième colonne. Le palier 026 ajoute exactement cela, et rien d'autre :
+
+- sur l'étape, `objectifs` et `metier_cap`. Les loger dans `connaissances` ou dans `priorites`
+  les aurait imprimés sous un intitulé faux : un but n'est pas un savoir, et un métier à
+  découvrir n'est pas une priorité de passage ;
+- sur l'activité, `nature` et `objectif` ;
+- une table `progression_activite_competences`, miroir de celle de l'étape.
+
+**L'activité gagne ses compétences, elle ne les prend pas à l'étape.** La décision du
+2026-11-07 tient entière : l'étape garde les siennes, les deux niveaux coexistent, et le
+document imprime les deux — l'étape dit ce que la séquence travaille, la ligne ce qu'elle met
+à l'épreuve. **Rien n'est migré**, pour la raison du palier 021 : deviner laquelle des
+compétences d'une étape appartient à laquelle de ses activités aurait décidé à la place de
+l'enseignant sur toutes ses progressions passées. Une progression saisie avant ce palier se
+relit donc exactement comme la veille — `nature` naît à « activité », la nature de loin la
+plus fréquente dans les deux documents, et les trois textes neufs naissent vides.
+
+La `nature` est la **seule liste close** du palier, et c'est assumé. À la différence de la
+catégorie d'un rendez-vous, qui est le vocabulaire d'un établissement et reste libre, ces trois
+valeurs sont la **forme** des documents — identique de la première à la dernière séquence dans
+les deux fichiers — et c'est **du code** qui les lit pour composer le mot imprimé devant
+l'intitulé. Le refus est **en français** (`verifier_nature`), le CHECK du schéma ne fait que le
+redire pour un appelant futur, et le mot vit à un seul endroit (`MOTS_DE_NATURE`), partagé par
+l'écran et le PDF — deux rédactions auraient fini par imprimer « TP » d'un côté et « Travaux
+pratiques » de l'autre.
+
+`metier_cap` reste **du texte libre et non une clé vers le référentiel** : la deuxième séquence
+de la 3ᵉ nomme « dessinateur industriel », qui n'est pas de la roue Habitat ; la ligne du
+document nomme un métier **et** un CAP dans une seule phrase ; et le lien au référentiel vit
+déjà dans la fiche contrat, où il situe le projet d'un élève. Découvrir un métier en séquence
+n'est pas le projet d'un élève.
+
+Sorts de suppression habituels : `CASCADE` vers le bas (les rattachements partent avec
+l'activité), `RESTRICT` vers le haut. Supprimer du référentiel une compétence citée par une
+activité est donc refusé en français, et `delete_node` compte maintenant **cinq** usages.
+
+### Le référentiel RA16 et l'en-tête de la fiche contrat
+
+Jusqu'au palier 024, les trois cases d'en-tête de la fiche contrat — sous-ensemble du champ,
+activités de référence, métiers visés — étaient du texte libre. L'enseignant retapait à la
+main, projet après projet, des formulations qui existent mot pour mot dans un document
+national. Le palier les branche sur le **référentiel RA16 du champ Habitat** :
+
+```
+professional_fields
+└── activity_domains             « Construction », « Aménagement, agencement, finition »,
+    │                            « Équipements techniques »
+    ├── reference_activities     34 activités, le libellé exact du référentiel
+    └── careers                  21 métiers
+```
+
+**Une seule valeur par case, dans un menu** — décision de l'enseignant du 2026-11-12, contre
+la liste à cocher qui lui était proposée. Et les métiers sont ceux de la **roue** du
+référentiel (« relations entre activités et métiers »), pas les 22 CAP de la page suivante :
+un CAP est un diplôme, plusieurs métiers de la roue en partagent un, et c'est le métier qu'un
+élève de quatrième reconnaît. Vingt-et-un et non vingt-deux pour cette raison même : « Plâtrier »
+et « Plaquiste » sont deux entrées de la roue sous un seul CAP « Plâtrier - Plaquiste ».
+
+**Seul Habitat est semé.** Les quatre autres champs du palier 009 n'ont pas de référentiel, et
+ce n'est pas un trou à combler plus tard par défaut : c'est le choix de l'enseignant, qui
+n'enseigne que celui-là. Conséquence directe sur l'écran, et c'est elle qui a dicté la forme
+du composant : **le menu ne paraît que si le champ a un référentiel**, sinon le champ de
+saisie libre d'avant reste là, inchangé. Remplacer partout la saisie par un menu vide rendrait
+la fiche inremplissable sur les quatre autres champs — et une régression d'écran vaut une
+perte de données. C'est la même règle que `SelecteurDeGroupe`, qui rend `null` quand la classe
+n'a aucun groupe.
+
+**Trois couples (clé, libellé figé)**, sur le modèle exact de `professional_field_id` /
+`professional_field_label` du palier 001 : `ON DELETE SET NULL` vers le référentiel, et le
+libellé reste. Une fiche déjà remise à un élève ne se vide pas parce qu'un référentiel a été
+rangé.
+
+**Les trois colonnes de texte libre ne sont ni vidées ni supprimées**, mêmes précautions qu'au
+palier 021 pour les compétences de progression : ce qui a été tapé s'affiche en lecture seule
+sous le menu, s'imprime encore sur le PDF, et **un seul bouton l'efface** — celui de
+l'enseignant. Rien n'a été migré : deviner le domaine d'activité d'une fiche à partir de la
+phrase qu'elle porte aurait décidé à sa place sur tous ses projets passés.
+
+**Le couple contradictoire est refusé, jamais rectifié en silence** — règle posée pour
+`agenda_entries` au palier 016, et qui pèse plus lourd ici : le domaine et l'activité
+s'impriment côte à côte sur une fiche remise à un élève, donc « Construction / appliquer des
+revêtements muraux » est un document faux. `save_contract_sheet` refuse en français. Mais il
+ne refuse **que** la contradiction : une entrée disparue du référentiel, ou un parent qui a
+lui-même perdu son lien, laisse passer l'enregistrement en lâchant la clé et en gardant le
+libellé. Perdre un lien est acceptable, perdre la saisie de l'enseignant ne l'est pas.
+
+Le nom imprimé change avec le champ : la première colonne de l'identité du projet s'intitule
+désormais **« Domaine d'activité »** et non plus « Domaine du socle ». L'intitulé du classeur
+d'origine était fautif — ce qu'il désignait n'a jamais été un domaine du socle commun, lesquels
+ont leur propre colonne dans la grille du dessous —, et c'est l'enseignant qui a demandé le
+renommage.
+
+### Établissements et compétences écartées
+
+Dernier point de la liste du 2026-11-12 : « lier une année scolaire à un établissement, et
+ajouter des réglages par établissement comme la désactivation de certaines compétences ».
+
+**Le lien vit sur la classe, pas sur l'année**, et ce n'est pas une approximation. Il n'existe
+aucune entité « année scolaire » dans ce schéma : l'année est deux colonnes de `sessions`
+(`level_code` + `year_start`), et en créer une table pour y accrocher un réglage aurait inventé
+un objet que rien d'autre n'habite. Surtout, **le plus général des deux se replie sur l'autre
+et l'inverse est faux** : rattacher les quatre classes d'une année au même établissement est
+quatre gestes et c'est tout, alors que deux classes de la même année dans deux établissements
+— le cas d'un enseignant partagé entre deux collèges, qui est fréquent — serait inexprimable
+si le lien vivait sur l'année.
+
+```
+establishments
+├── sessions.establishment_id      ON DELETE SET NULL — un réglage perdu, pas un fait
+└── establishment_disabled_competencies
+                                   (establishment_id, competency_id), CASCADE des deux côtés
+```
+
+`sessions.establishment_id` est **nullable**, et `NULL` veut dire « comme avant » : aucune
+compétence retirée d'un menu, et l'en-tête des PDF reste le nom saisi dans Réglages. C'est
+l'état de toute base migrée, et c'est le cas normal d'un enseignant qui n'a qu'un collège.
+
+**Ne pas confondre les deux « établissements » de Réglages.** La carte « Identité » porte
+`app_settings.school_name`, le nom **imprimé** en tête des bilans et des fiches contrat ; la
+carte « Établissements », juste en dessous, porte la liste des entités auxquelles on rattache
+des classes, et **rien de ce qu'elle règle ne s'imprime**. Si le nom de l'établissement de la
+classe doit un jour remplacer celui de Réglages en tête des documents, c'est à l'enseignant de
+le dire et ce sera un autre palier — voir « Décisions en attente ».
+
+#### Un filtre de saisie, jamais un masque sur des notes
+
+`establishment_disabled_competencies` dit quelles compétences du référentiel ne sont **pas
+proposées** dans les menus des classes de cet établissement. Rien de plus, et la nuance est
+tout le palier :
+
+- les lectures qui portent des **faits** — `get_evaluation_competencies`,
+  `COMPETENCES_DES_ETAPES`, `reports::AVERAGES_*` — ne consultent **pas** cette table et ne
+  doivent jamais la consulter ;
+- une compétence déjà cochée dans une évaluation ou dans une étape de progression **reste
+  visible, cochée et notée** même si l'établissement vient de l'écarter.
+
+C'est la règle arrêtée au palier 015 pour une compétence retirée d'une évaluation (`'ignore'` :
+elle sort des moyennes, elle **reste** dans `grades`) appliquée un étage plus haut. L'autre
+dessin — cacher la compétence partout — aurait laissé des notes bien réelles que plus aucun
+écran n'affiche, c'est-à-dire la panne qu'on ne voit pas.
+
+Côté écran, le filtre vit **à un seul endroit** : le `sessionId` facultatif de
+`CompetencyPicker`, posé juste à côté de la règle `archived` qu'il imite trait pour trait, si
+bien que « sauf si elle est déjà cochée » n'est écrit qu'une fois pour les trois appelants
+(grille d'évaluation, création d'évaluation, étape de progression). Et le sélecteur **dit
+combien** il en a retiré, par qui, et où le réglage se trouve : une compétence attendue et
+absente se lit comme un défaut de l'application, et l'enseignant irait la recréer dans le
+référentiel.
+
+#### Deux écritures, parce que deux colonnes
+
+`create_session` prend l'établissement ; **`update_session` n'y touche jamais** ; le seul
+écrivain d'après-coup est `set_session_establishment`. Troisième règle d'architecture, et la
+raison est celle de l'horaire d'`update_seance_meta` : une colonne ajoutée à une commande
+d'écriture générale oblige **tout** appelant à la faire transiter, et le premier qui l'omet
+l'efface au premier renommage. L'écran d'édition d'une classe fait donc deux appels, et
+seulement si la valeur a bougé.
+
+#### La suppression ne refuse pas
+
+`delete_establishment` **ne refuse jamais**, à la différence de `delete_student_group` ou de
+`delete_node` : ses classes reviennent à « aucun établissement » — l'état exact d'avant le
+palier — et ses compétences écartées partent avec lui. La distinction est la même qu'au palier
+023 : un **réglage** perdu se repose en trois clics, un **fait** perdu ne revient pas. Et le
+`CASCADE` vers `competencies` va dans le même sens : ranger une compétence au référentiel
+emporte le réglage qui la citait, là où une note la retient par un `RESTRICT`.
 
 ## Journal de diagnostic
 
@@ -1021,7 +1390,7 @@ touche la base.
 
 ## Tests
 
-`cargo test --lib`, depuis `src-tauri/` — **188 tests** :
+`cargo test --lib`, depuis `src-tauri/` — **222 tests** :
 
 | Fichier                       | Tests | Ce qui est vérifié                                                                                                            |
 | ----------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -1031,16 +1400,19 @@ touche la base.
 | `db/mod.rs`                   | 9     | la base se rouvre avec la même clé, une mauvaise clé est refusée par la lecture de contrôle, le fichier sur le disque ne laisse rien lire, `VACUUM INTO` reste chiffré, base sans `sgpa.keys` mise de côté ; trimestre aux dates charnières, hors bornes, année bissextile, bornes par défaut |
 | `commands/students.rs`        | 6     | découpage nom / prénom des lignes collées, noms composés, lignes vides, validation des dates                                   |
 | `commands/trimesters.rs`      | 6     | validation des bornes : ordre, égalité fin / début de T3, dates impossibles, année hors bornes, libellé court de date          |
-| `db/migrations.rs`            | 17    | version atteinte, idempotence, base trop récente refusée, semis du socle, aucune référence orpheline ; et des bases peuplées qui traversent les derniers paliers **intactes** — celle du palier 016 vérifie en plus que la classe d'un rendez-vous est bien déduite de son élève et qu'une reprise n'en invente aucune, celle du palier 017 qu'aucun « rien à écrire » n'est inventé et qu'**aucun octet ne survit à sa classe** — deux cascades enchaînées, posées par `ALTER TABLE`, réellement actives ; celle du palier 018 qu'aucun libellé ne change de sens à la conversion, que les index et le `RESTRICT` sont bien reposés sur la table reconstruite, et que le nouveau CHECK refuse 0, 21 et −1 ; celle du palier 019 qu'une base d'avant la progression le traverse sans perdre une ligne, et que les cinq tables nouvelles n'y naissent vides ; celle du palier 020 qu'un bilan d'assiduité recompté **avec la requête réelle du bilan** rende les mêmes chiffres après migration qu'avant, puis qu'il change bien quand la case est cochée ; celle du palier 021 que les textes d'une étape restent intacts, qu'**aucun rattachement n'est deviné** (la table nouvelle naît vide), qu'un doublon est refusé, que supprimer du référentiel une compétence citée par une étape est refusé par le `RESTRICT`, et que supprimer l'étape emporte ses liens sans laisser d'orphelin |
+| `db/migrations.rs`            | 22    | version atteinte, idempotence, base trop récente refusée, semis du socle, aucune référence orpheline ; et des bases peuplées qui traversent les derniers paliers **intactes** — celle du palier 016 vérifie en plus que la classe d'un rendez-vous est bien déduite de son élève et qu'une reprise n'en invente aucune, celle du palier 017 qu'aucun « rien à écrire » n'est inventé et qu'**aucun octet ne survit à sa classe** — deux cascades enchaînées, posées par `ALTER TABLE`, réellement actives ; celle du palier 018 qu'aucun libellé ne change de sens à la conversion, que les index et le `RESTRICT` sont bien reposés sur la table reconstruite, et que le nouveau CHECK refuse 0, 21 et −1 ; celle du palier 019 qu'une base d'avant la progression le traverse sans perdre une ligne, et que les cinq tables nouvelles n'y naissent vides ; celle du palier 020 qu'un bilan d'assiduité recompté **avec la requête réelle du bilan** rende les mêmes chiffres après migration qu'avant, puis qu'il change bien quand la case est cochée ; celle du palier 021 que les textes d'une étape restent intacts, qu'**aucun rattachement n'est deviné** (la table nouvelle naît vide), qu'un doublon est refusé, que supprimer du référentiel une compétence citée par une étape est refusé par le `RESTRICT`, et que supprimer l'étape emporte ses liens sans laisser d'orphelin ; celle du palier 022 qu'**aucune case n'est devinée** (`grade_waivers` naît vide, donc toute case vierge reste « en attente »), qu'une note déjà posée est intacte, que la clé primaire refuse le doublon, que le `RESTRICT` protège la compétence et les deux `CASCADE` l'élève et l'évaluation — et que le **schéma**, lui, accepterait une case portant note et déclaration : c'est le test qui dit noir sur blanc où vit réellement l'exclusion, dans les deux commandes et non dans la base ; celle du palier 024 que les six colonnes neuves **naissent vides** et qu'une fiche déjà saisie se relise mot pour mot, que le semis n'ait posé **aucun orphelin** (les paliers tournent `foreign_keys` OFF, donc rien ne l'aurait rattrapé), et que supprimer un domaine d'activité emporte bien ses enfants sans vider la fiche qui le citait — elle perd son lien, jamais son libellé ; celle du palier 025 que les deux tables neuves **naissent vides** et qu'aucune classe ne se voit attribuer d'établissement, que la note et la désactivation **coexistent** sur la même compétence — un filtre de saisie n'est pas un masque sur un fait —, puis les deux sorts à la fois : `SET NULL` qui rend la classe à « aucun établissement » et `CASCADE` qui emporte les réglages des deux côtés, l'établissement supprimé et la compétence rangée au référentiel ; celle du palier 026 que les trois textes d'avant sortent **mot pour mot** et que les quatre colonnes neuves naissent vides ou à « activité », que la table de rattachement naît **vide** (aucun rattachement d'activité n'est deviné), puis — une fois le palier réellement employé — qu'une quatrième nature est refusée par le CHECK, qu'une compétence citée refuse de partir (`RESTRICT`) et qu'une activité supprimée emporte son rattachement **et** sa plage (`CASCADE`) |
 | `commands/reports/scoring.rs` | 5     | moyenne non pondérée, moyenne pondérée par le nombre de notes, absence de note — sur 20 depuis le palier 018                     |
 | `portable.rs`                 | 5     | sonde d'écriture (dossier inscriptible, chemin inexistant), purge des traces WebView2 et profil absent, verrou qui refuse une seconde instance |
-| `commands/timetable.rs`       | 16    | créneaux récurrents : parité de la semaine (dont deux semaines impaires de suite au passage de 2027), bornes d'horaire, ordre des heures, jours de la semaine, intitulés obligatoires ; la journée assemblée depuis ses trois sources, la quinzaine qui ne tombe pas, une lecture qui n'écrit rien, et l'année qui compte ses **vraies** semaines ; `feries.rs` ajoute 4 tests sur les jours fériés mobiles |
-| `commands/reports.rs`         | 15    | assiduité : séances hors période d'inscription, absences justifiées collectives ou nominatives, placements de stage qui désarment la période pour un seul élève |
-| `commands/absences.rs`        | 18    | périodes d'absence justifiée : validation des bornes, chevauchements, portée collective ou nominative, cascade vers les placements ; et depuis le palier 020 — une période « avec appel » s'écrit et se relit, une absence du professeur pose une ligne par classe cochée dans une seule transaction, une liste de classes vide est refusée, une classe inconnue annule tout le geste, et `update_absence_period` refuse de rendre l'appel à une absence du professeur ou de la rendre nominative — tout en laissant corriger ses dates, une absence du professeur n'étant pas une ligne en lecture seule |
+| `commands/timetable.rs`       | 17    | créneaux récurrents : parité de la semaine (dont deux semaines impaires de suite au passage de 2027), bornes d'horaire, ordre des heures, jours de la semaine, intitulés obligatoires ; la journée assemblée depuis ses trois sources, la quinzaine qui ne tombe pas, une lecture qui n'écrit rien, et l'année qui compte ses **vraies** semaines ; une période qui vise un groupe arrive à la grille **avec** son groupe, sans quoi l'écran estomperait la carte de toute la classe ; `feries.rs` ajoute 4 tests sur les jours fériés mobiles |
+| `commands/reports.rs`         | 17    | assiduité : séances hors période d'inscription, absences justifiées collectives ou nominatives, placements de stage qui désarment la période pour un seul élève ; et les deux du palier 023, **ceux qui protègent le document remis à la famille** — une classe dédoublée partage son trimestre en **quatre** termes exactement (l'élève non rangé restant convoqué partout, son compteur de groupe à zéro), et une séance de l'autre groupe tenue **pendant** le stage de l'élève n'est comptée qu'une fois : sans le filtre de groupe dans la sous-requête `neutralisees`, elle sortait à 29 séances sur un trimestre qui en compte 26 |
+| `commands/absences.rs`        | 22    | périodes d'absence justifiée : validation des bornes, chevauchements, portée collective ou nominative, cascade vers les placements ; et depuis le palier 020 — une période « avec appel » s'écrit et se relit, une absence du professeur pose une ligne par classe cochée dans une seule transaction, une liste de classes vide est refusée, une classe inconnue annule tout le geste, et `update_absence_period` refuse de rendre l'appel à une absence du professeur ou de la rendre nominative — tout en laissant corriger ses dates, une absence du professeur n'étant pas une ligne en lecture seule ; et depuis le palier 023 — une période de groupe n'écarte que les séances de son groupe, deux groupes se chevauchent sans conflit mais pas un groupe avec lui-même, une période vise un élève **ou** un groupe et jamais les deux, et une absence du professeur ne vise pas un groupe |
 | `db/holidays.rs`              | 8     | découpage d'une année scolaire, semis du calendrier officiel, et surtout : un semis impossible ne fait **rien** échouer — un `?` à cet endroit détruirait `data/sgpa.keys` |
-| `commands/seances.rs`         | 8     | appel : « non fait » comme état réel, appel collectif, remise à zéro, création depuis un créneau |
+| `commands/seances.rs`         | 10    | appel : « non fait » comme état réel, appel collectif, remise à zéro, création depuis un créneau ; et depuis le palier 023 — une séance de groupe n'appelle que son groupe, et l'occurrence née d'un créneau **recopie** son groupe et refuse celui d'une autre classe |
+| `commands/establishments.rs`  | 8     | les établissements : un nom rogné, normalisé, non vide et borné à 120 signes ; un renommage qui refuse le doublon mais **corrige sa propre casse** (`COLLATE NOCASE` — le doublon qu'on ne voit pas) ; un collage multiligne qui passe les lignes vides et rend ses doublons ; une classe **sans** établissement qui ne filtre rien, qui est l'état de toute base migrée ; **désactiver une compétence sans toucher ni à la note ni au rattachement**, c'est-à-dire le palier entier en un test ; une compétence inconnue qui annule **tout** l'enregistrement ; le compte inverse, qui dit où une compétence reste employée ; et la suppression qui **ne refuse pas** et rend la classe à l'état d'avant |
+| `commands/activities.rs`      | 5     | l'écran du référentiel RA16 : l'arbre qui rend les champs **sans domaine** et compte les fiches contrat qui citent chaque entrée — l'écran doit savoir **avant** de proposer un bouton ce qu'une suppression coûterait —, un libellé rogné et borné, un renommage qui refuse le doublon sauf sa propre casse, un collage qui passe les lignes vides, et un réordonnancement refusé quand la liste ne correspond plus à ce qui est en base : deux écrans ouverts sur le même référentiel ne doivent pas se renuméroter l'un sur l'autre |
+| `commands/groups.rs`          | 4     | les groupes : un nom rogné, non vide et borné à 40 signes ; un groupe d'une autre classe refusé ; une séance tenue qui **retient** son groupe là où un élève rangé le lâche — `RESTRICT` contre `SET NULL`, les faits contre les réglages ; et le listage qui dit **avant** ce qu'une suppression heurterait, présenter un bouton qui échoue valant moins que l'annoncer |
 | `commands/attachments.rs`     | 3     | le plafond de 10 Mo porte sur les octets **décodés** et non sur la chaîne base64 reçue ; taille affichée en français (« 312 Ko », « 1,4 Mo ») ; les deux porteurs ont des requêtes jumelles — une divergence ne se verrait que sur l'écran le moins fréquenté |
-| `commands/progressions.rs`    | 8     | la progression annuelle : le rang d'une activité suit `(étape, activité)` et non l'ordre d'insertion, une activité d'une autre classe est refusée, une plage se désigne par un lundi, la frise n'a que deux bandes, et supprimer une étape ne laisse pas une plage orpheline ; et depuis le palier 021 — les compétences d'une étape sortent dans l'ordre du **référentiel** et non dans celui des clics (ce qui dispense la table de rattachement d'une colonne `position`), une compétence inconnue annule **tout** l'enregistrement et pas seulement ses rattachements, et le texte libre d'avant survit au passage du sélecteur |
+| `commands/progressions.rs`    | 11    | la progression annuelle : le rang d'une activité suit `(étape, activité)` et non l'ordre d'insertion, une activité d'une autre classe est refusée, une plage se désigne par un lundi, la frise n'a que deux bandes, et supprimer une étape ne laisse pas une plage orpheline ; et depuis le palier 021 — les compétences d'une étape sortent dans l'ordre du **référentiel** et non dans celui des clics (ce qui dispense la table de rattachement d'une colonne `position`), une compétence inconnue annule **tout** l'enregistrement et pas seulement ses rattachements, et le texte libre d'avant survit au passage du sélecteur ; et les trois du palier 026 — les compétences d'une **activité** sortent elles aussi dans l'ordre du référentiel (la double jointure vers la progression est le seul endroit où cette requête peut diverger de sa jumelle de l'étape), les **trois** natures sont acceptées et une quatrième refusée en français, et supprimer une activité ne laisse pas un rattachement orphelin — le `RESTRICT` qui protège la compétence étant vérifié d'abord |
 | `commands/needs.rs`           | 1     | le garde-fou de la décision « jamais imprimé » : `reports.rs`, `reports/scoring.rs`, `contracts.rs` et `src/lib/pdf.ts` sont relus et ne doivent citer ni `student_need_tags`, ni `student_needs`, ni `needs_note` |
 | `commands/contracts.rs`       | 5     | le libellé saisi survit à l'enregistrement, une compétence inconnue garde le texte et lâche le lien, plusieurs activités partagent une seule compétence (ce qui l'empêche de compter plusieurs fois), supprimer la compétence conserve la ligne, le tableau des consignes accepte plusieurs lignes alignées |
 | `commands/referential.rs`     | 5     | libellé d'un domaine du socle : forme complète « D3 — … (Cycle 3) », code absent sans tiret orphelin, cycle absent sans parenthèses vides, nom absent qui ne produit rien, espaces rognés |
@@ -1075,8 +1447,12 @@ migration.
    remet en cause.
 
 En attente également : la **liste des champs professionnels** SEGPA. Deux listes circulent, à 4
-ou 5 entrées, et la référence réglementaire n'est pas vérifiée — `professional_fields` reste
-donc vide à la livraison.
+ou 5 entrées, et la référence réglementaire n'est toujours pas vérifiée. Le palier 009 a semé
+celle à **5 entrées** — il fallait bien en retenir une pour que le référentiel du socle ait où
+se rattacher, et le palier 024 greffe le RA16 sous l'une d'elles. Ce n'est pas un arbitrage :
+si l'enseignant tranche pour l'autre liste, c'est un palier de plus, qui renomme ou retire un
+champ — et aucun des deux gestes n'est anodin, une fiche contrat gardant le **libellé figé**
+du champ qu'elle cite.
 
 ### Règles de calcul, arrêtées le 2026-11-06
 
@@ -1105,7 +1481,9 @@ déjà établis**, trimestres passés compris. La carte des Réglages le dit.
 
 L'**ordre de l'échelle de maîtrise** a été confirmé le même jour : insuffisante · fragile ·
 presque · satisfaisante · très bonne. Le classeur source inverse les niveaux 2 et 3 ; l'ordre
-du code a été retenu.
+du code a été retenu. **« Presque maîtrisé » a depuis été retiré par l'auteur** — voir
+« Quatre degrés au lieu de cinq » ci-dessous —, mais l'ordre des quatre restants n'a pas
+bougé.
 
 ### La note sur 20 (palier 018, 2026-11-07)
 
@@ -1113,17 +1491,32 @@ L'enseignant **saisit une note entière de 1 à 20**, et le libellé de maîtris
 d'elle. La chaîne allait dans l'autre sens jusque-là : on cliquait un degré parmi cinq, et la
 note /20 s'en déduisait à quatre points par degré.
 
-Les cinq tranches sont 1-4 insuffisante, 5-8 fragile, 9-12 presque, 13-16 satisfaisante,
-17-20 très bonne. Elles ne sont écrites **qu'une fois**, dans `MASTERY_BANDS` et `niveauDeNote`
-(`src/types/index.ts`) : pas de CHECK sur le libellé, pas de colonne calculée, pas de table de
-correspondance. Le backend ne nomme jamais un degré — il stocke un nombre et en vérifie les
-bornes. Un libellé stocké figerait le découpage au jour de la saisie, et le relâcher plus tard
-changerait les bilans déjà établis sans que rien ne le signale.
+Les tranches sont **1-5 insuffisante, 6-10 fragile, 11-15 satisfaisante, 16-20 très bonne**
+depuis le 2026-11-12 ; elles étaient cinq de quatre points avant cette date (voir « Quatre
+degrés au lieu de cinq » ci-dessous). Elles ne sont écrites **qu'une fois**, dans
+`MASTERY_BANDS` et `niveauDeNote` (`src/types/index.ts`) : pas de CHECK sur le libellé, pas de
+colonne calculée, pas de table de correspondance. Le backend ne nomme jamais un degré — il
+stocke un nombre et en vérifie les bornes. Un libellé stocké figerait le découpage au jour de
+la saisie, et le relâcher plus tard changerait les bilans déjà établis sans que rien ne le
+signale.
 
-**Il n'y a pas de note de 0.** « Non évalué » est l'absence de ligne dans `grades`, comme
+**Il n'y a pas de note de 0.** L'absence de note est l'absence de ligne dans `grades`, comme
 l'appel non fait n'est pas un « présent » par défaut. Effacer une note est donc une commande
 à part, `delete_grade`, et non un `set_grade(…, 0)` : une flèche restée enfoncée effacerait
 sinon une note par simple débordement.
+
+**Et cette absence dit deux choses, distinguées depuis le palier 022.** « Je n'ai pas encore
+noté » reste l'absence pure — la case est *en attente*. « Je ne noterai jamais cet élève sur
+cette compétence » est une ligne dans `grade_waivers`, posée d'un clic sur le mot à côté de la
+case (ou par la touche <kbd>N</kbd>) et retirée du même geste. Les deux sortent de la moyenne,
+et de la même façon : une case déclarée n'a pas de note, donc les requêtes `AVERAGES_*` sont
+restées **mot pour mot** celles d'avant le palier. Ce que la déclaration change est ailleurs —
+l'accueil cesse de réclamer une évaluation volontairement partielle (son compte de complétude
+parcourt les **cases** et compte celles qu'une note *ou* une déclaration règle), et la feuille
+remise à l'élève imprime « non évalué » en travers des colonnes de maîtrise au lieu d'une
+ligne vierge qui se lisait comme un oubli. Les deux états ne peuvent pas coexister sur une
+case : `set_grade` lève la déclaration dans sa transaction — poser une note, c'est évaluer —,
+et `set_grade_waiver` refuse en français tant qu'une note est là.
 
 La conversion n'a perdu aucun libellé : les anciens points 4, 8, 12, 16 et 20 sont exactement
 les **hauts** des cinq tranches, donc `mark = level * 4` a conservé à chaque note déjà saisie
@@ -1131,12 +1524,36 @@ le libellé qu'elle affichait. C'est ce que tient le test
 `une_base_v17_notee_traverse_le_palier_018_sans_perdre_un_libelle`.
 
 Sur la **fiche d'évaluation remise à l'élève**, la note par compétence n'apparaît pas : il lit
-un libellé de maîtrise — une croix dans l'une des cinq colonnes — et sa moyenne sur
+un libellé de maîtrise — une croix dans l'une des colonnes de l'échelle — et sa moyenne sur
 l'évaluation. La règle est tenue par la forme des données : la fiche reçoit des degrés,
 convertis à la source, et la note par compétence n'arrive jamais jusqu'au générateur de PDF.
 
 Ce qui **n'existe pas** et reste à concevoir si le besoin vient : pondération des trimestres et
 moyenne annuelle, coefficients d'évaluation, et toute notion de dispense — absente du schéma.
+
+### Quatre degrés au lieu de cinq (2026-11-12)
+
+« Presque maîtrisé » a été **retiré de l'échelle** à la demande de l'auteur. Les quatre
+libellés restants — maîtrise insuffisante, maîtrise fragile, maîtrise satisfaisante, très
+bonne maîtrise — sont mot pour mot ceux du LSU, ceux que la famille lit déjà sur le bulletin.
+
+Retirer un degré oblige à **recouper les vingt points**, et c'est fait en tranches égales de
+cinq : **1-5 · 6-10 · 11-15 · 16-20**, contre 1-4 · 5-8 · 9-12 · 13-16 · 17-20 avant.
+
+**Aucune note n'a changé, et il n'y a pas eu de migration.** C'est exactement ce que le palier
+018 avait acheté en refusant de stocker le libellé : `grades.mark` est la donnée, le degré n'en
+est que la lecture, et le découpage ne vit qu'à un seul endroit — `MASTERY_BANDS` et
+`niveauDeNote` dans `src/types/index.ts`. Changer l'échelle y tient en cinq lignes.
+
+**Ce qui change, c'est la lecture, et il faut le savoir** : un 9/20 qui s'affichait « presque
+maîtrisé » s'affiche désormais « maîtrise fragile », un 12/20 passe de « presque » à
+« satisfaisante », un 16/20 de « satisfaisante » à « très bonne ». Un bilan imprimé avant cette
+date et le même bilan réimprimé aujourd'hui peuvent donc porter deux mots différents pour la
+même note. La seule façon de l'éviter aurait été de figer le libellé dans la base au moment de
+la saisie — ce qui aurait rendu ce changement impossible.
+
+Les colonnes du PDF suivent sans qu'une largeur soit retouchée : tout ce qui les compte les
+compte par `MASTERY_SCALE.length`, jamais en écrivant « 5 ».
 
 ## Documents liés
 

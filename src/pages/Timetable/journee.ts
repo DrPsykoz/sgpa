@@ -28,6 +28,11 @@
  * stage, **garde ses cartes** et les estompe, avec le motif écrit dessus. Les
  * confondre referait, à l'envers, le défaut que le palier 006 a corrigé.
  *
+ * Le palier 023 en ajoute une troisième, et c'est la plus étroite : un GROUPE
+ * hors cours n'estompe que les cartes de **son** groupe. Le cours de classe
+ * entière, lui, se tient — l'autre moitié de l'atelier est là, et on attend
+ * son appel.
+ *
  * Le motif a cessé d'être une chaîne et devient l'enregistrement lui-même
  * (`absenceDuCreneau`) : depuis le palier 020 une période porte deux drapeaux
  * — l'appel se fait quand même, le professeur était absent — et un booléen
@@ -82,15 +87,72 @@ export function motifDeFermeture(day: DaySchedule): string | null {
  * Une période nominative n'entre jamais ici (le backend ne la rend pas) : la
  * classe est là, un élève manque. Les confondre referait, à l'envers, le défaut
  * que le palier 006 a corrigé.
+ *
+ * ⚠ **Le prédicat de l'écran n'est pas celui du bilan, et c'est voulu.** Une
+ * période qui vise un groupe n'écarte que les créneaux de ce groupe : un cours
+ * de classe entière pendant le stage du groupe 1 **a lieu**, l'autre moitié de
+ * l'atelier est là, et l'estomper ferait disparaître à l'œil la séance dont on
+ * attend justement l'appel. D'où un prédicat qui n'est pas symétrique :
+ *
+ *     away.group_id === null || away.group_id === groupId
+ *
+ * Le bilan, lui, retire bien cette séance de classe entière du dénominateur
+ * des élèves du groupe parti — `reports::ATTENDANCE_SQL` teste le groupe de
+ * l'**élève**, pas celui de la séance. Les deux disent la même vérité depuis
+ * deux points de vue : la carte parle du cours, le bilan parle de l'élève. Les
+ * aligner en casserait une.
  */
 export function absenceDuCreneau(
   day: DaySchedule,
   sessionId: string | null,
+  groupId: string | null,
 ): SessionAway | null {
   if (sessionId === null) return null;
-  const away = day.sessions_away.find((c) => c.session_id === sessionId);
-  if (away === undefined || away.attendance_expected) return null;
-  return away;
+  const candidates = day.sessions_away.filter(
+    (c) =>
+      c.session_id === sessionId &&
+      (c.group_id === null || c.group_id === groupId),
+  );
+  // Deux périodes peuvent couvrir le même créneau depuis le palier 023 — le
+  // groupe 1 en stage pendant que la classe entière est au CDI —, et c'est
+  // celle qui écarte le cours qui décide du dessin : chercher la première
+  // venue aurait rendu `null` une fois sur deux, au gré de l'ordre des lignes.
+  return candidates.find((c) => !c.attendance_expected) ?? null;
+}
+
+/** « 4ᵉ A », ou « 4ᵉ A · Groupe 1 » quand la période ne vise qu'un groupe.
+ *
+ *  Un seul endroit : la ligne de la colonne, le bandeau et l'infobulle doivent
+ *  nommer la même chose, et trois concaténations auraient fini par écrire trois
+ *  formes du même couple. */
+function cibleDeAbsence(away: SessionAway): string {
+  return away.group_name
+    ? `${away.session_name} · ${away.group_name}`
+    : away.session_name;
+}
+
+/**
+ * Le groupe que porte un cours : **le fait avant le réglage**.
+ *
+ * Celui de la SÉANCE quand elle existe, celui du créneau sinon. Les deux
+ * peuvent différer sans que rien ne soit cassé : l'occurrence recopie le
+ * groupe du créneau à sa naissance, et changer le créneau ensuite ne réécrit
+ * aucune séance passée — un fait ne suit pas un réglage, c'est la même règle
+ * qui met `seances.group_id` en RESTRICT et `timetable_slots.group_id` en SET
+ * NULL.
+ *
+ * Partagé par les deux calendriers, parce qu'il sert **deux fois sur la même
+ * carte** : le nom qu'elle affiche et le groupe qu'`absenceDuCreneau` compare.
+ * Deux rédactions auraient fini par estomper la carte d'après un groupe et en
+ * écrire un autre dessus.
+ */
+export function groupeDuCours(
+  slot: TimetableSlot,
+  seance: DaySeance | null,
+): { id: string | null; nom: string | null } {
+  return seance === null
+    ? { id: slot.group_id, nom: slot.group_name }
+    : { id: seance.group_id, nom: seance.group_name };
 }
 
 /**
@@ -111,8 +173,15 @@ export function motsDeAbsence(away: SessionAway): {
   bandeau: string;
   infobulle: string;
 } {
-  const consequence =
-    "Le cours ne se tient pas : hors du dénominateur d'assiduité de toute la classe.";
+  // Une période de groupe ne retire pas le cours de toute la classe, et la
+  // phrase ne doit pas le dire : l'autre moitié de l'atelier a cours, et
+  // l'enseignant qui relit sa semaine chercherait en vain pourquoi elle est
+  // vide. Une absence du professeur ne porte jamais de groupe — il n'est pas
+  // absent pour la moitié d'une classe —, donc elle lit toujours la première
+  // phrase.
+  const consequence = away.group_name
+    ? `Le cours de ce groupe ne se tient pas : hors du dénominateur d'assiduité de « ${away.group_name} », les autres élèves de la classe ayant cours.`
+    : "Le cours ne se tient pas : hors du dénominateur d'assiduité de toute la classe.";
   if (away.teacher_absent) {
     return {
       carte: "Professeur absent",
@@ -120,11 +189,28 @@ export function motsDeAbsence(away: SessionAway): {
       infobulle: `Professeur absent — ${away.reason}. ${consequence}`,
     };
   }
+  const cible = cibleDeAbsence(away);
   return {
     carte: away.reason,
-    bandeau: `${away.session_name} — ${away.reason}`,
-    infobulle: `${away.session_name} hors cours — ${away.reason}. ${consequence}`,
+    bandeau: `${cible} — ${away.reason}`,
+    infobulle: `${cible} hors cours — ${away.reason}. ${consequence}`,
   };
+}
+
+/**
+ * La ligne d'un bandeau pour une période, **les trois cas compris**.
+ *
+ * `motsDeAbsence` ne couvre que ce qui change l'emploi du temps ; une sortie
+ * scolaire se dit autrement — la classe est ailleurs mais l'appel se fait,
+ * donc « hors cours » serait faux. Les deux formulations vivent ici parce que
+ * deux écrans les écrivent : le bandeau de l'accueil et le détail de l'en-tête
+ * de colonne. Elles s'étaient déjà écartées une fois, l'accueil nommant la
+ * classe là où la colonne nommait la cible complète.
+ */
+export function bandeauDeAbsence(away: SessionAway): string {
+  return away.attendance_expected
+    ? `${cibleDeAbsence(away)} — ${away.reason} (l'appel se fait)`
+    : motsDeAbsence(away).bandeau;
 }
 
 /**
@@ -141,6 +227,20 @@ export function motsDeAbsence(away: SessionAway): {
  * absence du professeur écrit une ligne par classe cochée — sans ce
  * dédoublonnage, un en-tête répéterait « Professeur absent » quatre fois.
  */
+function ligneDesClasses(classes: readonly SessionAway[]): string | null {
+  if (classes.length === 0) return null;
+  if (classes.length === 1) return `${cibleDeAbsence(classes[0])} hors cours`;
+  // Deux groupes de la même classe ne font pas deux classes absentes : le
+  // compte porte sur les classes DISTINCTES, sans quoi un atelier dont les
+  // deux groupes partent chacun leur tour afficherait « 2 classes hors cours »
+  // là où il n'y en a qu'une.
+  const noms = new Set(classes.map((a) => a.session_name));
+  if (noms.size > 1) return `${noms.size} classes hors cours`;
+  return classes.every((a) => a.group_name !== null)
+    ? `${classes[0].session_name} — ${classes.length} groupes hors cours`
+    : `${classes[0].session_name} hors cours`;
+}
+
 export function motsDesAbsences(
   day: DaySchedule,
 ): { ligne: string; detail: string } | null {
@@ -153,19 +253,10 @@ export function motsDesAbsences(
   const classes = day.sessions_away.filter(
     (a) => !a.teacher_absent && !a.attendance_expected,
   );
-  if (classes.length === 1) {
-    parts.push(`${classes[0].session_name} hors cours`);
-  } else if (classes.length > 1) {
-    parts.push(`${classes.length} classes hors cours`);
-  }
+  const ligneClasses = ligneDesClasses(classes);
+  if (ligneClasses !== null) parts.push(ligneClasses);
 
-  const detail = day.sessions_away
-    .map((a) =>
-      a.attendance_expected
-        ? `${a.session_name} — ${a.reason} (l'appel se fait)`
-        : motsDeAbsence(a).bandeau,
-    )
-    .join(" · ");
+  const detail = day.sessions_away.map(bandeauDeAbsence).join(" · ");
 
   // Rien qui change, mais quelque chose à dire : la ligne reprend alors le
   // détail plutôt que de rester vide, parce qu'une colonne muette laisserait
@@ -322,12 +413,14 @@ export interface AbsenceDeSemaine {
  * illisible précisément dans le cas qui la justifie — plusieurs classes
  * absentes la même semaine.
  *
- * Le regroupement se fait sur la **classe, les deux drapeaux et le motif**, et
- * non sur un identifiant de période : `SessionAway` n'en porte pas, parce que
- * rien à l'écran n'en avait besoin jusqu'ici. Deux périodes distinctes de même
- * motif pour la même classe fusionneraient donc en une ligne ; c'est sans
- * conséquence, la légende disant ce qui se passe et non combien de lignes la
- * base contient.
+ * Le regroupement se fait sur la **classe, le groupe, les deux drapeaux et le
+ * motif**, et non sur un identifiant de période : `SessionAway` n'en porte pas,
+ * parce que rien à l'écran n'en avait besoin jusqu'ici. Deux périodes distinctes
+ * de même motif pour la même classe fusionneraient donc en une ligne ; c'est
+ * sans conséquence, la légende disant ce qui se passe et non combien de lignes
+ * la base contient. Le groupe, lui, est dans la clé : le stage du groupe 1 et
+ * celui du groupe 2 portent le même motif sur la même classe, et les fondre
+ * aurait effacé la moitié de la frise.
  */
 export function absencesGroupees(
   days: readonly DaySchedule[],
@@ -337,6 +430,7 @@ export function absencesGroupees(
     for (const away of day.sessions_away) {
       const cle = [
         away.session_id,
+        away.group_id ?? "",
         away.teacher_absent ? "1" : "0",
         away.attendance_expected ? "1" : "0",
         away.reason,
@@ -383,15 +477,25 @@ export function motsDeLegende(away: SessionAway): {
         "Personne n'a assuré le cours : il sort de l'assiduité, et l'accueil ne réclame rien.",
     };
   }
+  // Le groupe devant le motif, et non dans la pastille : celle-ci porte le nom
+  // de la CLASSE et sa teinte, pour se lire comme la légende de la carte
+  // qu'elle explique. Y glisser le groupe aurait fait deux pastilles, ou une
+  // pastille qui ne ressemble plus à aucune carte.
+  const quoi = away.group_name
+    ? `${away.group_name} — ${away.reason}`
+    : away.reason;
   if (away.attendance_expected) {
     return {
-      quoi: away.reason,
-      effet:
-        "La classe est ailleurs, mais l'appel se fait : manquer est une absence comme une autre.",
+      quoi,
+      effet: away.group_name
+        ? "Ce groupe est ailleurs, mais l'appel se fait : manquer est une absence comme une autre."
+        : "La classe est ailleurs, mais l'appel se fait : manquer est une absence comme une autre.",
     };
   }
   return {
-    quoi: away.reason,
-    effet: "La classe est ailleurs : ses cours sortent du calcul d'assiduité.",
+    quoi,
+    effet: away.group_name
+      ? "Ce groupe est ailleurs : ses cours sortent de son calcul d'assiduité, et les autres élèves gardent les leurs."
+      : "La classe est ailleurs : ses cours sortent du calcul d'assiduité.",
   };
 }

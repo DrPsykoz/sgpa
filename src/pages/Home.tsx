@@ -78,8 +78,8 @@ import { CancelReasonDialog } from "@/pages/Timetable/CancelReasonDialog";
 import { DaysCalendar } from "@/pages/Timetable/DaysCalendar";
 import {
   adresseDeLaSeance,
+  bandeauDeAbsence,
   motifDeFermeture,
-  motsDeAbsence,
   type Row,
 } from "@/pages/Timetable/journee";
 import { api } from "@/lib/api";
@@ -268,7 +268,7 @@ const REMINDERS: Record<ReminderKind, ReminderMeta> = {
     verified: "évaluations notées",
     icon: PencilLine,
     tab: "evaluations",
-    note: "Le compte attendu est le nombre de compétences rattachées multiplié par celui des élèves inscrits le jour de l'évaluation.",
+    note: "Le compte attendu est le nombre de compétences rattachées multiplié par celui des élèves inscrits le jour de l'évaluation. Une case qui ne sera jamais notée — cet élève n'est pas évalué sur cette compétence — se déclare depuis la grille et compte comme réglée : une évaluation volontairement partielle quitte ainsi cette liste, sans qu'il faille inventer des notes.",
   },
   evaluation_sans_competence: {
     title: "Évaluations sans compétence",
@@ -423,13 +423,13 @@ function DayBanners({ day }: { day: DaySchedule }): ReactElement | null {
         // était là. Une période « l'appel se fait quand même » garde ce bandeau
         // alors que ses cartes ne changent pas : c'est le seul endroit qui la
         // nomme, et une sortie scolaire mérite d'être annoncée.
+        //
+        // La clé porte le groupe : depuis le palier 023, les deux groupes d'une
+        // même classe peuvent partir le même jour, et deux bandeaux de même clé
+        // n'en laisseraient qu'un.
         <Bandeau
-          key={classe.session_id}
-          texte={
-            classe.attendance_expected
-              ? `${classe.session_name} — ${classe.reason} (l'appel se fait)`
-              : motsDeAbsence(classe).bandeau
-          }
+          key={`${classe.session_id}:${classe.group_id ?? ""}`}
+          texte={bandeauDeAbsence(classe)}
         />
       ))}
     </>

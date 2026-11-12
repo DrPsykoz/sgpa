@@ -20,16 +20,35 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AbsencePeriod, AbsencePeriodInput, Student } from "@/types";
+import { TOUTE_LA_CLASSE } from "@/components/Groupes";
+import type {
+  AbsencePeriod,
+  AbsencePeriodInput,
+  Student,
+  StudentGroup,
+} from "@/types";
 
-/** Radix refuse la chaîne vide comme valeur d'un `SelectItem` : il faut une
- *  sentinelle pour « toute la classe ». Elle ne quitte jamais ce fichier —
- *  `student_id` part à `null`. */
-const TOUTE_LA_CLASSE = "toute-la-classe";
+/**
+ * Préfixe des valeurs de groupe dans le sélecteur « Concerne ».
+ *
+ * **Un seul champ pour trois cibles**, et non un second sélecteur à côté : le
+ * backend rend l'élève et le groupe mutuellement exclusifs — il refuse en
+ * français une période qui viserait les deux —, et deux contrôles séparés
+ * auraient permis à l'écran de poser une question à laquelle il n'existe pas
+ * de réponse. Un champ ne peut pas se contredire lui-même.
+ *
+ * Le préfixe n'a rien d'une précaution contre la collision — un identifiant
+ * d'élève et un identifiant de groupe sont deux UUID. Il dit **de quelle
+ * liste** vient la valeur choisie, ce que `target` seul ne dirait plus une
+ * fois les deux listes dans le même menu. Il ne quitte jamais ce fichier.
+ */
+const PREFIXE_GROUPE = "groupe:";
 
 /** Affichage français d'une date stockée en AAAA-MM-JJ. */
 function formatDate(iso: string): string {
@@ -49,6 +68,10 @@ export interface AbsencePeriodDialogProps {
   /** Élèves de cette classe. Le parent détient la liste (règle 1) : un élève
    *  d'une autre classe serait refusé en Rust, il n'est donc pas proposé. */
   students: Student[];
+  /** Groupes de cette classe, même contrat. Une période peut viser un groupe
+   *  entier — « le groupe 1 est en stage cette semaine » —, et c'est le
+   *  troisième cas du champ « Concerne ». */
+  groups: StudentGroup[];
   /** Le parent écrit et recharge sa liste ; le dialogue affiche l'erreur. */
   onSubmit: (input: AbsencePeriodInput) => Promise<void>;
 }
@@ -81,6 +104,7 @@ export function AbsencePeriodDialog({
   onOpenChange,
   period,
   students,
+  groups,
   onSubmit,
 }: AbsencePeriodDialogProps): ReactElement {
   const [startDate, setStartDate] = useState("");
@@ -100,7 +124,14 @@ export function AbsencePeriodDialog({
     setEndDate(period?.end_date ?? "");
     setEndTouched(period !== null);
     setReason(period?.reason ?? "");
-    setTarget(period?.student_id ?? TOUTE_LA_CLASSE);
+    // L'élève d'abord : les deux ne peuvent pas être posés ensemble, et le
+    // backend refuse qu'ils le deviennent.
+    setTarget(
+      period?.student_id ??
+        (period?.group_id
+          ? `${PREFIXE_GROUPE}${period.group_id}`
+          : TOUTE_LA_CLASSE),
+    );
     setAppelFait(period?.attendance_expected ?? false);
     setError(null);
     setPending(false);
@@ -138,12 +169,20 @@ export function AbsencePeriodDialog({
       return;
     }
 
+    // Une seule des deux colonnes part remplie — c'est la forme même du champ
+    // qui le garantit, et le backend le redit en français.
+    const viseUnGroupe = !profAbsent && target.startsWith(PREFIXE_GROUPE);
+    const viseUnEleve =
+      !profAbsent && !viseUnGroupe && target !== TOUTE_LA_CLASSE;
+
     setPending(true);
     setError(null);
     try {
       await onSubmit({
-        student_id:
-          profAbsent || target === TOUTE_LA_CLASSE ? null : target,
+        student_id: viseUnEleve ? target : null,
+        group_id: viseUnGroupe
+          ? target.slice(PREFIXE_GROUPE.length)
+          : null,
         reason: motif,
         start_date: startDate,
         end_date: endDate,
@@ -253,8 +292,8 @@ export function AbsencePeriodDialog({
               <UserX className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 Absence du professeur : elle concerne toute la classe, et
-                l'appel ne s'y fait pas. Pour noter l'absence d'un élève sur ces
-                mêmes dates, ajoutez une période à part.
+                l'appel ne s'y fait pas. Pour noter l'absence d'un élève ou
+                d'un groupe sur ces mêmes dates, ajoutez une période à part.
               </span>
             </p>
           ) : (
@@ -265,20 +304,44 @@ export function AbsencePeriodDialog({
                   <SelectTrigger id="absence-target">
                     <SelectValue />
                   </SelectTrigger>
+                  {/* Les intitulés de section n'apparaissent que si la classe
+                      a des groupes : sans eux, le menu est exactement celui
+                      d'avant le palier 023, et « Élèves » tout seul au-dessus
+                      d'une liste d'élèves n'apprendrait rien. */}
                   <SelectContent>
                     <SelectItem value={TOUTE_LA_CLASSE}>
                       Toute la classe
                     </SelectItem>
-                    {students.map((student) => (
-                      <SelectItem key={student.id} value={student.id}>
-                        {fullName(student.last_name, student.first_name)}
-                      </SelectItem>
-                    ))}
+                    {groups.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Groupes</SelectLabel>
+                        {groups.map((group) => (
+                          <SelectItem
+                            key={group.id}
+                            value={`${PREFIXE_GROUPE}${group.id}`}
+                          >
+                            {group.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    <SelectGroup>
+                      {groups.length > 0 && <SelectLabel>Élèves</SelectLabel>}
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {fullName(student.last_name, student.first_name)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  « Toute la classe » pour un stage collectif ; un élève pour
-                  une hospitalisation ou un stage qui ne concerne que lui.
+                  « Toute la classe » pour un stage collectif
+                  {groups.length > 0
+                    ? " ; un groupe quand une moitié part en stage et que l'autre reste"
+                    : ""}{" "}
+                  ; un élève pour une hospitalisation ou un stage qui ne
+                  concerne que lui.
                 </p>
               </div>
 

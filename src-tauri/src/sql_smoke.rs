@@ -21,9 +21,12 @@ use rusqlite::Connection;
 /// Sources analysées. Ajouter un module de commandes ici quand il en apparaît un.
 const SOURCES: &[(&str, &str)] = &[
     ("absences", include_str!("commands/absences.rs")),
+    ("activities", include_str!("commands/activities.rs")),
     ("attachments", include_str!("commands/attachments.rs")),
     ("contracts", include_str!("commands/contracts.rs")),
+    ("establishments", include_str!("commands/establishments.rs")),
     ("evaluations", include_str!("commands/evaluations.rs")),
+    ("groups", include_str!("commands/groups.rs")),
     ("home", include_str!("commands/home.rs")),
     ("lock", include_str!("commands/lock.rs")),
     ("maintenance", include_str!("commands/maintenance.rs")),
@@ -175,8 +178,10 @@ fn toutes_les_requetes_sql_sont_valides_contre_le_schema() {
     // s'abaisse qu'exceptionnellement : `lock.rs` est passé de six requêtes à
     // trois quand le mot de passe, son indice et la phrase de récupération ont
     // quitté la base pour `data/sgpa.keys`, qui n'est pas du SQL.
+    //
+    // Relevé à 235 au palier 023 : `groups.rs` est le module de plus.
     assert!(
-        checked >= 225,
+        checked >= 250,
         "seulement {checked} requêtes analysées — l'extraction ne trouve plus le SQL du projet"
     );
 

@@ -42,13 +42,13 @@ pub struct CycleNode {
     pub domains: Vec<DomainNode>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct NodeRef {
     pub id: String,
     pub name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct BulkResult {
     pub created: Vec<NodeRef>,
     pub skipped: Vec<String>,
@@ -167,7 +167,10 @@ pub fn socle_reference(code: &str, domain: &str, cycle: &str) -> String {
 ///
 /// « Lire une consigne » et « lire  une   Consigne » désignent la même
 /// compétence pour un enseignant qui colle une liste depuis un document.
-fn dedup_key(name: &str) -> String {
+/// Partagée avec `commands/activities.rs` : le référentiel RA16 colle ses
+/// listes depuis les mêmes documents, et deux normalisations divergeraient au
+/// premier caractère exotique.
+pub(crate) fn dedup_key(name: &str) -> String {
     name.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -542,9 +545,10 @@ fn article(kind: NodeKind) -> &'static str {
 /// de décider d'archiver.
 ///
 /// **Le troisième compte est arrivé avec le palier 021**, le jour où une étape
-/// de progression a pu citer le référentiel. Ajouter une table en RESTRICT sans
-/// l'ajouter ici aurait rendu le message faux par omission : « 0 évaluation,
-/// 0 note » suivi d'un refus que rien n'explique.
+/// de progression a pu citer le référentiel, et **le cinquième avec le palier
+/// 026**, le jour où une activité a pu en faire autant. Ajouter une table en
+/// RESTRICT sans l'ajouter ici aurait rendu le message faux par omission :
+/// « 0 évaluation, 0 note » suivi d'un refus que rien n'explique.
 #[tauri::command]
 pub fn delete_node(
     state: tauri::State<'_, AppState>,
@@ -554,32 +558,49 @@ pub fn delete_node(
     let conn = state.conn()?;
 
     let subtree = subtree_competencies(kind);
+    // `grade_waivers` est de la partie depuis le palier 022, et pas par souci
+    // de symétrie : sa clé étrangère est en RESTRICT, donc sans ce compte le
+    // DELETE échouerait plus bas sur un message de SQLite que personne ne peut
+    // lire. « Présenter un bouton qui échoue vaut moins que l'annoncer. »
     let impact = format!(
         "SELECT (SELECT COUNT(*) FROM grades WHERE competency_id IN ({subtree})),
                 (SELECT COUNT(DISTINCT evaluation_id) FROM evaluation_competencies
                   WHERE competency_id IN ({subtree})),
                 (SELECT COUNT(DISTINCT etape_id) FROM progression_etape_competences
+                  WHERE competency_id IN ({subtree})),
+                (SELECT COUNT(*) FROM grade_waivers WHERE competency_id IN ({subtree})),
+                (SELECT COUNT(DISTINCT activite_id) FROM progression_activite_competences
                   WHERE competency_id IN ({subtree}))"
     );
-    let (grades, evaluations, etapes): (i64, i64, i64) = conn
+    let (grades, evaluations, etapes, declarees, activites): (i64, i64, i64, i64, i64) = conn
         .query_row(&impact, params![id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })
         .map_err(|e| e.to_string())?;
 
-    if grades > 0 || evaluations > 0 || etapes > 0 {
+    if grades > 0 || evaluations > 0 || etapes > 0 || declarees > 0 || activites > 0 {
         return Err(match kind {
             NodeKind::Competency => format!(
                 "Cette compétence est utilisée par {evaluations} évaluation(s), \
-                 porte {grades} note(s) et figure dans {etapes} étape(s) de \
-                 progression. Archivez-la plutôt que de la supprimer."
+                 porte {grades} note(s) et {declarees} case(s) « ne sera pas \
+                 évaluée », et figure dans {etapes} étape(s) et {activites} \
+                 activité(s) de progression. Archivez-la plutôt que de la \
+                 supprimer."
             ),
             // Cycle, domaine et champ sont tous masculins : « de le supprimer ».
             _ => format!(
                 "{} contient des compétences utilisées par {evaluations} \
-                 évaluation(s), portant {grades} note(s) et citées dans {etapes} \
-                 étape(s) de progression. Archivez ces compétences, ou retirez-les \
-                 des évaluations et des progressions, avant de le supprimer.",
+                 évaluation(s), portant {grades} note(s) et {declarees} case(s) \
+                 « ne sera pas évaluée », et citées dans {etapes} étape(s) et \
+                 {activites} activité(s) de progression. Archivez ces \
+                 compétences, ou retirez-les des évaluations et des \
+                 progressions, avant de le supprimer.",
                 kind.demonstrative()
             ),
         });

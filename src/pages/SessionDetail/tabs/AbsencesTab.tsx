@@ -27,12 +27,16 @@ import type {
   AbsencePeriodInput,
   Session,
   Student,
+  StudentGroup,
   TeacherAbsenceInput,
 } from "@/types";
 
 export interface AbsencesTabProps {
   session: Session;
   students: Student[];
+  /** Les groupes de la classe, détenus par le parent (règle 1) : une période
+   *  peut viser un groupe entier depuis le palier 023. */
+  groups: StudentGroup[];
 }
 
 function messageOf(err: unknown): string {
@@ -54,18 +58,27 @@ function formatFenetre(period: AbsencePeriod): string {
     : `Du ${formatDate(period.start_date)} au ${formatDate(period.end_date)}`;
 }
 
-/** Qui la période vise. `student_id` à `null` = toute la classe. */
+/** Qui la période vise. `student_id` et `group_id` tous deux à `null` = toute
+ *  la classe. Ils ne sont jamais posés ensemble — le backend le refuse. */
 function formatCible(period: AbsencePeriod): string {
   if (period.teacher_absent) return "Professeur absent";
-  if (period.student_id === null) return "Toute la classe";
-  return `${period.student_last_name ?? ""} ${period.student_first_name ?? ""}`.trim();
+  if (period.student_id !== null) {
+    return `${period.student_last_name ?? ""} ${period.student_first_name ?? ""}`.trim();
+  }
+  // Le nom du groupe et non « Groupe » : « Groupe 1 en stage » et « Atelier
+  // bois en stage » ne se cherchent pas de la même façon dans une liste de
+  // vingt lignes.
+  if (period.group_name !== null) return period.group_name;
+  return "Toute la classe";
 }
 
 /** La même cible au fil d'une phrase. Le nom d'un élève garde ses capitales :
  *  seules les mentions qui n'en sont pas un se mettent en minuscules. */
 function formatCiblePhrase(period: AbsencePeriod): string {
   if (period.teacher_absent) return "toute la classe, le professeur étant absent";
-  return period.student_id === null ? "toute la classe" : formatCible(period);
+  if (period.student_id !== null) return formatCible(period);
+  if (period.group_name !== null) return `le groupe « ${period.group_name} »`;
+  return "toute la classe";
 }
 
 /**
@@ -125,6 +138,7 @@ function phraseSuppression(period: AbsencePeriod): string {
 export function AbsencesTab({
   session,
   students,
+  groups,
 }: AbsencesTabProps): ReactElement {
   const [periods, setPeriods] = useState<AbsencePeriod[]>([]);
   const [loading, setLoading] = useState(true);
@@ -367,6 +381,7 @@ export function AbsencesTab({
         onOpenChange={setDialogOpen}
         period={editing}
         students={students}
+        groups={groups}
         onSubmit={handleSubmit}
       />
 

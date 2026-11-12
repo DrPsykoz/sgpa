@@ -77,6 +77,20 @@ pub struct AbsencePeriod {
     /// compte unique, chaque élève ayant sa propre fenêtre d'inscription. Le
     /// bilan, lui, recompte élève par élève — c'est lui qui fait foi.
     pub seance_count: i32,
+    /// Le groupe visé, ou `None` = toute la classe (palier 023).
+    ///
+    /// **Exclusif de `student_id`**, et le CHECK du schéma le redit : une
+    /// période vise une classe, un groupe OU un élève. Viser les deux n'aurait
+    /// pas de sens — l'élève appartient déjà à un seul groupe — et aurait
+    /// ouvert un troisième cas dans une requête de bilan qui en a déjà assez.
+    ///
+    /// **C'est un réglage, pas un fait** : `SET NULL` au schéma, donc supprimer
+    /// un groupe rend la période à la classe entière. Elle écarte alors plus de
+    /// séances qu'avant, ce qui se voit à l'écran — là où un `RESTRICT` aurait
+    /// bloqué la suppression d'un groupe à cause d'un stage de l'an dernier.
+    pub group_id: Option<String>,
+    /// Le nom du groupe, joint à la lecture. **Dérivé, jamais écrit.**
+    pub group_name: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -93,6 +107,9 @@ pub struct AbsencePeriodInput {
     /// une période qui neutralise, comme toutes celles déjà en base.
     #[serde(default)]
     pub attendance_expected: bool,
+    /// `None` ou `""` = toute la classe. Exclusif de `student_id`.
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 /// Une absence du professeur, sur une ou plusieurs classes à la fois.
@@ -118,8 +135,11 @@ const PERIODES_DE_LA_CLASSE: &str = "SELECT ap.id, ap.session_id, ap.student_id,
        (SELECT COUNT(*) FROM seances se
          WHERE se.session_id = ap.session_id
            AND se.cancelled = 0
-           AND se.date BETWEEN ap.start_date AND ap.end_date),
-       ap.created_at, ap.updated_at, ap.attendance_expected, ap.teacher_absent
+           AND se.date BETWEEN ap.start_date AND ap.end_date
+           AND (ap.group_id IS NULL OR se.group_id IS NULL
+                OR se.group_id = ap.group_id)),
+       ap.created_at, ap.updated_at, ap.attendance_expected, ap.teacher_absent,
+       ap.group_id, (SELECT g.name FROM student_groups g WHERE g.id = ap.group_id)
   FROM absence_periods ap
   LEFT JOIN students st ON st.id = ap.student_id
  WHERE ap.session_id = ?1
@@ -130,23 +150,31 @@ const PERIODE_PAR_ID: &str = "SELECT ap.id, ap.session_id, ap.student_id,
        (SELECT COUNT(*) FROM seances se
          WHERE se.session_id = ap.session_id
            AND se.cancelled = 0
-           AND se.date BETWEEN ap.start_date AND ap.end_date),
-       ap.created_at, ap.updated_at, ap.attendance_expected, ap.teacher_absent
+           AND se.date BETWEEN ap.start_date AND ap.end_date
+           AND (ap.group_id IS NULL OR se.group_id IS NULL
+                OR se.group_id = ap.group_id)),
+       ap.created_at, ap.updated_at, ap.attendance_expected, ap.teacher_absent,
+       ap.group_id, (SELECT g.name FROM student_groups g WHERE g.id = ap.group_id)
   FROM absence_periods ap
   LEFT JOIN students st ON st.id = ap.student_id
  WHERE ap.id = ?1";
 
 /// Une période **de même cible** dont les dates recouvrent celles proposées.
 ///
-/// Même cible = même classe, et même élève visé — deux NULL compris. La
-/// comparaison `?3 IS NULL` est indispensable : `ap.student_id = NULL` ne vaut
-/// pas vrai en SQL, il ne vaut rien, et deux périodes de classe se
-/// chevaucheraient sans que ce garde-fou ne dise un mot.
+/// Même cible = même classe, même élève visé **et même groupe** — les NULL
+/// compris. La comparaison `?3 IS NULL` est indispensable : `ap.student_id =
+/// NULL` ne vaut pas vrai en SQL, il ne vaut rien, et deux périodes de classe
+/// se chevaucheraient sans que ce garde-fou ne dise un mot. Le groupe suit la
+/// même forme, et pour la raison inverse de celle qu'on attendrait : le stage
+/// du groupe 1 et celui du groupe 2 tombent presque toujours sur des semaines
+/// voisines, et les déclarer en conflit aurait rendu la saisie impossible
+/// exactement dans le cas que le palier 023 existe pour servir.
 const CHEVAUCHEMENT: &str = "SELECT ap.reason, ap.start_date, ap.end_date
   FROM absence_periods ap
  WHERE ap.session_id = ?1
    AND ap.id <> ?2
    AND ((ap.student_id IS NULL AND ?3 IS NULL) OR ap.student_id = ?3)
+   AND ((ap.group_id IS NULL AND ?6 IS NULL) OR ap.group_id = ?6)
    AND ap.start_date <= ?5
    AND ap.end_date   >= ?4
  ORDER BY ap.start_date
@@ -167,6 +195,8 @@ fn map_period(row: &rusqlite::Row<'_>) -> rusqlite::Result<AbsencePeriod> {
         updated_at: row.get(10)?,
         attendance_expected: row.get(11)?,
         teacher_absent: row.get(12)?,
+        group_id: row.get(13)?,
+        group_name: row.get(14)?,
     })
 }
 
@@ -301,11 +331,19 @@ fn check_no_overlap(
     student_id: Option<&str>,
     start_date: &str,
     end_date: &str,
+    group_id: Option<&str>,
 ) -> Result<(), String> {
     let voisine: Option<(String, String, String)> = conn
         .query_row(
             CHEVAUCHEMENT,
-            params![session_id, id_exclu, student_id, start_date, end_date],
+            params![
+                session_id,
+                id_exclu,
+                student_id,
+                start_date,
+                end_date,
+                group_id
+            ],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
@@ -315,9 +353,10 @@ fn check_no_overlap(
         return Ok(());
     };
 
-    let cible = match student_id {
-        Some(_) => "Cet élève a",
-        None => "Cette classe a",
+    let cible = match (student_id, group_id) {
+        (Some(_), _) => "Cet élève a",
+        (None, Some(_)) => "Ce groupe a",
+        (None, None) => "Cette classe a",
     };
     Err(format!(
         "{cible} déjà la période « {reason} », du {} au {}, qui recouvre ces dates. \
@@ -354,8 +393,14 @@ fn validated_window(
     Ok((reason, iso(start), iso(end)))
 }
 
-/// Valeurs vérifiées et normalisées : élève visé, motif, début, fin.
-type PeriodValues = (Option<String>, String, String, String);
+/// Valeurs vérifiées et normalisées : élève visé, motif, début, fin, groupe.
+type PeriodValues = (
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+);
 
 /// Toutes les validations, dans l'ordre où l'enseignant remplit le formulaire.
 ///
@@ -377,8 +422,22 @@ fn validated_period(
     let (reason, start, end) = validated_window(&input.reason, &input.start_date, &input.end_date)?;
 
     let student_id = optional_id(input.student_id.as_deref());
+    let group_id = optional_id(input.group_id.as_deref());
     check_session(conn, session_id)?;
     check_student_in_session(conn, session_id, student_id.as_deref())?;
+
+    // Les deux cibles s'excluent, et le CHECK du schéma le redit. Le refus est
+    // ici pour qu'il soit en français : un élève appartient déjà à un seul
+    // groupe, donc désigner les deux ne restreint rien et ne dit rien de plus.
+    if student_id.is_some() && group_id.is_some() {
+        return Err(
+            "Une période vise un élève OU un groupe, pas les deux : un élève appartient \
+             déjà à un seul groupe."
+                .to_string(),
+        );
+    }
+    super::groups::check_group_belongs(conn, session_id, group_id.as_deref())?;
+
     check_no_overlap(
         conn,
         session_id,
@@ -386,9 +445,10 @@ fn validated_period(
         student_id.as_deref(),
         &start,
         &end,
+        group_id.as_deref(),
     )?;
 
-    Ok((student_id, reason, start, end))
+    Ok((student_id, reason, start, end, group_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -412,14 +472,15 @@ fn create_period(
     session_id: &str,
     input: &AbsencePeriodInput,
 ) -> Result<AbsencePeriod, String> {
-    let (student_id, reason, start_date, end_date) = validated_period(conn, session_id, "", input)?;
+    let (student_id, reason, start_date, end_date, group_id) =
+        validated_period(conn, session_id, "", input)?;
 
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO absence_periods
              (id, session_id, student_id, reason, start_date, end_date,
-              attendance_expected)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+              attendance_expected, group_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             session_id,
@@ -427,7 +488,8 @@ fn create_period(
             reason,
             start_date,
             end_date,
-            input.attendance_expected
+            input.attendance_expected,
+            group_id
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -481,7 +543,9 @@ fn create_teacher_absence(
     let mut creees = Vec::with_capacity(classes.len());
     for session_id in classes {
         let nom = nom_de_classe(conn, session_id)?;
-        check_no_overlap(conn, session_id, "", None, &start_date, &end_date)
+        // `None` pour le groupe, comme pour l'élève, et pour la même raison :
+        // le professeur n'est pas absent pour une moitié de classe.
+        check_no_overlap(conn, session_id, "", None, &start_date, &end_date, None)
             .map_err(|e| format!("{nom} : {e}"))?;
 
         let id = Uuid::new_v4().to_string();
@@ -532,22 +596,33 @@ fn update_period(
                     .to_string(),
             );
         }
+        // Troisième porte du même verrou, ajoutée au palier 023 : le CHECK du
+        // schéma refuse déjà le couple, mais en anglais et sans dire quoi faire.
+        if optional_id(input.group_id.as_deref()).is_some() {
+            return Err(
+                "Une absence du professeur concerne toute la classe : elle ne peut pas \
+                 viser un groupe. Supprimez-la et saisissez une période pour ce groupe \
+                 si c'est ce que vous voulez noter."
+                    .to_string(),
+            );
+        }
     }
 
-    let (student_id, reason, start_date, end_date) =
+    let (student_id, reason, start_date, end_date, group_id) =
         validated_period(conn, &session_id, id, input)?;
 
     conn.execute(
         "UPDATE absence_periods
             SET student_id = ?1, reason = ?2, start_date = ?3, end_date = ?4,
-                attendance_expected = ?5, updated_at = datetime('now')
-          WHERE id = ?6",
+                attendance_expected = ?5, group_id = ?6, updated_at = datetime('now')
+          WHERE id = ?7",
         params![
             student_id,
             reason,
             start_date,
             end_date,
             input.attendance_expected,
+            group_id,
             id
         ],
     )
@@ -668,6 +743,29 @@ mod tests {
             start_date: start.to_string(),
             end_date: end.to_string(),
             attendance_expected: false,
+            group_id: None,
+        }
+    }
+
+    /// La même saisie, mais elle vise un groupe au lieu de toute la classe.
+    fn saisie_de_groupe(groupe: &str, reason: &str, start: &str, end: &str) -> AbsencePeriodInput {
+        AbsencePeriodInput {
+            group_id: Some(groupe.to_string()),
+            ..saisie(None, reason, start, end)
+        }
+    }
+
+    /// Deux groupes dans la 4ème A, et des séances réparties entre eux.
+    fn peupler_les_groupes(conn: &Connection) {
+        for instruction in [
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g1', 's1', 'Groupe 1', 0),
+                         ('g2', 's1', 'Groupe 2', 1),
+                         ('g9', 's2', 'Groupe 1', 0)",
+            "UPDATE seances SET group_id = 'g1' WHERE id = 'c1'",
+            "UPDATE seances SET group_id = 'g2' WHERE id = 'c2'",
+        ] {
+            conn.execute_batch(instruction).unwrap();
         }
     }
 
@@ -1057,5 +1155,137 @@ mod tests {
         .unwrap();
         assert_eq!(decalee.start_date, "2027-01-19");
         assert!(decalee.teacher_absent);
+    }
+
+    /// Le palier 023 : un stage du groupe 1 n'écarte que ce que le groupe 1
+    /// aurait suivi. Sans le prédicat, il viderait aussi le dénominateur des
+    /// élèves du groupe 2, qui étaient pourtant en cours cette semaine-là.
+    #[test]
+    fn une_periode_de_groupe_n_ecarte_que_les_seances_de_son_groupe() {
+        let conn = migrated_db("groupe-portee");
+        peupler(&conn);
+        peupler_les_groupes(&conn);
+
+        // c1 est au groupe 1, c2 au groupe 2, c3 est annulée.
+        let g1 = create_period(
+            &conn,
+            "s1",
+            &saisie_de_groupe("g1", "Stage", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap();
+        assert_eq!(g1.seance_count, 1);
+        assert_eq!(g1.group_name.as_deref(), Some("Groupe 1"));
+
+        // La même fenêtre pour toute la classe en compte deux : une période
+        // sans groupe n'est bornée par rien, c'est l'autre moitié du prédicat.
+        let classe = create_period(
+            &conn,
+            "s1",
+            &saisie(None, "Sortie", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap();
+        assert_eq!(classe.seance_count, 2);
+    }
+
+    /// Les deux groupes partent en stage à une semaine d'intervalle, parfois
+    /// la même : les déclarer en conflit aurait interdit la saisie dans le cas
+    /// même que ce palier sert. Mais deux périodes du MÊME groupe se gênent
+    /// toujours, comme deux périodes de la même classe.
+    #[test]
+    fn deux_groupes_se_chevauchent_sans_conflit_mais_pas_un_groupe_avec_lui_meme() {
+        let conn = migrated_db("groupe-chevauchement");
+        peupler(&conn);
+        peupler_les_groupes(&conn);
+
+        create_period(
+            &conn,
+            "s1",
+            &saisie_de_groupe("g1", "Stage", "2027-01-18", "2027-01-22"),
+        )
+        .unwrap();
+        create_period(
+            &conn,
+            "s1",
+            &saisie_de_groupe("g2", "Stage", "2027-01-18", "2027-01-22"),
+        )
+        .unwrap();
+
+        let erreur = create_period(
+            &conn,
+            "s1",
+            &saisie_de_groupe("g1", "Hospitalisation", "2027-01-20", "2027-01-25"),
+        )
+        .unwrap_err();
+        assert!(erreur.contains("Ce groupe a"), "{erreur}");
+    }
+
+    /// Les trois refus de cible, en français et avant la base.
+    #[test]
+    fn une_periode_vise_un_eleve_ou_un_groupe_jamais_les_deux() {
+        let conn = migrated_db("groupe-cible");
+        peupler(&conn);
+        peupler_les_groupes(&conn);
+
+        let deux = create_period(
+            &conn,
+            "s1",
+            &AbsencePeriodInput {
+                student_id: Some("e1".into()),
+                ..saisie_de_groupe("g1", "Stage", "2027-01-18", "2027-01-20")
+            },
+        )
+        .unwrap_err();
+        assert!(deux.contains("OU un groupe"), "{deux}");
+
+        // Le groupe de la 3ème B n'a rien à faire dans une période de la 4ème A :
+        // la clé étrangère l'accepterait, elle ne pointe que `student_groups`.
+        let ailleurs = create_period(
+            &conn,
+            "s1",
+            &saisie_de_groupe("g9", "Stage", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap_err();
+        assert!(ailleurs.contains("autre classe"), "{ailleurs}");
+
+        let inconnu = create_period(
+            &conn,
+            "s1",
+            &saisie_de_groupe("gX", "Stage", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap_err();
+        assert!(inconnu.contains("introuvable"), "{inconnu}");
+
+        // Et rien n'a été écrit : les trois refus sont antérieurs à l'INSERT.
+        assert!(list_periods(&conn, "s1").unwrap().is_empty());
+    }
+
+    /// Le professeur n'est pas absent pour une moitié de classe. Trois étages
+    /// le disent ; celui-ci vérifie le seul qui parle français.
+    #[test]
+    fn une_absence_du_professeur_ne_vise_pas_un_groupe() {
+        let conn = migrated_db("groupe-prof");
+        peupler(&conn);
+        peupler_les_groupes(&conn);
+
+        let periode = create_teacher_absence(
+            &conn,
+            &TeacherAbsenceInput {
+                session_ids: vec!["s1".into()],
+                reason: "Formation".into(),
+                start_date: "2027-01-18".into(),
+                end_date: "2027-01-20".into(),
+            },
+        )
+        .unwrap()
+        .remove(0);
+        assert!(periode.group_id.is_none());
+
+        let erreur = update_period(
+            &conn,
+            &periode.id,
+            &saisie_de_groupe("g1", "Formation", "2027-01-18", "2027-01-20"),
+        )
+        .unwrap_err();
+        assert!(erreur.contains("viser un groupe"), "{erreur}");
     }
 }

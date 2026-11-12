@@ -18,6 +18,16 @@ pub struct Evaluation {
     pub trimester_is_manual: bool,
     pub created_at: String,
     pub competency_ids: Vec<String>,
+    /// Le groupe évalué, ou `None` pour « toute la classe » (palier 023).
+    ///
+    /// **C'est un fait et non un réglage**, comme `seances.group_id` : il décide
+    /// de qui on attend des notes, donc de ce que l'accueil appelle une
+    /// évaluation complète. D'où le `RESTRICT` du schéma — supprimer un groupe
+    /// ne doit pas rendre complète, du jour au lendemain, une évaluation qui ne
+    /// l'était pas.
+    pub group_id: Option<String>,
+    /// Le nom du groupe, joint à la lecture. **Dérivé, jamais écrit.**
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -50,6 +60,26 @@ pub struct Grade {
     /// libellé de maîtrise ne voyage pas avec elle — il est dérivé de la note
     /// par le front, qui porte le découpage en tranches.
     pub mark: i32,
+}
+
+/// Une case que l'enseignant a déclarée **« ne sera pas évaluée »** : un élève,
+/// une compétence, sur une évaluation.
+///
+/// Elle ne porte pas de note et n'en portera pas. C'est le second sens de
+/// l'absence de ligne dans `grades`, et le palier 022 existe pour le séparer du
+/// premier : une case vierge est « en attente », une case déclarée ne sera
+/// jamais remplie. L'accueil cesse de réclamer la seconde, et la feuille remise
+/// à l'élève y imprime « non évalué » au lieu de laisser une ligne qui se lit
+/// comme un oubli.
+///
+/// **Aucun champ de plus**, et surtout pas de motif : la déclaration dit qu'il
+/// n'y aura pas de note, elle n'a pas à dire pourquoi. Un motif libre finirait
+/// sur le document de l'élève ou dans un calcul.
+#[derive(Debug, Serialize, Clone)]
+pub struct GradeWaiver {
+    pub evaluation_id: String,
+    pub student_id: String,
+    pub competency_id: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -157,11 +187,63 @@ fn write_competency_links(
     Ok(())
 }
 
+/// Combien de cases réglées resteraient hors de la grille si l'évaluation
+/// passait à ce groupe.
+///
+/// Une note et une déclaration comptent pareil : l'une comme l'autre est un
+/// geste que l'enseignant a posé, et que restreindre le groupe ferait
+/// disparaître de l'écran sans l'effacer de la base. C'est exactement le défaut
+/// que le garde-fou des compétences retirées existe pour empêcher, à ceci près
+/// qu'ici **on ne propose pas de supprimer** : les notes d'un élève lui
+/// appartiennent, et un bouton « supprimer ces notes » placé dans un formulaire
+/// de titre et de date serait une perte de données à un clic d'un renommage.
+const CASES_HORS_GROUPE: &str = "SELECT COUNT(DISTINCT st.id)
+  FROM students st
+ WHERE st.session_id = (SELECT e.session_id FROM evaluations e WHERE e.id = ?1)
+   AND st.group_id IS NOT NULL
+   AND st.group_id <> ?2
+   AND (EXISTS (SELECT 1 FROM grades g
+                 WHERE g.evaluation_id = ?1 AND g.student_id = st.id)
+     OR EXISTS (SELECT 1 FROM grade_waivers w
+                 WHERE w.evaluation_id = ?1 AND w.student_id = st.id))";
+
+/// Refuse, en français, de restreindre une évaluation à un groupe si des élèves
+/// hors de ce groupe y ont déjà une note ou une déclaration.
+///
+/// Refuser plutôt que supprimer, et refuser plutôt que cacher : une note qui
+/// existe encore mais que plus aucun écran n'affiche est la panne qu'on ne voit
+/// pas. Élargir à toute la classe (`None`) ne cache jamais rien, donc ne
+/// déclenche rien.
+fn check_no_grade_left_outside(
+    conn: &Connection,
+    evaluation_id: &str,
+    group_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(groupe) = group_id else {
+        return Ok(());
+    };
+    let restants: i64 = conn
+        .query_row(CASES_HORS_GROUPE, params![evaluation_id, groupe], |row| {
+            row.get(0)
+        })
+        .map_err(|e| e.to_string())?;
+    if restants > 0 {
+        return Err(format!(
+            "{restants} élève(s) hors de ce groupe ont déjà une note ou une mention \
+             « non évalué » sur cette évaluation. Effacez-les d'abord depuis la grille, \
+             ou laissez l'évaluation ouverte à toute la classe."
+        ));
+    }
+    Ok(())
+}
+
 fn load_evaluation(conn: &Connection, id: &str) -> Result<Evaluation, String> {
     let mut evaluation = conn
         .query_row(
-            "SELECT id, session_id, title, date, trimester, trimester_is_manual, created_at
-               FROM evaluations WHERE id = ?1",
+            "SELECT e.id, e.session_id, e.title, e.date, e.trimester, e.trimester_is_manual,
+                    e.created_at, e.group_id,
+                    (SELECT g.name FROM student_groups g WHERE g.id = e.group_id)
+               FROM evaluations e WHERE e.id = ?1",
             params![id],
             |row| {
                 Ok(Evaluation {
@@ -173,6 +255,8 @@ fn load_evaluation(conn: &Connection, id: &str) -> Result<Evaluation, String> {
                     trimester_is_manual: row.get(5)?,
                     created_at: row.get(6)?,
                     competency_ids: Vec::new(),
+                    group_id: row.get(7)?,
+                    group_name: row.get(8)?,
                 })
             },
         )
@@ -213,6 +297,14 @@ fn orphan_message(orphans: &[OrphanGrades]) -> String {
 }
 
 /// Supprime les notes des compétences qui ne font plus partie de la grille.
+///
+/// **Ne touche pas aux cases « ne sera pas évaluée »**, et c'est délibéré : une
+/// déclaration ne contient rien qu'une suppression puisse perdre, plus rien ne
+/// la lit tant que la compétence est hors de la grille (le compte de l'accueil
+/// exige la compétence encore rattachée), et si l'enseignant remet cette
+/// compétence, il retrouve ses cases telles qu'il les avait laissées. C'est la
+/// promesse que le palier 015 fait déjà aux notes, tenue ici sans confirmation
+/// puisqu'il n'y a rien à détruire.
 fn delete_orphan_rows(
     tx: &Transaction<'_>,
     evaluation_id: &str,
@@ -261,9 +353,11 @@ pub fn get_evaluations(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, session_id, title, date, trimester, trimester_is_manual, created_at
-               FROM evaluations WHERE session_id = ?1
-              ORDER BY trimester, date DESC",
+            "SELECT e.id, e.session_id, e.title, e.date, e.trimester, e.trimester_is_manual,
+                    e.created_at, e.group_id,
+                    (SELECT g.name FROM student_groups g WHERE g.id = e.group_id)
+               FROM evaluations e WHERE e.session_id = ?1
+              ORDER BY e.trimester, e.date DESC",
         )
         .map_err(|e| e.to_string())?;
     let mut evaluations = stmt
@@ -277,6 +371,8 @@ pub fn get_evaluations(
                 trimester_is_manual: row.get(5)?,
                 created_at: row.get(6)?,
                 competency_ids: Vec::new(),
+                group_id: row.get(7)?,
+                group_name: row.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -323,6 +419,8 @@ pub fn create_evaluation(
     date: String,
     trimester: Option<i32>,
     competency_ids: Vec<String>,
+    // Absent comme nul, il vaut « toute la classe ».
+    group_id: Option<String>,
 ) -> Result<Evaluation, String> {
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -348,14 +446,28 @@ pub fn create_evaluation(
         return Err("Classe introuvable".to_string());
     }
 
+    // La clé étrangère ne pointe que `student_groups(id)` : elle accepterait le
+    // groupe d'une autre classe, et cette évaluation-là n'attendrait de notes de
+    // personne.
+    super::groups::check_group_belongs(&tx, &session_id, group_id.as_deref())?;
+
     let (trimester_value, is_manual) =
         db::resolve_trimester(&tx, &session_id, &date, trimester).map_err(|e| e.to_string())?;
 
     let id = Uuid::new_v4().to_string();
     tx.execute(
-        "INSERT INTO evaluations (id, session_id, title, date, trimester, trimester_is_manual)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, session_id, title, date, trimester_value, is_manual],
+        "INSERT INTO evaluations (id, session_id, title, date, trimester, trimester_is_manual,
+                                  group_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            session_id,
+            title,
+            date,
+            trimester_value,
+            is_manual,
+            group_id
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -367,6 +479,7 @@ pub fn create_evaluation(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_evaluation(
     state: tauri::State<'_, AppState>,
     id: String,
@@ -375,6 +488,10 @@ pub fn update_evaluation(
     trimester: Option<i32>,
     competency_ids: Vec<String>,
     delete_orphan_grades: bool,
+    // ⚠ **Tout appelant le fait transiter inchangé**, même piège que l'horaire
+    // d'`update_seance_meta` : l'omettre rendrait l'évaluation à la classe
+    // entière au premier renommage, et l'accueil la déclarerait incomplète.
+    group_id: Option<String>,
 ) -> Result<Evaluation, String> {
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -439,14 +556,17 @@ pub fn update_evaluation(
         delete_orphan_rows(&tx, &id, &competency_ids)?;
     }
 
+    super::groups::check_group_belongs(&tx, &session_id, group_id.as_deref())?;
+    check_no_grade_left_outside(&tx, &id, group_id.as_deref())?;
+
     let (trimester_value, is_manual) =
         db::resolve_trimester(&tx, &session_id, &date, trimester).map_err(|e| e.to_string())?;
 
     tx.execute(
         "UPDATE evaluations
-            SET title = ?1, date = ?2, trimester = ?3, trimester_is_manual = ?4
-          WHERE id = ?5",
-        params![title, date, trimester_value, is_manual, id],
+            SET title = ?1, date = ?2, trimester = ?3, trimester_is_manual = ?4, group_id = ?5
+          WHERE id = ?6",
+        params![title, date, trimester_value, is_manual, group_id, id],
     )
     .map_err(|e| e.to_string())?;
 
@@ -465,7 +585,8 @@ pub fn update_evaluation(
 #[tauri::command]
 pub fn delete_evaluation(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     let conn = state.conn()?;
-    // La cascade de `grades` et `evaluation_competencies` fait le reste.
+    // La cascade de `grades`, `grade_waivers` et `evaluation_competencies`
+    // fait le reste.
     conn.execute("DELETE FROM evaluations WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -563,8 +684,28 @@ pub fn set_grade(
         ));
     }
 
-    let conn = state.conn()?;
-    conn.execute(
+    // Transaction, pour une raison et une seule : poser une note sur une case
+    // déclarée « ne sera pas évaluée » lève la déclaration, et les deux
+    // écritures ne doivent pas pouvoir rester à moitié faites. Une case qui
+    // porterait les deux n'est interdite par aucun CHECK — SQLite ne sait pas
+    // regarder une autre table —, elle l'est ici et dans `set_grade_waiver`,
+    // chacune dans son sens.
+    //
+    // C'est `set_grade` qui cède, et pas l'inverse : saisir une note est un
+    // geste sans ambiguïté — l'élève a été évalué —, et la déclaration qu'elle
+    // efface ne contient rien. Dans l'autre sens, `set_grade_waiver` refuse
+    // plutôt que d'effacer une note, qui, elle, est une donnée.
+    let mut conn = state.conn()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "DELETE FROM grade_waivers
+          WHERE evaluation_id = ?1 AND competency_id = ?2 AND student_id = ?3",
+        params![evaluation_id, competency_id, student_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
         "INSERT INTO grades (evaluation_id, competency_id, student_id, mark)
          VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(evaluation_id, competency_id, student_id)
@@ -573,10 +714,16 @@ pub fn set_grade(
     )
     .map_err(|e| e.to_string())?;
 
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// Efface une note : la case redevient vierge, c'est-à-dire « non évaluée ».
+/// Efface une note : la case redevient vierge, c'est-à-dire **« en attente »**.
+///
+/// En attente, et non « ne sera pas évaluée » : effacer une note ne déclare
+/// rien, cela ramène la case à l'état où l'enseignant n'a pas encore noté.
+/// L'autre état, celui qui dit que la note ne viendra jamais, se pose par
+/// `set_grade_waiver` et par lui seul (palier 022).
 ///
 /// **Commande distincte de `set_grade`, et non un `mark` conventionnel.** Avant
 /// le palier 018, effacer s'écrivait `set_grade(…, 0)` : « non évalué » était un
@@ -605,3 +752,112 @@ pub fn delete_grade(
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Les cases qui ne seront pas notées
+// ---------------------------------------------------------------------------
+
+/// Les cases déclarées « ne sera pas évaluée » d'une évaluation.
+///
+/// Lue **à côté** de `get_grades` et non fondue dedans : ce sont deux tables,
+/// deux sens, et un `Grade` dont la note serait facultative redemanderait à
+/// chaque lecteur de se souvenir du cas — c'est précisément ce que le palier
+/// 018 a fermé en sortant « non évalué » de l'échelle.
+#[tauri::command]
+pub fn get_grade_waivers(
+    state: tauri::State<'_, AppState>,
+    evaluation_id: String,
+) -> Result<Vec<GradeWaiver>, String> {
+    let conn = state.conn()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT evaluation_id, student_id, competency_id
+               FROM grade_waivers WHERE evaluation_id = ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let waivers = stmt
+        .query_map(params![evaluation_id], |row| {
+            Ok(GradeWaiver {
+                evaluation_id: row.get(0)?,
+                student_id: row.get(1)?,
+                competency_id: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(waivers)
+}
+
+/// Déclare qu'une case ne sera pas notée.
+///
+/// **Refuse si la case porte une note**, et ne l'efface jamais de sa propre
+/// initiative : une note est une donnée, la déclaration n'en est pas une. Le
+/// message dit le geste à faire, parce que l'écran le permet en deux clics.
+/// Dans l'autre sens, `set_grade` lève la déclaration sans rien demander — il
+/// n'y a rien à perdre de ce côté-là.
+///
+/// Silencieuse sur une case déjà déclarée, comme `delete_grade` l'est sur une
+/// case déjà vierge : l'enseignant a voulu cet état, il l'obtient.
+#[tauri::command]
+pub fn set_grade_waiver(
+    state: tauri::State<'_, AppState>,
+    evaluation_id: String,
+    student_id: String,
+    competency_id: String,
+) -> Result<(), String> {
+    let mut conn = state.conn()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let notee: bool = tx
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM grades
+                             WHERE evaluation_id = ?1
+                               AND competency_id = ?2
+                               AND student_id = ?3)",
+            params![evaluation_id, competency_id, student_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if notee {
+        return Err("Cette case porte déjà une note. Effacez-la d'abord si cet élève                     ne doit pas être évalué sur cette compétence."
+            .to_string());
+    }
+
+    tx.execute(
+        "INSERT INTO grade_waivers (evaluation_id, competency_id, student_id)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(evaluation_id, competency_id, student_id) DO NOTHING",
+        params![evaluation_id, competency_id, student_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Retire la déclaration : la case redevient « en attente ».
+///
+/// Elle ne redevient pas notée — il n'y avait pas de note dessous, la table ne
+/// pouvant pas en garder une. Silencieuse sur une case qui n'était pas
+/// déclarée, même raison que `delete_grade`.
+#[tauri::command]
+pub fn delete_grade_waiver(
+    state: tauri::State<'_, AppState>,
+    evaluation_id: String,
+    student_id: String,
+    competency_id: String,
+) -> Result<(), String> {
+    let conn = state.conn()?;
+    conn.execute(
+        "DELETE FROM grade_waivers
+          WHERE evaluation_id = ?1 AND competency_id = ?2 AND student_id = ?3",
+        params![evaluation_id, competency_id, student_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+

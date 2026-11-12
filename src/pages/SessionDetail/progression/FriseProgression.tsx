@@ -33,7 +33,7 @@ import {
   motifDeLaSemaine,
   semainePlanifiable,
 } from "@/lib/progression";
-import type { Progression, YearWeek } from "@/types";
+import type { Progression, StudentAway, YearWeek } from "@/types";
 
 /** Largeur de la colonne des en-têtes de ligne, à gauche. La largeur d'une
  *  colonne de semaine, elle, est partagée avec la vue annuelle : c'est la même
@@ -95,6 +95,46 @@ function regrouper(
     precedentIndex = index;
   }
   return periodes;
+}
+
+/** Les élèves de CETTE classe absents une semaine donnée. */
+function elevesDeLaSemaine(week: YearWeek, sessionId: string): StudentAway[] {
+  return week.students_away.filter((e) => e.session_id === sessionId);
+}
+
+/** Une ligne de la liste sous la frise : un élève, un motif, les semaines de
+ *  son absence (consécutives ou non, la phrase les borne). */
+interface AbsenceDEleve {
+  cle: string;
+  nom: string;
+  motif: string;
+  avecAppel: boolean;
+  premiere: YearWeek;
+  derniere: YearWeek;
+}
+
+function absencesDesEleves(
+  weeks: readonly YearWeek[],
+  sessionId: string,
+): AbsenceDEleve[] {
+  const lignes: AbsenceDEleve[] = [];
+  for (const week of weeks) {
+    for (const e of elevesDeLaSemaine(week, sessionId)) {
+      const cle = `${e.student_id}|${e.reason}|${e.attendance_expected}`;
+      const existante = lignes.find((l) => l.cle === cle);
+      if (existante) existante.derniere = week;
+      else
+        lignes.push({
+          cle,
+          nom: e.student_name,
+          motif: e.reason,
+          avecAppel: e.attendance_expected,
+          premiere: week,
+          derniere: week,
+        });
+    }
+  }
+  return lignes;
 }
 
 function phrasePeriode(periode: Periode): string {
@@ -192,6 +232,10 @@ export function FriseProgression({
   const fermetures = useMemo(
     () => regrouper(weeks, motifDeLaSemaine),
     [weeks],
+  );
+  const absencesEleves = useMemo(
+    () => absencesDesEleves(weeks, sessionId),
+    [weeks, sessionId],
   );
   const horsCours = useMemo(
     () =>
@@ -514,9 +558,57 @@ export function FriseProgression({
                 })}
               </tr>
             ))}
+            {absencesEleves.length > 0 && (
+              <tr>
+                <th className="border-b border-r px-2 py-1 text-left font-medium text-muted-foreground">
+                  Élèves absents
+                </th>
+                {weeks.map((week) => {
+                  const eleves = elevesDeLaSemaine(week, sessionId);
+                  return (
+                    <td
+                      key={week.monday}
+                      title={
+                        eleves.length === 0
+                          ? undefined
+                          : eleves
+                              .map((e) => `${e.student_name} — ${e.reason}`)
+                              .join("\n")
+                      }
+                      className={cn(
+                        "h-7 border-b border-r p-0 text-center align-middle text-[11px] font-medium",
+                        eleves.length > 0 && "bg-muted",
+                      )}
+                    >
+                      {eleves.length > 0 ? eleves.length : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {absencesEleves.length > 0 && (
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">
+            Stages et absences des élèves
+          </p>
+          {absencesEleves.map((absence) => (
+            <p key={absence.cle}>
+              <span className="font-medium">{absence.nom}</span> —{" "}
+              {absence.motif === "" ? "Absence" : absence.motif},{" "}
+              {phrasePeriode({
+                motif: absence.motif,
+                premiere: absence.premiere,
+                derniere: absence.derniere,
+              })}
+              {absence.avecAppel ? " (l'appel se fait)" : ""}
+            </p>
+          ))}
+        </div>
+      )}
 
       {(fermetures.length > 0 || horsCours.length > 0) && (
         <div className="grid gap-x-8 gap-y-1 text-xs text-muted-foreground sm:grid-cols-2">

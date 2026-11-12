@@ -189,6 +189,13 @@ pub struct HomeOverview {
 /// colonne naît à 0 — donc l'accueil ne se tait sur rien de ce qu'il affichait
 /// la veille.
 ///
+/// Les deux sous-requêtes d'appel portent aussi, **toutes les deux**, le
+/// prédicat de groupe du palier 023 — jumeau de celui d'`APPEL_DE_LA_SEANCE`
+/// (`commands/seances.rs`), dont il dit exactement la même chose. L'atelier du groupe 1
+/// n'a pour dénominateur que le groupe 1 : sans cela, l'accueil réclamerait
+/// pour toujours un appel pourtant terminé, et c'est précisément le genre de
+/// réclamation fausse que les trois rappels existent pour ne pas faire.
+///
 /// « Vide » n'est pas `= ''`, et le détour par deux `REPLACE` n'est pas une
 /// coquetterie : l'éditeur rend `<p></p>` pour un document vide, et un
 /// `<p></p>` de plus par ligne laissée blanche. Un cahier rempli puis effacé
@@ -205,13 +212,15 @@ SELECT se.id, se.title, se.date, se.session_id, s.name,
        (SELECT COUNT(*) FROM students st
          WHERE st.session_id = se.session_id
            AND st.enrolled_on <= se.date
-           AND (st.left_on IS NULL OR se.date <= st.left_on)),
+           AND (st.left_on IS NULL OR se.date <= st.left_on)
+           AND (se.group_id IS NULL OR st.group_id IS NULL OR se.group_id = st.group_id)),
        (SELECT COUNT(*) FROM attendance_records ar
           JOIN students sa ON sa.id = ar.student_id
          WHERE ar.seance_id = se.id
            AND ar.status <> 'non_fait'
            AND sa.enrolled_on <= se.date
-           AND (sa.left_on IS NULL OR se.date <= sa.left_on)),
+           AND (sa.left_on IS NULL OR se.date <= sa.left_on)
+           AND (se.group_id IS NULL OR sa.group_id IS NULL OR se.group_id = sa.group_id)),
        se.content_waived_at IS NOT NULL,
        EXISTS (SELECT 1 FROM seance_attachments sat WHERE sat.seance_id = se.id),
        EXISTS (SELECT 1 FROM absence_periods p
@@ -243,6 +252,27 @@ SELECT se.id, se.title, se.date, se.session_id, s.name,
 /// inutile : « pas de note » n'est plus un niveau de l'échelle, c'est l'absence
 /// de ligne. Compter les lignes compte donc exactement les notes, et une grille
 /// ouverte puis refermée sans rien saisir n'en crée aucune.
+///
+/// **LE GROUPE BORNE LES DEUX TERMES, OU AUCUN** (palier 023). Une évaluation
+/// du groupe 1 n'attend de notes que des élèves du groupe 1 : le prédicat vit
+/// donc aux deux endroits où cette requête énumère des élèves, et il est le
+/// jumeau de celui d'`APPEL_DE_LA_SEANCE` (`commands/seances.rs`). N'en servir
+/// qu'un ferait une évaluation éternellement incomplète, ou complète à 200 %.
+///
+/// **UNE CASE RÉGLÉE N'EST PAS FORCÉMENT UNE CASE NOTÉE** (palier 022). Celle
+/// que l'enseignant a déclarée « ne sera pas évaluée » compte au numérateur,
+/// et c'est tout l'objet du palier : sans cela, l'accueil réclamerait
+/// éternellement une évaluation volontairement incomplète — « différencier une
+/// évaluation en attente d'une qui ne sera jamais faite ».
+///
+/// D'où la forme du numérateur, qui a changé avec ce palier sans rien compter
+/// de différent pour les notes : il parcourt désormais les CASES du
+/// dénominateur — compétence rattachée × élève inscrit — et retient celles
+/// qu'une note ou une déclaration règle. Additionner deux comptes aurait été
+/// plus court, mais aurait rendu « complète à 112 % » possible à nouveau le
+/// jour où une case porterait les deux ; ici elle reste une case. La clé
+/// primaire de `grades` garantit par ailleurs qu'une case ne porte qu'une
+/// note, donc le compte des notes est, lui, inchangé au chiffre près.
 const EVALUATIONS_PASSEES: &str = "\
 SELECT e.id, e.title, e.date, e.session_id, s.name,
        (SELECT COUNT(*) FROM evaluation_competencies ec
@@ -250,15 +280,22 @@ SELECT e.id, e.title, e.date, e.session_id, s.name,
        (SELECT COUNT(*) FROM students st
          WHERE st.session_id = e.session_id
            AND st.enrolled_on <= e.date
-           AND (st.left_on IS NULL OR e.date <= st.left_on)),
-       (SELECT COUNT(*) FROM grades g
-          JOIN students sg ON sg.id = g.student_id
-         WHERE g.evaluation_id = e.id
+           AND (st.left_on IS NULL OR e.date <= st.left_on)
+           AND (e.group_id IS NULL OR st.group_id IS NULL OR e.group_id = st.group_id)),
+       (SELECT COUNT(*) FROM evaluation_competencies ec
+          JOIN students sg ON sg.session_id = e.session_id
+         WHERE ec.evaluation_id = e.id
            AND sg.enrolled_on <= e.date
            AND (sg.left_on IS NULL OR e.date <= sg.left_on)
-           AND EXISTS (SELECT 1 FROM evaluation_competencies ec
-                        WHERE ec.evaluation_id = e.id
-                          AND ec.competency_id = g.competency_id))
+           AND (e.group_id IS NULL OR sg.group_id IS NULL OR e.group_id = sg.group_id)
+           AND (EXISTS (SELECT 1 FROM grades g
+                         WHERE g.evaluation_id = e.id
+                           AND g.competency_id = ec.competency_id
+                           AND g.student_id = sg.id)
+             OR EXISTS (SELECT 1 FROM grade_waivers w
+                         WHERE w.evaluation_id = e.id
+                           AND w.competency_id = ec.competency_id
+                           AND w.student_id = sg.id)))
   FROM evaluations e
   JOIN sessions s ON s.id = e.session_id
  WHERE s.year_start = ?1 AND e.date < ?2

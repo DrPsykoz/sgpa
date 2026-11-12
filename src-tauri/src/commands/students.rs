@@ -3,6 +3,15 @@
 //! La période d'inscription (`enrolled_on` / `left_on`) est la donnée qui rend
 //! l'assiduité juste : sans elle, « absent » et « pas encore inscrit » sont
 //! indiscernables, et le dénominateur d'un élève arrivé en janvier est faux.
+//!
+//! **Le groupe se lit ici et ne s'y écrit pas** (palier 023). `Student` le
+//! porte parce que tout écran qui liste des élèves doit pouvoir le montrer,
+//! mais aucune commande de ce module ne touche `students.group_id` : la
+//! répartition passe par `groups::set_student_group`, et par elle seule. C'est
+//! la troisième règle d'architecture du projet, et elle paie comptant ici —
+//! `update_student` n'ayant pas de `group_id` à faire transiter, aucun
+//! appelant ne peut vider la colonne en l'omettant, comme il faut prendre
+//! garde de le faire pour l'horaire d'`update_seance_meta`.
 
 use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -21,6 +30,14 @@ pub struct Student {
     pub enrolled_on: String,
     pub left_on: Option<String>,
     pub created_at: String,
+    /// Le groupe où l'élève est rangé, s'il l'est (palier 023).
+    ///
+    /// `None` ne veut PAS dire « nulle part » : un élève sans groupe est
+    /// convoqué à toutes les séances, y compris celles d'un groupe nommé. La
+    /// règle complète est dans l'en-tête de `reports::ATTENDANCE_SQL`.
+    pub group_id: Option<String>,
+    /// Le nom de ce groupe, pour que l'écran n'ait pas à croiser deux listes.
+    pub group_name: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -36,13 +53,20 @@ fn map_student(row: &rusqlite::Row<'_>) -> rusqlite::Result<Student> {
         enrolled_on: row.get(4)?,
         left_on: row.get(5)?,
         created_at: row.get(6)?,
+        // Colonnes ajoutées EN FIN de projection : les six index d'avant ne
+        // bougent pas, donc aucun appelant n'est à relire.
+        group_id: row.get(7)?,
+        group_name: row.get(8)?,
     })
 }
 
 fn load_student(conn: &Connection, id: &str) -> Result<Student, String> {
     conn.query_row(
-        "SELECT id, session_id, first_name, last_name, enrolled_on, left_on, created_at
-           FROM students WHERE id = ?1",
+        "SELECT s.id, s.session_id, s.first_name, s.last_name, s.enrolled_on,
+                s.left_on, s.created_at, s.group_id, g.name
+           FROM students s
+           LEFT JOIN student_groups g ON g.id = s.group_id
+          WHERE s.id = ?1",
         params![id],
         map_student,
     )
@@ -135,9 +159,12 @@ pub fn get_students(
     let conn = state.conn()?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, session_id, first_name, last_name, enrolled_on, left_on, created_at
-               FROM students WHERE session_id = ?1
-              ORDER BY last_name, first_name",
+            "SELECT s.id, s.session_id, s.first_name, s.last_name, s.enrolled_on,
+                    s.left_on, s.created_at, s.group_id, g.name
+               FROM students s
+               LEFT JOIN student_groups g ON g.id = s.group_id
+              WHERE s.session_id = ?1
+              ORDER BY s.last_name, s.first_name",
         )
         .map_err(|e| e.to_string())?;
 
@@ -243,6 +270,11 @@ pub fn create_students_bulk(
                 enrolled_on: enrolled_on.clone(),
                 left_on: None,
                 created_at: created_at.clone(),
+                // Un élève collé depuis un tableur n'arrive dans aucun groupe :
+                // la répartition est un geste à part, et deviner ici ferait
+                // entrer la moitié d'une classe dans le premier groupe venu.
+                group_id: None,
+                group_name: None,
             });
         }
     }

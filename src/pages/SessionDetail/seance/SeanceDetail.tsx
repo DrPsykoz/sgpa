@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PastilleDeGroupe, SelecteurDeGroupe } from "@/components/Groupes";
 import { Attachments } from "@/components/Attachments";
 import type { AttachmentsHandle } from "@/components/Attachments";
 import { useDraftGuard } from "@/hooks/useDrafts";
@@ -62,11 +63,15 @@ import type {
   AttendanceWithStudent,
   Seance,
   Student,
+  StudentGroup,
 } from "@/types";
 
 export interface SeanceDetailProps {
   seance: Seance;
   students: Student[];
+  /** Les groupes de la classe. Le parent les détient (règle 1) : un groupe
+   *  renommé dans l'onglet Élèves se relit ici au rechargement. */
+  groups: StudentGroup[];
   onBack: () => void;
   /** Recharge la liste du parent. À appeler après toute écriture. */
   onChanged: () => Promise<void>;
@@ -178,6 +183,7 @@ function choiceOf(seance: Seance): TrimesterChoice {
 export function SeanceDetail({
   seance,
   students,
+  groups,
   onBack,
   onChanged,
 }: SeanceDetailProps) {
@@ -215,6 +221,11 @@ export function SeanceDetail({
   );
   const [cancelledDraft, setCancelledDraft] = useState(seance.cancelled);
   const [reasonDraft, setReasonDraft] = useState(seance.cancel_reason);
+  // `null` = toute la classe. Changer le groupe d'une séance déjà pointée est
+  // permis : le backend garde les pointages, l'appel se contente de ne plus
+  // lister les élèves de l'autre groupe. Un refus aurait obligé à supprimer la
+  // séance pour corriger une erreur de saisie.
+  const [groupDraft, setGroupDraft] = useState<string | null>(seance.group_id);
   const [savingMeta, setSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
 
@@ -231,7 +242,8 @@ export function SeanceDetail({
       cancelledDraft !== seance.cancelled ||
       // Le motif compte comme modification même s'il est le seul à bouger :
       // corriger « Sortie » en « Sortie scolaire » est une saisie à enregistrer.
-      reasonDraft !== seance.cancel_reason);
+      reasonDraft !== seance.cancel_reason ||
+      groupDraft !== seance.group_id);
 
   // ---- Cahier de texte ----
   // Ce brouillon ne part QUE par api.updateSeanceContent. Il est initialisé une
@@ -323,6 +335,7 @@ export function SeanceDetail({
     choice: TrimesterChoice;
     cancelled: boolean;
     cancelReason: string;
+    groupId: string | null;
   }): Promise<boolean> => {
     const title = values.title.trim();
     if (!title) {
@@ -352,6 +365,7 @@ export function SeanceDetail({
         // Le backend le vide lui-même si `cancelled` est faux : on ne duplique
         // pas la règle ici, sinon les deux divergeraient au premier ajustement.
         values.cancelReason,
+        values.groupId,
       );
       await onChanged();
       setMetaOpen(false);
@@ -372,6 +386,7 @@ export function SeanceDetail({
     setChoiceDraft(choiceOf(seance));
     setCancelledDraft(seance.cancelled);
     setReasonDraft(seance.cancel_reason);
+    setGroupDraft(seance.group_id);
     setMetaError(null);
     setMetaOpen(true);
   };
@@ -384,6 +399,7 @@ export function SeanceDetail({
     setChoiceDraft(choiceOf(seance));
     setCancelledDraft(seance.cancelled);
     setReasonDraft(seance.cancel_reason);
+    setGroupDraft(seance.group_id);
     setMetaError(null);
     setMetaOpen(false);
   };
@@ -408,6 +424,9 @@ export function SeanceDetail({
       // La puce de trimestre ne touche QU'au trimestre : on fait transiter le
       // motif inchangé. L'omettre l'effacerait au simple reclassement.
       cancelReason: seance.cancel_reason,
+      // Même raison pour le groupe : un reclassement de trimestre ne doit pas
+      // rendre à la classe entière une séance d'atelier.
+      groupId: seance.group_id,
     });
     // Échec : la puce doit retomber sur ce que la base contient vraiment.
     if (!saved) setChoiceDraft(choiceOf(seance));
@@ -569,6 +588,10 @@ export function SeanceDetail({
               >
                 {seance.title}
               </h3>
+              <PastilleDeGroupe
+                groupName={seance.group_name}
+                className="text-muted-foreground"
+              />
               {seance.cancelled && (
                 <Badge
                   variant="outline"
@@ -634,8 +657,9 @@ export function SeanceDetail({
             <CardTitle className="text-base">Informations de la séance</CardTitle>
             <p className="text-sm text-muted-foreground">
               Ce bloc n'enregistre que le titre, la date,{" "}
-              {ponctuelle ? "l'horaire, " : ""}le trimestre et l'annulation. Le
-              cahier de texte a son propre bouton et n'est pas touché ici.
+              {ponctuelle ? "l'horaire, " : ""}le trimestre, le groupe et
+              l'annulation. Le cahier de texte a son propre bouton et n'est pas
+              touché ici.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -718,6 +742,14 @@ export function SeanceDetail({
                   </SelectContent>
                 </Select>
               </div>
+              <SelecteurDeGroupe
+                id="seance-group"
+                groups={groups}
+                value={groupDraft}
+                onChange={setGroupDraft}
+                disabled={savingMeta}
+                aide="L'appel ne convoque que ce groupe, et la séance sort de l'assiduité des autres élèves."
+              />
               <div className="flex items-end">
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
@@ -792,6 +824,7 @@ export function SeanceDetail({
                     choice: choiceDraft,
                     cancelled: cancelledDraft,
                     cancelReason: reasonDraft,
+                    groupId: groupDraft,
                   })
                 }
               >
@@ -987,14 +1020,21 @@ export function SeanceDetail({
                 </div>
               </DataState>
 
+              {/* Deux raisons d'être absent de cet appel, et il faut les dire
+                  toutes les deux : la période d'inscription, et — depuis le
+                  palier 023 — l'appartenance à un autre groupe. Un seul des
+                  deux motifs affiché laisserait l'enseignant chercher une
+                  erreur de date là où c'est le groupe qui écarte. */}
               {!attLoading && !attLoadError && notConcerned > 0 && (
                 <p className="text-xs text-muted-foreground">
                   {notConcerned}{" "}
                   {notConcerned > 1
                     ? "élèves de la classe n'apparaissent pas"
                     : "élève de la classe n'apparaît pas"}{" "}
-                  dans cet appel : leur période d'inscription ne couvre pas le{" "}
-                  {formatShortDate(seance.date)}.
+                  dans cet appel :{" "}
+                  {seance.group_name
+                    ? `cette séance ne concerne que « ${seance.group_name} », ou leur période d'inscription ne couvre pas le ${formatShortDate(seance.date)}.`
+                    : `leur période d'inscription ne couvre pas le ${formatShortDate(seance.date)}.`}
                 </p>
               )}
             </CardContent>

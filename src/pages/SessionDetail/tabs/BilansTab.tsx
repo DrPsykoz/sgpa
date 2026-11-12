@@ -48,9 +48,8 @@ const TRIMESTERS = [1, 2, 3] as const;
 const MASTERY_BARS: Record<MasteryLevel, string> = {
   1: "bg-red-400",
   2: "bg-orange-400",
-  3: "bg-yellow-400",
-  4: "bg-green-500",
-  5: "bg-emerald-600",
+  3: "bg-green-500",
+  4: "bg-emerald-600",
 };
 
 function messageOf(err: unknown): string {
@@ -508,6 +507,20 @@ function StudentReportCard({
                 attendance.seances_neutralisees,
                 "séance pendant une absence justifiée, non comptabilisée",
                 "séances pendant une absence justifiée, non comptabilisées",
+              )}
+            </p>
+          )}
+          {/* Quatrième et dernier terme de la partition, né au palier 023 : une
+              séance de l'autre groupe n'est ni hors inscription ni une absence
+              justifiée, et sans cette ligne une classe dédoublée annonce 26
+              séances au trimestre pour afficher 16/16. Nul tant qu'aucun
+              groupe n'existe, donc invisible sur toute base migrée. */}
+          {attendance.seances_autre_groupe > 0 && (
+            <p className="text-muted-foreground">
+              {plural(
+                attendance.seances_autre_groupe,
+                "séance tenue avec un autre groupe, non comptabilisée",
+                "séances tenues avec un autre groupe, non comptabilisées",
               )}
             </p>
           )}

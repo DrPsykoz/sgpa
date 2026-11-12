@@ -41,12 +41,14 @@ import {
   type ContractSheetContext,
 } from "@/lib/pdf";
 import type {
+  ActivityDomain,
   CompetencyInfo,
   ContractRequirement,
   ContractRow,
   ContractSheet,
   ContractSheetInput,
   ProfessionalField,
+  ReferentialItem,
 } from "@/types";
 
 export interface ContractSheetEditorProps {
@@ -135,6 +137,12 @@ const EMPTY_HEADER: SheetHeader = {
   professional_subset: "",
   reference_activities: "",
   target_careers: "",
+  activity_domain_id: null,
+  activity_domain_label: "",
+  reference_activity_id: null,
+  reference_activity_label: "",
+  career_id: null,
+  career_label: "",
 };
 
 // Radix refuse une valeur vide sur un SelectItem : d'où ces sentinelles pour
@@ -143,6 +151,24 @@ const NO_FIELD = "__aucun__";
 const ORPHAN_FIELD = "__conserve__";
 /** Ligne dont le socle est saisi à la main, sans lien vers le référentiel. */
 const FREE_TEXT = "__libre__";
+
+/** Les trois crans du référentiel remis à zéro d'un seul geste.
+ *
+ *  Une seule définition parce que deux endroits en ont besoin et qu'ils
+ *  doivent dire la même chose : changer de champ professionnel, et changer de
+ *  domaine d'activité. Dans les deux cas le parent bouge, donc tout ce qui en
+ *  dépend cesse d'être vrai. Les LIBELLÉS partent avec les clés, ici et
+ *  seulement ici : ailleurs ils survivent à la disparition de leur entrée,
+ *  mais un enseignant qui change de champ ne veut pas garder le nom du métier
+ *  de l'ancien. */
+const RIEN_DU_REFERENTIEL = {
+  activity_domain_id: null,
+  activity_domain_label: "",
+  reference_activity_id: null,
+  reference_activity_label: "",
+  career_id: null,
+  career_label: "",
+} satisfies Partial<SheetHeader>;
 
 let localKeyCounter = 0;
 const nextKey = () => `l-${++localKeyCounter}`;
@@ -159,6 +185,12 @@ function headerOf(sheet: ContractSheet): SheetHeader {
     professional_subset: sheet.professional_subset,
     reference_activities: sheet.reference_activities,
     target_careers: sheet.target_careers,
+    activity_domain_id: sheet.activity_domain_id,
+    activity_domain_label: sheet.activity_domain_label,
+    reference_activity_id: sheet.reference_activity_id,
+    reference_activity_label: sheet.reference_activity_label,
+    career_id: sheet.career_id,
+    career_label: sheet.career_label,
   };
 }
 
@@ -208,6 +240,146 @@ function competencyOptionLabel(competency: CompetencyInfo): string {
   return `${reference} — ${competency.name}${suffix}`;
 }
 
+/** Un des trois champs d'en-tête que le palier 024 relie au référentiel.
+ *
+ *  Il a DEUX visages, et c'est tout l'objet du composant :
+ *
+ *  - **Le champ professionnel a un référentiel** — Habitat, seul semé par le
+ *    palier 024 depuis RA16 — : un menu déroulant, une seule valeur, comme
+ *    l'enseignant l'a demandé le 2026-11-12. Le texte saisi à la main avant
+ *    que ce menu n'existe reste affiché en dessous, en lecture seule, avec un
+ *    bouton pour l'effacer. Même geste qu'au palier 021 pour les compétences
+ *    de progression : ce qui a été écrit ne disparaît pas parce qu'un écran a
+ *    changé, et c'est l'enseignant qui décide quand il part.
+ *  - **Il n'en a pas** — les quatre autres champs du palier 009 — : le champ
+ *    de saisie libre d'avant, inchangé. Remplacer partout la saisie par un
+ *    menu vide rendrait la fiche inremplissable là-bas, et une régression
+ *    d'écran vaut une perte de données.
+ *
+ *  Le menu propose « Aucun » et, le cas échéant, le libellé figé d'une entrée
+ *  retirée du référentiel : le backend met alors la clé à `null` et garde le
+ *  libellé, exactement comme pour le champ professionnel. Le choisir ne fait
+ *  rien — il n'est là que pour ne pas effacer ce libellé au prochain
+ *  enregistrement. */
+function ChampDuReferentiel({
+  id,
+  libelle,
+  disponible,
+  options,
+  valeurId,
+  valeurLibelle,
+  onChoisir,
+  texteLibre,
+  onTexteLibre,
+  placeholderLibre,
+  multiligne = false,
+  aide,
+  attente,
+}: {
+  id: string;
+  libelle: string;
+  /** Le champ professionnel a-t-il un référentiel ? Vrai même si `options` est
+   *  vide parce que le domaine parent n'est pas encore choisi. */
+  disponible: boolean;
+  options: ReferentialItem[];
+  valeurId: string | null;
+  valeurLibelle: string;
+  onChoisir: (id: string | null, libelle: string) => void;
+  texteLibre: string;
+  onTexteLibre: (texte: string) => void;
+  placeholderLibre: string;
+  multiligne?: boolean;
+  aide?: string;
+  /** Ce qui manque pour que le menu ait quelque chose à proposer. */
+  attente?: string;
+}) {
+  if (!disponible) {
+    return (
+      <div className="space-y-2">
+        <Label htmlFor={id}>{libelle}</Label>
+        {multiligne ? (
+          <Textarea
+            id={id}
+            className="min-h-[70px] text-sm"
+            value={texteLibre}
+            onChange={(e) => onTexteLibre(e.target.value)}
+            placeholder={placeholderLibre}
+          />
+        ) : (
+          <Input
+            id={id}
+            value={texteLibre}
+            onChange={(e) => onTexteLibre(e.target.value)}
+            placeholder={placeholderLibre}
+          />
+        )}
+        {aide && <p className="text-xs text-muted-foreground">{aide}</p>}
+      </div>
+    );
+  }
+
+  const orphelin = valeurId === null && valeurLibelle.trim() !== "";
+  const valeur = valeurId ?? (orphelin ? ORPHAN_FIELD : NO_FIELD);
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{libelle}</Label>
+      <Select
+        value={valeur}
+        onValueChange={(value) => {
+          if (value === ORPHAN_FIELD) return;
+          if (value === NO_FIELD) {
+            onChoisir(null, "");
+            return;
+          }
+          const choix = options.find((option) => option.id === value);
+          onChoisir(value, choix ? choix.name : valeurLibelle);
+        }}
+        disabled={options.length === 0 && !orphelin}
+      >
+        <SelectTrigger id={id}>
+          <SelectValue placeholder="Sélectionner…" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_FIELD}>Aucun</SelectItem>
+          {orphelin && (
+            <SelectItem value={ORPHAN_FIELD}>
+              {valeurLibelle} (retiré du référentiel)
+            </SelectItem>
+          )}
+          {options.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {options.length === 0 && attente && (
+        <p className="text-xs text-muted-foreground">{attente}</p>
+      )}
+      {aide && <p className="text-xs text-muted-foreground">{aide}</p>}
+      {texteLibre.trim() !== "" && (
+        <div className="space-y-1 rounded-md border border-dashed bg-muted/40 p-2">
+          <p className="text-xs font-medium text-muted-foreground">
+            Saisi à la main
+          </p>
+          <p className="whitespace-pre-wrap text-xs">{texteLibre}</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs"
+            onClick={() => onTexteLibre("")}
+          >
+            <Trash2 className="mr-1 h-3 w-3" />
+            Effacer
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ContractSheetEditor({
   evaluationId,
   evaluationTitle,
@@ -241,6 +413,11 @@ export function ContractSheetEditor({
   const [newFieldName, setNewFieldName] = useState("");
   const [creatingField, setCreatingField] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
+
+  /** L'arbre du référentiel du champ professionnel choisi. Vide = ce champ
+   *  n'en a pas, et les trois menus redeviennent des champs de saisie. */
+  const [referentiel, setReferentiel] = useState<ActivityDomain[]>([]);
+  const [referentielError, setReferentielError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -287,6 +464,38 @@ export function ContractSheetEditor({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Le référentiel suit le champ professionnel, et rien d'autre : il ne part
+   *  pas avec `load`, qui ne connaît pas encore le champ au moment de lancer
+   *  ses quatre requêtes.
+   *
+   *  L'échec n'est pas avalé — il s'affiche sous le menu —, mais il ne bloque
+   *  pas l'écran : sans référentiel, la fiche se remplit à la main comme
+   *  avant, ce qui vaut mieux qu'un en-tête inaccessible. */
+  useEffect(() => {
+    const champ = header.professional_field_id;
+    if (!champ) {
+      setReferentiel([]);
+      setReferentielError(null);
+      return;
+    }
+    let annule = false;
+    api
+      .getActivityReferential(champ)
+      .then((arbre) => {
+        if (annule) return;
+        setReferentiel(arbre);
+        setReferentielError(null);
+      })
+      .catch((err: unknown) => {
+        if (annule) return;
+        setReferentiel([]);
+        setReferentielError(errorMessage(err));
+      });
+    return () => {
+      annule = true;
+    };
+  }, [header.professional_field_id]);
 
   useEffect(() => {
     if (!justSaved) return;
@@ -349,8 +558,35 @@ export function ContractSheetEditor({
       professional_field_label: field
         ? field.name
         : header.professional_field_label,
+      // Changer de champ professionnel invalide les trois crans du dessous :
+      // un domaine d'un autre champ est un couple contradictoire, que
+      // `save_contract_sheet` refuse — et il a raison de le refuser, les deux
+      // lignes s'imprimant côte à côte sur la fiche remise à l'élève. Mieux
+      // vaut vider ici, où le geste est visible, que refuser plus tard.
+      ...RIEN_DU_REFERENTIEL,
     });
   };
+
+  // ---- Référentiel : domaine d'activité, activité de référence, métier ----
+
+  const domaineChoisi = useMemo(
+    () =>
+      referentiel.find(
+        (domaine) => domaine.id === header.activity_domain_id,
+      ) ?? null,
+    [referentiel, header.activity_domain_id],
+  );
+
+  /** Vrai dès que le champ professionnel a un référentiel. C'est LE test qui
+   *  décide entre les trois menus et les trois champs de saisie. */
+  const avecReferentiel = referentiel.length > 0;
+
+  const choisirDomaine = (id: string | null, libelle: string) =>
+    patchHeader({
+      ...RIEN_DU_REFERENTIEL,
+      activity_domain_id: id,
+      activity_domain_label: libelle,
+    });
 
   const handleCreateField = async () => {
     const name = newFieldName.trim();
@@ -832,7 +1068,7 @@ export function ContractSheetEditor({
               sache où il s'imprime. */}
           <p className="text-sm text-muted-foreground">
             La fiche d'évaluation du même projet — une page par élève, avec « on
-            exige » et les cinq niveaux de maîtrise à cocher — se télécharge
+            exige » et les quatre niveaux de maîtrise à cocher — se télécharge
             depuis l'onglet « Fiche d'évaluation », à côté de celui-ci.
           </p>
 
@@ -918,53 +1154,72 @@ export function ContractSheetEditor({
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="fiche-sous-ensemble">
-                    Sous-ensemble du champ
-                  </Label>
-                  <Input
-                    id="fiche-sous-ensemble"
-                    value={header.professional_subset}
-                    onChange={(e) =>
-                      patchHeader({ professional_subset: e.target.value })
-                    }
-                    placeholder="Ex. : aménagement, agencement, finition"
-                  />
-                  {/* L'en-tête « domaine du socle » du classeur d'origine
-                      désignait en réalité cette subdivision du champ : les
-                      domaines du socle sont dans les lignes, pas ici. */}
-                  <p className="text-xs text-muted-foreground">
-                    Subdivision du champ professionnel. Les domaines du socle se
-                    saisissent ligne par ligne, dans le tableau ci-dessous.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="fiche-metiers">Métiers visés</Label>
-                  <Input
-                    id="fiche-metiers"
-                    value={header.target_careers}
-                    onChange={(e) =>
-                      patchHeader({ target_careers: e.target.value })
-                    }
-                    placeholder="Ex. : électricien, plombier…"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="fiche-activites-ref">
-                  Activités de référence
-                </Label>
-                <Textarea
-                  id="fiche-activites-ref"
-                  className="min-h-[70px] text-sm"
-                  value={header.reference_activities}
-                  onChange={(e) =>
-                    patchHeader({ reference_activities: e.target.value })
+                {/* L'en-tête « domaine du socle » du classeur d'origine
+                    désignait en réalité cette subdivision du champ : les
+                    domaines du socle sont dans les lignes, pas ici. Le
+                    palier 024 lui rend son nom — « domaine d'activité » — et
+                    le branche sur RA16 quand le champ en a un. */}
+                <ChampDuReferentiel
+                  id="fiche-domaine-activite"
+                  libelle="Domaine d'activité"
+                  disponible={avecReferentiel}
+                  options={referentiel}
+                  valeurId={header.activity_domain_id}
+                  valeurLibelle={header.activity_domain_label}
+                  onChoisir={choisirDomaine}
+                  texteLibre={header.professional_subset}
+                  onTexteLibre={(texte) =>
+                    patchHeader({ professional_subset: texte })
                   }
-                  placeholder="Activités de référence du champ professionnel…"
+                  placeholderLibre="Ex. : aménagement, agencement, finition"
+                  aide="Subdivision du champ professionnel. Les domaines du socle se saisissent ligne par ligne, dans le tableau ci-dessous."
+                />
+                <ChampDuReferentiel
+                  id="fiche-metiers"
+                  libelle="Métier visé"
+                  disponible={avecReferentiel}
+                  options={domaineChoisi?.careers ?? []}
+                  valeurId={header.career_id}
+                  valeurLibelle={header.career_label}
+                  onChoisir={(id, libelle) =>
+                    patchHeader({ career_id: id, career_label: libelle })
+                  }
+                  texteLibre={header.target_careers}
+                  onTexteLibre={(texte) =>
+                    patchHeader({ target_careers: texte })
+                  }
+                  placeholderLibre="Ex. : électricien, plombier…"
+                  attente="Choisissez d'abord un domaine d'activité."
                 />
               </div>
+
+              <ChampDuReferentiel
+                id="fiche-activites-ref"
+                libelle="Activité de référence"
+                disponible={avecReferentiel}
+                options={domaineChoisi?.activities ?? []}
+                valeurId={header.reference_activity_id}
+                valeurLibelle={header.reference_activity_label}
+                onChoisir={(id, libelle) =>
+                  patchHeader({
+                    reference_activity_id: id,
+                    reference_activity_label: libelle,
+                  })
+                }
+                texteLibre={header.reference_activities}
+                onTexteLibre={(texte) =>
+                  patchHeader({ reference_activities: texte })
+                }
+                placeholderLibre="Activités de référence du champ professionnel…"
+                multiligne
+                attente="Choisissez d'abord un domaine d'activité."
+              />
+
+              {referentielError && (
+                <p className="text-xs text-destructive">
+                  Référentiel professionnel indisponible : {referentielError}
+                </p>
+              )}
             </CardContent>
           </Card>
 

@@ -1,0 +1,196 @@
+-- ==========================================================================
+-- SGPA — palier 026 : la progression telle que ses documents la portent
+--
+-- DEMANDE DE L'AUTEUR, dernier point resté de sa liste : « Progression a
+-- refaire avec les nouveaux documents ». Les documents sont « 3e Progression
+-- 2026-2027.docx » et « 4e Progression 2026-2027.docx », qu'il a nommés le
+-- 2026-11-12. Ils ne sont pas versionnés — ils vivent dans `documents/`, hors
+-- du dépôt, pour la raison qui vaut pour tout ce dossier.
+--
+-- CE QUE LES DEUX DOCUMENTS PORTENT ET QUE LE PALIER 019 NE SAIT PAS DIRE.
+-- Les deux fichiers ont la même forme : un tableau de trois colonnes
+-- « Sem | Séances | Compétences évaluées », et deux sortes de lignes.
+--
+--   • Une ligne d'EN-TÊTE DE SÉQUENCE, qui ouvre un bloc :
+--         SEQUENCE2 : fabrication d'une boîte en bois
+--         Objectifs : réaliser une boîte
+--         Découvrir le métier et le CAP de dessinateur industriel
+--     Le titre tient déjà dans `progression_etapes.libelle`. Les deux lignes
+--     qui suivent n'ont aucune colonne où aller : ni `connaissances` (ce n'est
+--     pas un savoir, c'est un but) ni `priorites` (ce n'est pas un ordre de
+--     passage). Les loger dans l'un des deux les ferait imprimer sous un
+--     intitulé faux sur un document punaisé au mur.
+--
+--   • Une ligne d'ACTIVITÉ, qui porte quatre choses :
+--         Analyse de la situation | Activité1 : Le dessin technique
+--         Objectif : savoir repérer les différentes vues dans un ouvrage
+--         → et, dans la troisième colonne, LES COMPÉTENCES DE CETTE LIGNE.
+--     L'intitulé tient dans `progression_activites.libelle`. Le reste, non :
+--     la NATURE de la ligne (analyse de la situation / activité / TP), son
+--     OBJECTIF, et ses COMPÉTENCES.
+--
+-- Ce palier ajoute donc cinq choses, et rien d'autre. Il ne déplace rien, ne
+-- vide rien, ne devine rien.
+--
+-- ==========================================================================
+-- CE QUI NE CHANGE PAS, ET QUI EST LE POINT DÉLICAT
+-- ==========================================================================
+--
+-- L'AUTEUR A TRANCHÉ LE 2026-11-07 : « les compétences, connaissances et
+-- priorités se rattachent à l'ÉTAPE, l'échelon entre l'année et l'activité —
+-- pas à l'année, pas à l'activité. » Ce palier ne rouvre pas cette décision,
+-- et il faut voir pourquoi plutôt que de le croire :
+--
+--   • `progression_etape_competences` (palier 021) reste la table de l'étape,
+--     inchangée, et l'écran de l'étape garde son sélecteur.
+--   • `progression_etapes.competences` — le texte libre d'avant le palier 021
+--     — reste là aussi, ni vidée ni supprimée, avec le même contrat qu'au
+--     palier 021 : affichée en lecture seule, imprimée, effacée par un seul
+--     bouton, transitée inchangée par TOUT appelant.
+--   • `connaissances` et `priorites` restent à l'étape et nulle part ailleurs.
+--
+-- L'activité GAGNE ses compétences, elle ne les PREND PAS à l'étape. Les deux
+-- niveaux coexistent, et c'est ce que ses documents demandent : la colonne
+-- « Compétences évaluées » y est remplie ligne par ligne, et c'est lui qui a
+-- fourni les documents. Une progression déjà saisie se relit donc exactement
+-- comme la veille — toutes ses compétences sont à l'étape, aucune activité
+-- n'en a, et c'est une lecture valide et non un trou à combler.
+--
+-- RIEN N'EST MIGRÉ, pour la raison du palier 021 : on ne peut pas deviner
+-- laquelle des compétences d'une étape appartient à laquelle de ses activités.
+-- Les répartir au prorata, ou les recopier sur chacune, écrirait dans le plan
+-- d'un enseignant un rattachement qu'il n'a pas fait.
+--
+-- ==========================================================================
+-- POURQUOI `nature` A UN CHECK ALORS QUE `category` N'EN A PAS
+-- ==========================================================================
+--
+-- `agenda_entries.category` (palier 020) est du texte libre sans CHECK, parce
+-- qu'une taxonomie y figerait un vocabulaire qui appartient à l'établissement.
+-- `nature` est l'inverse exact, et le précédent est à deux tables d'ici :
+-- `progression_plages.voie INTEGER CHECK (voie IN (0, 1))`.
+--
+--   • Les trois valeurs ne sont pas le vocabulaire de l'enseignant : elles
+--     sont la FORME de ses deux documents, répétées à l'identique de
+--     SEQUENCE1 à SEQUENCE11 dans les deux fichiers.
+--   • Elles sont LUES PAR DU CODE : l'écran et le PDF en tirent le préfixe
+--     imprimé de la ligne. Une quatrième valeur arrivée par une faute de
+--     frappe s'imprimerait telle quelle, et un `match` du front n'aurait rien
+--     à en faire.
+--
+-- Comme pour `voie`, le refus en français vient de la commande
+-- (`verifier_nature`) et le CHECK ne fait que le redire pour un appelant
+-- futur : un CHECK seul refuserait en anglais.
+--
+-- DEFAULT 'activite' REPRODUIT LE COMPORTEMENT D'AVANT, et ce n'est pas un
+-- choix de commodité : jusqu'à ce palier, une ligne de `progression_activites`
+-- ÉTAIT une activité — le modèle ne connaissait rien d'autre. Une base migrée
+-- sans que l'enseignant ne touche à rien imprime donc exactement ce qu'elle
+-- imprimait la veille.
+--
+-- ==========================================================================
+-- POURQUOI `metier_cap` EST DU TEXTE LIBRE ET NON UNE CLÉ VERS `careers`
+-- ==========================================================================
+--
+-- Le palier 024 a semé les 21 métiers de la roue du RA16, et la fiche contrat
+-- y puise par un couple (clé, libellé figé). On pourrait croire que l'étape
+-- devrait faire pareil. Elle ne doit pas :
+--
+--   • Les 21 métiers semés sont ceux du champ HABITAT. La SEQUENCE2 du
+--     document de 3ᵉ nomme « dessinateur industriel », qui n'en est pas. Une
+--     clé étrangère rendrait inexprimable la phrase même qu'il a écrite.
+--   • La ligne du document nomme un métier ET un CAP, dans une phrase :
+--     « Découvrir le métier et le CAP de dessinateur industriel ». Ce n'est
+--     pas la désignation d'une entité, c'est un objectif de découverte.
+--   • Le lien au référentiel a déjà sa place, et c'est la fiche contrat
+--     (palier 024), qui est nominative et porte le projet de l'élève. Une
+--     étape de progression est un plan de classe.
+--
+-- Même raison, en plus courte, pour `objectifs` et `objectif` : ce sont des
+-- phrases, comme `connaissances` et `priorites`.
+--
+-- ==========================================================================
+-- LES SORTS DE SUPPRESSION
+-- ==========================================================================
+--
+-- ⚠ IRRÉVERSIBLE — une action ON DELETE ne se change pas par ALTER TABLE.
+--
+-- `progression_activite_competences` est le MIROIR de
+-- `progression_etape_competences` (palier 021), à un nom de colonne près :
+-- CASCADE sur le porteur, RESTRICT sur la compétence, index inverse, et pas de
+-- colonne `position`. Une table jumelle qui diverge de sa voisine finit par
+-- être lue avec les hypothèses de l'autre.
+--
+-- RESTRICT, donc `delete_node` gagne un CINQUIÈME compte. Il en avait quatre
+-- (notes, évaluations, étapes, déclarations « non évalué ») ; sans le
+-- cinquième, l'enseignant qui supprime du référentiel une compétence citée par
+-- une activité lirait une erreur SQLite brute à la place d'un décompte. Même
+-- doctrine qu'au palier 021 et qu'au palier 024 : « présenter un bouton qui
+-- échoue vaut moins que l'annoncer ».
+--
+-- ==========================================================================
+-- CE QUE LES DOCUMENTS PORTENT ET QUI NE DEMANDE RIEN
+-- ==========================================================================
+--
+-- Leur première colonne est une suite de numéros de semaine saisis à la main
+-- — « 36 », « 37/38 », « 50,1,2 ». La frise les remplace depuis le palier 019,
+-- et c'est mieux : un numéro n'a pas d'année, et la semaine 1 de 2027 suit la
+-- 53 de 2026. Ne pas ajouter de colonne « semaines » en texte.
+--
+-- Ils portent aussi des lignes qui ne sont pas des activités : « stage »,
+-- « vacance », « CFG », « DNB », « Réunions de fin d'année ». Aucune ne
+-- demande de schéma. Les vacances sont déjà lues du calendrier officiel
+-- (`closures`, palier 019) et la frise les grise ; un stage de classe est déjà
+-- une `absence_periods` et `get_year_calendar` le rend par semaine ; le CFG,
+-- le DNB et les réunions sont des `agenda_entries`, qui ont une `category`
+-- depuis le palier 020 exactement pour cela.
+-- ==========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1/5 et 2/5 — L'en-tête de séquence : ses objectifs, et le métier découvert.
+--
+--       Nullables au sens utile du terme : NOT NULL avec DEFAULT '', comme
+--       `connaissances` et `priorites` au palier 019. Une colonne de texte qui
+--       a deux façons de dire « vide » finit par n'être testée que d'une des
+--       deux.
+-- ---------------------------------------------------------------------------
+ALTER TABLE progression_etapes ADD COLUMN objectifs TEXT NOT NULL DEFAULT '';
+ALTER TABLE progression_etapes ADD COLUMN metier_cap TEXT NOT NULL DEFAULT '';
+
+-- ---------------------------------------------------------------------------
+-- 3/5 — L'objectif de la ligne d'activité. Une phrase, une par ligne dans les
+--       documents, toujours introduite par « Objectif : ».
+-- ---------------------------------------------------------------------------
+ALTER TABLE progression_activites ADD COLUMN objectif TEXT NOT NULL DEFAULT '';
+
+-- ---------------------------------------------------------------------------
+-- 4/5 — La nature de la ligne.
+--
+--       'analyse'  = « Analyse de la situation », la ligne qui ouvre un bloc
+--       'activite' = « Activité n », le cas de loin le plus fréquent
+--       'tp'       = « TP : … », la mise en œuvre
+--
+--       Le DEFAULT est 'activite' parce que c'est ce qu'était toute ligne
+--       existante : une base migrée se comporte exactement comme la veille.
+-- ---------------------------------------------------------------------------
+ALTER TABLE progression_activites ADD COLUMN nature TEXT NOT NULL DEFAULT 'activite'
+    CHECK (nature IN ('analyse', 'activite', 'tp'));
+
+-- ---------------------------------------------------------------------------
+-- 5/5 — Les compétences évaluées par une activité.
+--
+--       Miroir de `progression_etape_competences`, et pas de colonne
+--       `position` : l'ordre est celui du référentiel, celui que Réglages
+--       règle, donc une compétence déplacée là-bas se déplace dans toutes les
+--       progressions d'un coup. L'en-tête du palier 021 développe.
+-- ---------------------------------------------------------------------------
+CREATE TABLE progression_activite_competences (
+    activite_id   TEXT NOT NULL REFERENCES progression_activites(id) ON DELETE CASCADE,
+    competency_id TEXT NOT NULL REFERENCES competencies(id)          ON DELETE RESTRICT,
+    PRIMARY KEY (activite_id, competency_id)
+);
+
+-- Le sens inverse : « quelles activités citent cette compétence ? », posé par
+-- `delete_node` avant chaque suppression du référentiel.
+CREATE INDEX ix_progression_activite_competences_competency
+    ON progression_activite_competences(competency_id);

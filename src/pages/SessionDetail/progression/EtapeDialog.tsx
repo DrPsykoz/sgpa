@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
-import { CompetencyPicker } from "@/components/CompetencyPicker";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +26,10 @@ export interface EtapeDialogProps {
     competences: string;
     connaissances: string;
     priorites: string;
+    /** Les objectifs de la séquence (palier 026). */
+    objectifs: string;
+    /** Le métier et le CAP découverts (palier 026). */
+    metierCap: string;
     competencyIds: string[];
   }) => Promise<void>;
 }
@@ -47,6 +50,12 @@ export interface EtapeDialogProps {
  * enregistrement — c'est la raison du champ `competences` dans `onSubmit`, et
  * l'omettre effacerait les phrases d'un enseignant au premier renommage.
  *
+ * **Les objectifs et le métier sont arrivés au palier 026**, parce que les
+ * deux documents de l'auteur ouvrent chaque séquence par ces deux lignes et
+ * qu'aucune colonne ne pouvait les accueillir : un but n'est pas une
+ * connaissance, et un métier à découvrir n'est pas une priorité de passage.
+ * Les loger dans l'un des deux les aurait imprimés sous un intitulé faux.
+ *
  * Tout part en une seule commande, et ce n'est pas la règle « deux écritures
  * sont deux commandes » qui plie : ce sont les champs d'un seul formulaire,
  * saisis d'un bloc par un seul écran. La règle vise deux écrans qui écrivent
@@ -62,6 +71,8 @@ export function EtapeDialog({
   const [competences, setCompetences] = useState("");
   const [connaissances, setConnaissances] = useState("");
   const [priorites, setPriorites] = useState("");
+  const [objectifs, setObjectifs] = useState("");
+  const [metierCap, setMetierCap] = useState("");
   const [competencyIds, setCompetencyIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +86,8 @@ export function EtapeDialog({
     setCompetences(etape?.competences ?? "");
     setConnaissances(etape?.connaissances ?? "");
     setPriorites(etape?.priorites ?? "");
+    setObjectifs(etape?.objectifs ?? "");
+    setMetierCap(etape?.metier_cap ?? "");
     setCompetencyIds((etape?.competences_ref ?? []).map((c) => c.id));
     setError(null);
     setPending(false);
@@ -83,7 +96,7 @@ export function EtapeDialog({
   const handleSubmit = async () => {
     if (libelle.trim() === "") {
       setError(
-        "Donnez un intitulé à l'étape : c'est lui qui la nomme dans la liste " +
+        "Donnez un nom à la séquence : c'est lui qui la nomme dans la liste " +
           "et sur le document imprimé.",
       );
       return;
@@ -96,6 +109,8 @@ export function EtapeDialog({
         competences,
         connaissances,
         priorites,
+        objectifs,
+        metierCap,
         competencyIds,
       });
       onOpenChange(false);
@@ -122,30 +137,79 @@ export function EtapeDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="etape-libelle">Intitulé</Label>
+            <Label htmlFor="etape-libelle">Séquence</Label>
             <Input
               id="etape-libelle"
               value={libelle}
-              placeholder="Découverte des matériaux"
+              placeholder="SEQUENCE 1 : La boîte en bois"
               disabled={pending}
               onChange={(event) => setLibelle(event.target.value)}
             />
           </div>
 
           <div className="space-y-2">
-            <Label>
-              Compétences ({competencyIds.length} sélectionnée
-              {competencyIds.length > 1 ? "s" : ""})
-            </Label>
-            <CompetencyPicker
-              selected={competencyIds}
-              onChange={setCompetencyIds}
+            <Label htmlFor="etape-objectifs">Objectifs</Label>
+            <Textarea
+              id="etape-objectifs"
+              value={objectifs}
+              rows={2}
+              placeholder="Réaliser une boîte en bois"
+              disabled={pending}
+              onChange={(event) => setObjectifs(event.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Elles viennent du référentiel, celui de Réglages : une compétence
-              renommée là-bas se renomme ici et sur le document imprimé.
+              Ce que la séquence vise.
             </p>
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="etape-metier">Métier et CAP découverts</Label>
+            <Input
+              id="etape-metier"
+              value={metierCap}
+              placeholder="Découvrir le métier et le CAP de menuisier"
+              disabled={pending}
+              onChange={(event) => setMetierCap(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Du texte libre, et non une entrée du référentiel : la découverte
+              d'un métier en séquence n'est pas le projet d'un élève. Le
+              référentiel, lui, se cite dans la fiche contrat.
+            </p>
+          </div>
+
+          {/* Les compétences se choisissent désormais dans chaque activité.
+              Celles que l'étape portait déjà ne sont ni perdues ni
+              modifiables ici : elles restent lisibles, et imprimées, jusqu'à
+              ce que l'enseignant les retire d'un bouton. */}
+          {competencyIds.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-dashed px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Compétences rattachées à la séquence
+              </p>
+              <ul className="list-disc space-y-0.5 pl-5 text-sm">
+                {(etape?.competences_ref ?? [])
+                  .filter((c) => competencyIds.includes(c.id))
+                  .map((c) => (
+                    <li key={c.id}>{c.name}</li>
+                  ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                Les compétences se choisissent maintenant dans chaque activité.
+                Celles-ci ont été rattachées à la séquence avant ce changement :
+                elles restent affichées et imprimées tant que vous ne les retirez
+                pas. Le retrait s'enregistre avec le reste du formulaire.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setCompetencyIds([])}
+              >
+                Retirer ces compétences
+              </Button>
+            </div>
+          )}
 
           {/* Le texte d'avant le sélecteur. Il n'est pas modifiable : le
               remettre en saisie rouvrirait les deux façons de dire la même
@@ -174,27 +238,49 @@ export function EtapeDialog({
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="etape-connaissances">Connaissances</Label>
-            <Textarea
-              id="etape-connaissances"
-              value={connaissances}
-              rows={3}
-              disabled={pending}
-              onChange={(event) => setConnaissances(event.target.value)}
-            />
-          </div>
+          {connaissances.trim() !== "" && (
+            <div className="space-y-2 rounded-lg border border-dashed px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Connaissances saisies avant
+              </p>
+              <p className="whitespace-pre-line text-sm">{connaissances}</p>
+              <p className="text-xs text-muted-foreground">
+                Ce champ n'est plus proposé. Le texte reste affiché et imprimé
+                tant que vous ne l'effacez pas. L'effacement s'enregistre avec
+                le reste du formulaire.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setConnaissances("")}
+              >
+                Effacer ce texte
+              </Button>
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <Label htmlFor="etape-priorites">Priorités</Label>
-            <Textarea
-              id="etape-priorites"
-              value={priorites}
-              rows={2}
-              disabled={pending}
-              onChange={(event) => setPriorites(event.target.value)}
-            />
-          </div>
+          {priorites.trim() !== "" && (
+            <div className="space-y-2 rounded-lg border border-dashed px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Priorités saisies avant
+              </p>
+              <p className="whitespace-pre-line text-sm">{priorites}</p>
+              <p className="text-xs text-muted-foreground">
+                Ce champ n'est plus proposé. Le texte reste affiché et imprimé
+                tant que vous ne l'effacez pas. L'effacement s'enregistre avec
+                le reste du formulaire.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setPriorites("")}
+              >
+                Effacer ce texte
+              </Button>
+            </div>
+          )}
         </div>
 
         {error && (

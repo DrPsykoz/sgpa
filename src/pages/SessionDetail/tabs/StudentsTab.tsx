@@ -15,6 +15,7 @@ import {
   Plus,
   Trash2,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { AgendaEntryEditor } from "@/components/AgendaEntryEditor";
 import { DataState } from "@/components/DataState";
@@ -42,6 +43,18 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
+  OptionsDeGroupe,
+  groupeDeValeur,
+  valeurDeGroupe,
+} from "@/components/Groupes";
+import {
+  Select,
+  SelectContent,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { GroupsDialog } from "@/pages/SessionDetail/dialogs/GroupsDialog";
+import {
   StudentFormDialog,
   type StudentFormValues,
 } from "@/pages/SessionDetail/dialogs/StudentFormDialog";
@@ -56,6 +69,7 @@ import type {
   Session,
   Student,
   StudentDeletionImpact,
+  StudentGroup,
 } from "@/types";
 
 /**
@@ -78,6 +92,9 @@ function cequiPart(entry: AgendaEntrySummary | null): string {
 interface StudentsTabProps {
   session: Session;
   students: Student[];
+  /** Les groupes de la classe. Détenus par le parent (règle 1) : la colonne
+   *  « Groupe » écrit puis demande le rechargement, elle ne garde pas de copie. */
+  groups: StudentGroup[];
   reload: () => Promise<void>;
 }
 
@@ -165,8 +182,17 @@ function impactParts(impact: StudentDeletionImpact): string[] {
 export function StudentsTab({
   session,
   students,
+  groups,
   reload,
 }: StudentsTabProps): ReactElement {
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  /** L'élève dont la répartition est en cours d'écriture : son sélecteur se
+   *  fige le temps de l'aller-retour, les autres restent utilisables. */
+  const [repartitionEnCours, setRepartitionEnCours] = useState<string | null>(
+    null,
+  );
+  const [repartitionError, setRepartitionError] = useState<string | null>(null);
+
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
@@ -297,6 +323,31 @@ export function StudentsTab({
         .filter(Boolean),
     [bulkText],
   );
+
+  /**
+   * Ranger un élève dans un groupe, depuis le tableau.
+   *
+   * `setStudentGroup` et non un champ d'`updateStudent` : la troisième règle
+   * d'architecture. Répartir une classe, c'est quatorze gestes à la suite, et
+   * aucun d'eux n'a de prénom ni de date d'inscription à faire transiter —
+   * donc aucun ne peut en écraser.
+   */
+  const rangerDansLeGroupe = async (
+    student: Student,
+    groupId: string | null,
+  ) => {
+    setNotice(null);
+    setRepartitionError(null);
+    setRepartitionEnCours(student.id);
+    try {
+      await api.setStudentGroup(student.id, groupId);
+      await reload();
+    } catch (err) {
+      setRepartitionError(messageOf(err));
+    } finally {
+      setRepartitionEnCours(null);
+    }
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -564,6 +615,23 @@ export function StudentsTab({
             size="sm"
             variant="outline"
             onClick={() => {
+              setNotice(null);
+              setRepartitionError(null);
+              setGroupsOpen(true);
+            }}
+          >
+            <Users className="h-4 w-4" />
+            Groupes
+            {groups.length > 0 && (
+              <span className="ml-1 text-xs text-muted-foreground">
+                {groups.length}
+              </span>
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
               setBulkError(null);
               setNotice(null);
               setBulkOpen(true);
@@ -586,6 +654,13 @@ export function StudentsTab({
           </p>
         )}
 
+        {repartitionError && (
+          <p className="mb-4 flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{repartitionError}</span>
+          </p>
+        )}
+
         {students.length === 0 ? (
           <div className="py-10 text-center">
             <UserPlus className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
@@ -604,6 +679,10 @@ export function StudentsTab({
                 <TableHead>Prénom</TableHead>
                 <TableHead>Inscrit depuis le</TableHead>
                 <TableHead>Sorti le</TableHead>
+                {/* La colonne n'apparaît qu'une fois un groupe créé : une
+                    colonne qui ne peut dire que « — » sur quatorze lignes
+                    rétrécit les cinq autres sans rien apprendre. */}
+                {groups.length > 0 && <TableHead>Groupe</TableHead>}
                 <TableHead>Besoins</TableHead>
                 <TableHead className="w-40 text-right">Actions</TableHead>
               </TableRow>
@@ -630,6 +709,38 @@ export function StudentsTab({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  {groups.length > 0 && (
+                    <TableCell>
+                      <Select
+                        value={valeurDeGroupe(student.group_id)}
+                        onValueChange={(valeur) =>
+                          void rangerDansLeGroupe(
+                            student,
+                            groupeDeValeur(valeur),
+                          )
+                        }
+                        disabled={repartitionEnCours === student.id}
+                      >
+                        <SelectTrigger
+                          className="h-8 w-40"
+                          aria-label={`Groupe de ${fullName(student)}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <OptionsDeGroupe
+                            groups={groups}
+                            value={student.group_id}
+                            // « Aucun » et non « Toute la classe » : ici on
+                            // range un élève, on ne cible pas une séance. Un
+                            // élève hors groupe est d'ailleurs convoqué
+                            // partout, ce que le dialogue des groupes dit.
+                            libelleToute="Aucun"
+                          />
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                  )}
                   <TableCell>
                     <NeedsChips
                       tags={needTags}
@@ -690,6 +801,14 @@ export function StudentsTab({
           </Table>
         )}
       </CardContent>
+
+      <GroupsDialog
+        open={groupsOpen}
+        onOpenChange={setGroupsOpen}
+        sessionId={session.id}
+        groups={groups}
+        reload={reload}
+      />
 
       {needsError && (
         <CardContent className="pt-0">

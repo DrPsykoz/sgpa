@@ -1,21 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ElementType, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
-  ArchiveRestore,
-  ArrowDown,
-  ArrowUp,
   Bookmark,
   BookOpen,
-  ChevronDown,
-  ChevronRight,
   FolderOpen,
   GraduationCap,
   Layers,
-  Pencil,
-  Plus,
-  Trash2,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -27,7 +19,6 @@ import type {
   FieldNode,
   NodeKind,
 } from "@/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -38,10 +29,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataState } from "@/components/DataState";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { cn } from "@/lib/utils";
+import {
+  ChampDAjout,
+  LigneDArbre,
+  type StyleDeNiveau,
+} from "@/components/ArbreReferentiel";
+import { ReferentielActivites } from "@/pages/ReferentielActivites";
+import { plural, reorderIds } from "@/lib/referentiel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,74 +48,7 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const plural = (n: number, one: string, many: string) =>
-  `${n} ${n > 1 ? many : one}`;
-
-/**
- * Word, les PDF et les tableurs collent des espaces insécables (U+00A0,
- * U+202F) et des tabulations. Sans cette normalisation, `trim()` laisse le
- * blanc invisible en place et la déduplication échoue dessus : on obtient deux
- * compétences visuellement identiques.
- */
-function normalizeNames(lines: string[]): string[] {
-  return lines
-    .map((line) =>
-      line
-        .replace(/[\u00a0\u202f]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    )
-    .filter((line) => line.length > 0);
-}
-
-/** Le backend ne dédoublonne que contre l'existant ; le texte collé peut, lui,
- *  se répéter (colonne de tableur recopiée). On filtre donc aussi la liste. */
-function dedupeNames(names: string[]): {
-  unique: string[];
-  duplicates: string[];
-} {
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  const duplicates: string[] = [];
-  for (const name of names) {
-    const key = name.toLocaleLowerCase("fr-FR");
-    if (seen.has(key)) duplicates.push(name);
-    else {
-      seen.add(key);
-      unique.push(name);
-    }
-  }
-  return { unique, duplicates };
-}
-
-/**
- * Échange le nœud avec son voisin *visible*, mais renvoie l'ordre complet du
- * niveau : `reorder_nodes` réécrit toutes les positions, et une liste amputée
- * des compétences archivées les repousserait en fin de liste.
- */
-function reorderIds(
-  all: { id: string }[],
-  visible: { id: string }[],
-  id: string,
-  direction: -1 | 1,
-): string[] | null {
-  const from = visible.findIndex((n) => n.id === id);
-  if (from === -1) return null;
-  const neighbour: { id: string } | undefined = visible[from + direction];
-  if (!neighbour) return null;
-  const next = all.map((n) => n.id);
-  const a = next.indexOf(id);
-  const b = next.indexOf(neighbour.id);
-  if (a === -1 || b === -1) return null;
-  next[a] = neighbour.id;
-  next[b] = id;
-  return next;
-}
-
-const LEVEL_STYLES: Record<
-  NodeKind,
-  { icon: ElementType; accent: string; text: string }
-> = {
+const LEVEL_STYLES: Record<NodeKind, StyleDeNiveau> = {
   cycle: {
     icon: Layers,
     accent: "border-l-primary",
@@ -175,345 +105,6 @@ interface TreeActions {
 }
 
 // ---------------------------------------------------------------------------
-// Champ d'ajout — le cœur de la saisie du référentiel
-// ---------------------------------------------------------------------------
-
-interface AddNodeFieldProps {
-  kind: NodeKind;
-  parentId: string | null;
-  onAdd: TreeActions["onAdd"];
-  className?: string;
-}
-
-function AddNodeField({ kind, parentId, onAdd, className }: AddNodeFieldProps) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [added, setAdded] = useState(0);
-  const [skipped, setSkipped] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const submit = async (rawNames: string[]) => {
-    if (busy) return;
-    const names = normalizeNames(rawNames);
-    if (names.length === 0) return;
-    const { unique, duplicates } = dedupeNames(names);
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await onAdd(kind, parentId, unique);
-      setAdded((n) => n + result.created.length);
-      setSkipped([...duplicates, ...result.skipped]);
-      setValue("");
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setBusy(false);
-      // Le champ reste ouvert ET focalisé : le refermer après chaque ajout
-      // rendait la saisie d'une centaine de nœuds intenable.
-      inputRef.current?.focus();
-    }
-  };
-
-  const close = () => {
-    setOpen(false);
-    setValue("");
-    setAdded(0);
-    setSkipped([]);
-    setError(null);
-  };
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={cn(
-          "flex cursor-pointer items-center gap-1 py-1 text-xs font-medium text-primary hover:underline",
-          className,
-        )}
-      >
-        <Plus className="h-3 w-3" />
-        {ADD_LABELS[kind]}
-      </button>
-    );
-  }
-
-  return (
-    <div className={cn("py-1", className)}>
-      <div className="flex items-center gap-2">
-        <Input
-          ref={inputRef}
-          autoFocus
-          value={value}
-          placeholder={`${ADD_LABELS[kind]} — ou collez une liste`}
-          className="h-7 max-w-[380px] text-sm"
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void submit([value]);
-            }
-            if (e.key === "Escape") close();
-          }}
-          onPaste={(e) => {
-            // Même dans un <input>, l'événement `paste` expose le texte AVEC
-            // ses sauts de ligne : inutile de passer à un <textarea>.
-            const text = e.clipboardData.getData("text");
-            if (!text.includes("\n")) return; // un seul nom : collage natif
-            e.preventDefault();
-            void submit(text.split(/\r?\n/));
-          }}
-        />
-        <Button
-          size="sm"
-          className="h-7 px-2 text-xs"
-          disabled={busy || value.trim().length === 0}
-          onClick={() => void submit([value])}
-        >
-          {busy ? "Ajout…" : "Ajouter"}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs"
-          onClick={close}
-        >
-          Fermer
-        </Button>
-      </div>
-
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        {added > 0 && (
-          <span className="font-medium text-emerald-700">
-            {plural(added, "ajouté", "ajoutés")}
-          </span>
-        )}
-        {skipped.length > 0 && (
-          <span className="text-amber-700">
-            {plural(skipped.length, "doublon ignoré", "doublons ignorés")} :{" "}
-            {skipped.slice(0, 5).join(", ")}
-            {skipped.length > 5 ? "…" : ""}
-          </span>
-        )}
-        {error && <span className="text-destructive">{error}</span>}
-        {added === 0 && skipped.length === 0 && !error && (
-          <span className="text-muted-foreground">
-            Collez une liste (une ligne par élément) pour tout créer d'un coup.
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Ligne générique de l'arbre
-// ---------------------------------------------------------------------------
-
-interface NodeRowProps {
-  kind: NodeKind;
-  name: string;
-  depth: number;
-  archived?: boolean;
-  meta?: string;
-  collapsible?: boolean;
-  expanded?: boolean;
-  onToggle?: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMove: (direction: -1 | 1) => void;
-  onRename: (name: string) => void;
-  onDelete: () => void;
-  onToggleArchive?: () => void;
-  children?: ReactNode;
-}
-
-function NodeRow({
-  kind,
-  name,
-  depth,
-  archived = false,
-  meta,
-  collapsible = false,
-  expanded = true,
-  onToggle,
-  canMoveUp,
-  canMoveDown,
-  onMove,
-  onRename,
-  onDelete,
-  onToggleArchive,
-  children,
-}: NodeRowProps) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
-  const style = LEVEL_STYLES[kind];
-  const Icon = style.icon;
-
-  const startEdit = () => {
-    setDraft(name);
-    setEditing(true);
-  };
-
-  const commit = () => {
-    const next = draft.trim();
-    if (next && next !== name) onRename(next);
-    setEditing(false);
-  };
-
-  return (
-    <div className={cn(depth > 0 && "ml-3 border-l-2", style.accent)}>
-      <div
-        className={cn(
-          "group flex items-center gap-2 rounded-r-md py-1.5 pr-2 transition-colors hover:bg-muted/50",
-          depth > 0 ? "pl-3" : "pl-2",
-        )}
-      >
-        {collapsible ? (
-          <button
-            type="button"
-            onClick={onToggle}
-            title={expanded ? "Replier" : "Déplier"}
-            className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-          >
-            {expanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-        ) : (
-          <span className="w-4 shrink-0" />
-        )}
-
-        <Icon
-          className={cn(
-            "h-4 w-4 shrink-0",
-            archived ? "text-muted-foreground/60" : "text-muted-foreground",
-          )}
-        />
-
-        {editing ? (
-          <div className="flex flex-1 items-center gap-2">
-            <Input
-              value={draft}
-              autoFocus
-              className="h-7 max-w-[380px] text-sm"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commit();
-                }
-                if (e.key === "Escape") setEditing(false);
-              }}
-            />
-            <Button size="sm" className="h-7 px-2 text-xs" onClick={commit}>
-              Renommer
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              onClick={() => setEditing(false)}
-            >
-              Annuler
-            </Button>
-          </div>
-        ) : (
-          <>
-            <span
-              className={cn(
-                "flex-1 truncate",
-                style.text,
-                archived && "text-muted-foreground line-through",
-              )}
-            >
-              {name}
-            </span>
-
-            {archived && (
-              <Badge
-                variant="outline"
-                className="shrink-0 text-[10px] font-normal text-muted-foreground"
-              >
-                archivée
-              </Badge>
-            )}
-
-            {meta && (
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {meta}
-              </span>
-            )}
-
-            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                title="Monter"
-                disabled={!canMoveUp}
-                onClick={() => onMove(-1)}
-              >
-                <ArrowUp className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                title="Descendre"
-                disabled={!canMoveDown}
-                onClick={() => onMove(1)}
-              >
-                <ArrowDown className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                title="Renommer"
-                onClick={startEdit}
-              >
-                <Pencil className="h-3 w-3" />
-              </Button>
-              {onToggleArchive && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  title={archived ? "Désarchiver" : "Archiver"}
-                  onClick={onToggleArchive}
-                >
-                  {archived ? (
-                    <ArchiveRestore className="h-3 w-3" />
-                  ) : (
-                    <Archive className="h-3 w-3" />
-                  )}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-destructive hover:text-destructive"
-                title="Supprimer"
-                onClick={onDelete}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {expanded && children ? <div className="pb-1">{children}</div> : null}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Niveaux
 // ---------------------------------------------------------------------------
 
@@ -532,8 +123,8 @@ function CompetencyRow({
 }) {
   const index = visible.findIndex((c) => c.id === competency.id);
   return (
-    <NodeRow
-      kind="competency"
+    <LigneDArbre
+      style={LEVEL_STYLES.competency}
       name={competency.name}
       depth={3}
       archived={competency.archived}
@@ -574,8 +165,8 @@ function FieldBlock({
   const hiddenCount = field.competencies.length - visible.length;
 
   return (
-    <NodeRow
-      kind="field"
+    <LigneDArbre
+      style={LEVEL_STYLES.field}
       name={field.name}
       depth={2}
       collapsible
@@ -606,13 +197,12 @@ function FieldBlock({
           actions={actions}
         />
       ))}
-      <AddNodeField
-        kind="competency"
-        parentId={field.id}
-        onAdd={actions.onAdd}
+      <ChampDAjout
+        libelle={ADD_LABELS.competency}
+        onAjouter={(noms) => actions.onAdd("competency", field.id, noms)}
         className="ml-7"
       />
-    </NodeRow>
+    </LigneDArbre>
   );
 }
 
@@ -632,8 +222,8 @@ function DomainBlock({
   const index = all.findIndex((d) => d.id === domain.id);
 
   return (
-    <NodeRow
-      kind="domain"
+    <LigneDArbre
+      style={LEVEL_STYLES.domain}
       name={domain.name}
       depth={1}
       collapsible
@@ -658,13 +248,12 @@ function DomainBlock({
           actions={actions}
         />
       ))}
-      <AddNodeField
-        kind="field"
-        parentId={domain.id}
-        onAdd={actions.onAdd}
+      <ChampDAjout
+        libelle={ADD_LABELS.field}
+        onAjouter={(noms) => actions.onAdd("field", domain.id, noms)}
         className="ml-7"
       />
-    </NodeRow>
+    </LigneDArbre>
   );
 }
 
@@ -684,8 +273,8 @@ function CycleBlock({
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-3">
-        <NodeRow
-          kind="cycle"
+        <LigneDArbre
+          style={LEVEL_STYLES.cycle}
           name={cycle.name}
           depth={0}
           collapsible
@@ -710,13 +299,12 @@ function CycleBlock({
               actions={actions}
             />
           ))}
-          <AddNodeField
-            kind="domain"
-            parentId={cycle.id}
-            onAdd={actions.onAdd}
+          <ChampDAjout
+            libelle={ADD_LABELS.domain}
+            onAjouter={(noms) => actions.onAdd("domain", cycle.id, noms)}
             className="ml-7"
           />
-        </NodeRow>
+        </LigneDArbre>
       </CardContent>
     </Card>
   );
@@ -743,6 +331,18 @@ export default function Cycles() {
   const [blocked, setBlocked] = useState<
     (NodeTarget & { message: string }) | null
   >(null);
+
+  /**
+   * Lequel des deux référentiels on regarde, **dans l'adresse** et non dans un
+   * état local — même choix qu'`?vue=annee` de l'emploi du temps, et pour la
+   * même raison : « Activités professionnelles » devient adressable, donc la
+   * fiche contrat peut y renvoyer sans qu'un second écran du RA16 existe
+   * quelque part. « Compétences » par défaut : c'est l'onglet qu'on ouvre pour
+   * noter, et c'était le seul écran avant le 2026-11-12.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const vue =
+    searchParams.get("vue") === "activites" ? "activites" : "competences";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -859,90 +459,128 @@ export default function Cycles() {
 
   return (
     <div className="mx-auto max-w-7xl p-8">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Référentiel de compétences</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Cycle → Domaine → Champ → Compétence. Collez une liste dans un champ
-            d'ajout pour créer tous les éléments d'un coup.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCollapsed(new Set(allKeys))}
-            disabled={tree.length === 0}
-          >
-            Tout replier
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCollapsed(new Set())}
-            disabled={tree.length === 0}
-          >
-            Tout déplier
-          </Button>
-          <Button
-            variant={showArchived ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => setShowArchived((v) => !v)}
-          >
-            <Archive className="h-4 w-4" />
-            {showArchived
-              ? "Masquer les archivées"
-              : `Afficher les archivées${
-                  archivedTotal > 0 ? ` (${archivedTotal})` : ""
-                }`}
-          </Button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold">Référentiel</h1>
+      <p className="mb-5 mt-1 text-sm text-muted-foreground">
+        Les deux référentiels de l'application : celui des compétences, qui sert
+        à noter, et celui des activités professionnelles, qui remplit la fiche
+        contrat.
+      </p>
 
-      {actionError && (
-        <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span className="flex-1">{actionError}</span>
-          <button
-            type="button"
-            title="Masquer"
-            className="cursor-pointer"
-            onClick={() => setActionError(null)}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      <Tabs
+        value={vue}
+        onValueChange={(valeur) => {
+          setSearchParams(valeur === "activites" ? { vue: "activites" } : {}, {
+            replace: true,
+          });
+        }}
+      >
+        <TabsList className="mb-6">
+          <TabsTrigger value="competences">Compétences</TabsTrigger>
+          <TabsTrigger value="activites">
+            Activités professionnelles
+          </TabsTrigger>
+        </TabsList>
 
-      <DataState loading={loading} error={error} onRetry={() => void load()}>
-        <div className="space-y-3">
-          {tree.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <BookOpen className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="text-muted-foreground">
-                  Aucun cycle pour l'instant.
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Créez un premier cycle ci-dessous, puis ses domaines, ses
-                  champs et ses compétences.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            tree.map((cycle) => (
-              <CycleBlock
-                key={cycle.id}
-                cycle={cycle}
-                all={tree}
-                actions={actions}
-              />
-            ))
+        <TabsContent value="competences" className="mt-0">
+          <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Cycle → Domaine → Champ → Compétence. Collez une liste dans un
+              champ d'ajout pour créer tous les éléments d'un coup.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCollapsed(new Set(allKeys))}
+                disabled={tree.length === 0}
+              >
+                Tout replier
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCollapsed(new Set())}
+                disabled={tree.length === 0}
+              >
+                Tout déplier
+              </Button>
+              <Button
+                variant={showArchived ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                <Archive className="h-4 w-4" />
+                {showArchived
+                  ? "Masquer les archivées"
+                  : `Afficher les archivées${
+                      archivedTotal > 0 ? ` (${archivedTotal})` : ""
+                    }`}
+              </Button>
+            </div>
+          </div>
+
+          {actionError && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="flex-1">{actionError}</span>
+              <button
+                type="button"
+                title="Masquer"
+                className="cursor-pointer"
+                onClick={() => setActionError(null)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           )}
 
-          <AddNodeField kind="cycle" parentId={null} onAdd={handleAdd} />
-        </div>
-      </DataState>
+          <DataState
+            loading={loading}
+            error={error}
+            onRetry={() => void load()}
+          >
+            <div className="space-y-3">
+              {tree.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <BookOpen className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+                    <p className="text-muted-foreground">
+                      Aucun cycle pour l'instant.
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Créez un premier cycle ci-dessous, puis ses domaines, ses
+                      champs et ses compétences.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                tree.map((cycle) => (
+                  <CycleBlock
+                    key={cycle.id}
+                    cycle={cycle}
+                    all={tree}
+                    actions={actions}
+                  />
+                ))
+              )}
+
+              <ChampDAjout
+                libelle={ADD_LABELS.cycle}
+                onAjouter={(noms) => handleAdd("cycle", null, noms)}
+              />
+            </div>
+          </DataState>
+        </TabsContent>
+
+        <TabsContent value="activites" className="mt-0">
+          {/* Son propre chargement et sa propre barre d'erreur : les deux
+              référentiels n'ont aucune donnée commune, et Radix démonte
+              l'onglet caché — donc revenir ici relit l'arbre, ce qui est
+              exactement ce qu'on veut après un passage par la fiche
+              contrat. */}
+          <ReferentielActivites />
+        </TabsContent>
+      </Tabs>
 
       <ConfirmDialog
         open={pendingDelete !== null}

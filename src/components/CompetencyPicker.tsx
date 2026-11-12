@@ -11,6 +11,22 @@ import { cn } from "@/lib/utils";
 interface CompetencyPickerProps {
   selected: string[];
   onChange: (ids: string[]) => void;
+  /** La classe dans laquelle on compose — palier 025, facultatif.
+   *
+   *  Fourni, il retire des propositions les compétences que
+   *  l'établissement de cette classe n'emploie pas. Omis, rien n'est
+   *  retiré : c'est le comportement d'avant le palier, et celui de toute
+   *  classe sans établissement.
+   *
+   *  **C'est un filtre de saisie et jamais un masque sur des faits** : une
+   *  compétence désactivée mais DÉJÀ cochée reste affichée, cochée,
+   *  décochable. Un réglage posé en janvier ne doit pas faire disparaître
+   *  de l'écran une compétence notée en novembre — une note qui existe
+   *  encore mais que plus aucun écran n'affiche est la panne qu'on ne voit
+   *  pas. C'est le même geste que pour `archived` juste en dessous, et ce
+   *  n'est pas un hasard : les deux disent « ne me la propose plus », l'un
+   *  pour toute la base, l'autre pour un établissement. */
+  sessionId?: string;
 }
 
 function messageOf(err: unknown): string {
@@ -66,8 +82,13 @@ function CheckBox({ state }: { state: "on" | "off" | "partial" }) {
   );
 }
 
-export function CompetencyPicker({ selected, onChange }: CompetencyPickerProps) {
+export function CompetencyPicker({
+  selected,
+  onChange,
+  sessionId,
+}: CompetencyPickerProps) {
   const [tree, setTree] = useState<CycleNode[]>([]);
+  const [desactivees, setDesactivees] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -81,9 +102,18 @@ export function CompetencyPicker({ selected, onChange }: CompetencyPickerProps) 
     setLoading(true);
     setError(null);
     try {
-      // Un seul appel : l'arbre complet arrive assemblé côté Rust.
-      const data = await api.getReferentialTree();
+      // L'arbre complet arrive assemblé côté Rust, et la liste des
+      // compétences écartées par l'établissement avec lui : deux lectures
+      // en parallèle, parce qu'une attente en série ferait clignoter un
+      // arbre complet avant de le raboter sous les yeux de l'enseignant.
+      const [data, ecartees] = await Promise.all([
+        api.getReferentialTree(),
+        sessionId === undefined
+          ? Promise.resolve<string[]>([])
+          : api.getDisabledCompetenciesForSession(sessionId),
+      ]);
       setTree(data);
+      setDesactivees(new Set(ecartees));
       setCollapsed(
         collapsedForSelection(data, new Set(initialSelection.current)),
       );
@@ -92,7 +122,7 @@ export function CompetencyPicker({ selected, onChange }: CompetencyPickerProps) 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     void load();
@@ -118,6 +148,10 @@ export function CompetencyPicker({ selected, onChange }: CompetencyPickerProps) 
                     // l'évaluation la référence déjà : la retirer d'office
                     // supprimerait des notes sans le dire.
                     (!c.archived || selectedSet.has(c.id)) &&
+                    // Même règle, autre portée : l'établissement de cette
+                    // classe ne l'emploie pas (palier 025). La même
+                    // exception, pour la même raison.
+                    (!desactivees.has(c.id) || selectedSet.has(c.id)) &&
                     (fieldMatch || keep(c.name)),
                 );
                 return { ...field, competencies };
@@ -129,7 +163,37 @@ export function CompetencyPicker({ selected, onChange }: CompetencyPickerProps) 
         return { ...cycle, domains };
       })
       .filter((cycle) => cycle.domains.length > 0);
-  }, [tree, query, selectedSet]);
+  }, [tree, query, selectedSet, desactivees]);
+
+  /**
+   * Combien de compétences l'établissement retire de cette liste.
+   *
+   * Il faut le dire, et pas seulement le faire : une compétence attendue et
+   * introuvable passe pour un défaut de l'application, et l'enseignant la
+   * recréerait en double dans le référentiel. Les archivées ne sont pas
+   * comptées — elles sont déjà retirées pour toute la base, et les compter
+   * ici attribuerait à l'établissement un retrait qu'il n'a pas demandé.
+   */
+  const masquees = useMemo(() => {
+    if (desactivees.size === 0) return 0;
+    let compte = 0;
+    for (const cycle of tree) {
+      for (const domain of cycle.domains) {
+        for (const field of domain.fields) {
+          for (const competency of field.competencies) {
+            if (
+              desactivees.has(competency.id) &&
+              !selectedSet.has(competency.id) &&
+              !competency.archived
+            ) {
+              compte += 1;
+            }
+          }
+        }
+      }
+    }
+    return compte;
+  }, [tree, desactivees, selectedSet]);
 
   const toggleNode = (key: string) => {
     setCollapsed((prev) => {
@@ -199,6 +263,15 @@ export function CompetencyPicker({ selected, onChange }: CompetencyPickerProps) 
           </Button>
         )}
       </div>
+
+      {masquees > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {masquees} compétence{masquees > 1 ? "s" : ""} ne sont pas
+          proposée{masquees > 1 ? "s" : ""} ici : l'établissement de cette
+          classe ne les emploie pas. Le réglage est dans Réglages ›
+          Établissements, et celles qui sont déjà cochées restent visibles.
+        </p>
+      )}
 
       <DataState
         loading={loading}

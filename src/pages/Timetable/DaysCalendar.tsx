@@ -38,10 +38,12 @@ import {
 
 import { Link } from "react-router-dom";
 
+import { PastilleDeGroupe } from "@/components/Groupes";
 import { PastilleDeCategorie } from "@/components/PastilleCategorie";
 import {
 	absenceDuCreneau,
 	buildRows,
+	groupeDuCours,
 	motifDeFermeture,
 	motsDeAbsence,
 	slotTitle,
@@ -115,12 +117,34 @@ function classeDuCreneau(row: Row): string | null | undefined {
 	return undefined;
 }
 
+/** Le groupe que porte la ligne : son nom pour l'écrire, son identifiant pour
+ *  le comparer. `groupeDuCours` dit lequel des deux — la séance ou le créneau —
+ *  fait foi, et il le dit pour les deux calendriers à la fois.
+ *
+ *  Un créneau sans classe n'a pas de groupe : le backend refuse un groupe qui
+ *  n'appartient pas à la classe du créneau, et il n'y a pas de classe. */
+function groupeDe(row: Row): { id: string | null; nom: string | null } {
+	switch (row.kind) {
+		case "cours":
+			return groupeDuCours(row.slot, row.seance);
+		case "seance":
+			return { id: row.seance.group_id, nom: row.seance.group_name };
+		case "occupation":
+		case "entree":
+			return { id: null, nom: null };
+	}
+}
+
 /** La période qui met cette ligne hors cours, ou `null`.
  *
  *  Seul un créneau peut l'être : une séance datée et un rendez-vous sont des
- *  faits, et un rattrapage posé pendant un stage reste un rattrapage. */
+ *  faits, et un rattrapage posé pendant un stage reste un rattrapage.
+ *
+ *  Le groupe accompagne la classe : une période qui ne vise que le groupe 1
+ *  n'estompe pas le cours de classe entière — l'autre moitié de l'atelier est
+ *  là, et on attend son appel. C'est `absenceDuCreneau` qui porte la règle. */
 function absenceDe(day: DaySchedule, row: Row): SessionAway | null {
-	return absenceDuCreneau(day, classeDuCreneau(row) ?? null);
+	return absenceDuCreneau(day, classeDuCreneau(row) ?? null, groupeDe(row).id);
 }
 
 /**
@@ -725,7 +749,12 @@ function Carte({
 			{/* Sous l'intitulé, donc avant tout ce qui serait rogné : sur une carte
 			    d'une heure — 48 px — c'est l'horaire qui saute, et la position de la
 			    carte le dit déjà. */}
+			{/* Les deux pastilles s'excluent par construction : seul un
+			    rendez-vous porte une catégorie, seul un cours porte un groupe.
+			    La carte ne gagne donc aucune ligne, et son budget — quatre, une
+			    carte d'une heure ne faisant que 48 px — ne bouge pas. */}
 			<PastilleDeCategorie category={categorie} />
+			<PastilleDeGroupe groupName={groupeDe(row).nom} />
 			{sous && <span className="block truncate opacity-80">{sous}</span>}
 			{horaire && <span className="block truncate opacity-80">{libelle}</span>}
 			{/* `min-w-0` des deux côtés : `text-overflow` est inopérant sur un
@@ -749,10 +778,17 @@ function Carte({
 	// La catégorie accolée à l'intitulé, et non sur une ligne à elle : rognée
 	// dans la pastille, c'est ici qu'elle se lit en entier.
 	const entete = categorie ? `${titre} — ${categorie}` : titre;
+	// En toutes lettres sous la carte : la pastille est rognée à quelques
+	// caractères, et « Atelier bois » y ressemble à « Atelier bâtiment ».
+	const groupe = groupeDe(row).nom;
+	const ligneGroupe =
+		groupe === null
+			? ""
+			: `\nGroupe « ${groupe} » : les autres élèves de la classe ne sont pas convoqués, et cette séance sort de leur assiduité.`;
 	const infobulle =
 		absence === null
-			? `${entete} — ${libelle}${etat ? `\n${etat.texte}` : ""}`
-			: `${entete} — ${libelle}\n${motsDeAbsence(absence).infobulle}`;
+			? `${entete} — ${libelle}${ligneGroupe}${etat ? `\n${etat.texte}` : ""}`
+			: `${entete} — ${libelle}${ligneGroupe}\n${motsDeAbsence(absence).infobulle}`;
 
 	// Un lien quand la carte MÈNE quelque part : elle doit alors s'ouvrir au clic
 	// du milieu comme au clavier, ce qu'un `<button>` ne sait pas faire.

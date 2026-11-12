@@ -114,13 +114,14 @@
 	--teinte-appui-bord-l: 0.705;
 	--teinte-appui-bord-c: 0.145;
 
-	/* Niveaux de maîtrise */
+	/* Niveaux de maîtrise. Ils suivent `MASTERY_LEVELS` (src/types/index.ts),
+	   qui n'en compte plus que quatre depuis le 2026-11-12 : « Presque
+	   maîtrisé » a été retiré, et avec lui le jaune qui tenait le milieu. */
 	--mastery-0: oklch(0.695 0.022 250); /* Non évalué */
-	--mastery-1: oklch(0.61 0.235 28); /* Insuffisant */
+	--mastery-1: oklch(0.61 0.235 28); /* Insuffisante */
 	--mastery-2: oklch(0.695 0.19 52); /* Fragile */
-	--mastery-3: oklch(0.775 0.16 85); /* Presque */
-	--mastery-4: oklch(0.715 0.18 145); /* Satisfaisant */
-	--mastery-5: oklch(0.585 0.21 152); /* Très bonne */
+	--mastery-3: oklch(0.715 0.18 145); /* Satisfaisante */
+	--mastery-4: oklch(0.585 0.21 152); /* Très bonne */
 
 	/* Assiduité */
 	--status-present: oklch(0.715 0.18 145);

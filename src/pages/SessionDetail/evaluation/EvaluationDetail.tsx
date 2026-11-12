@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Ban,
   ClipboardCheck,
   ClipboardList,
   FileText,
@@ -12,8 +13,10 @@ import type {
   CompetencyInfo,
   Evaluation,
   Grade,
+  GradeWaiver,
   MasteryLevel,
   Student,
+  StudentGroup,
 } from "@/types";
 import {
   formatMark20,
@@ -51,6 +54,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CompetencyPicker } from "@/components/CompetencyPicker";
+import {
+  concerneLeGroupe,
+  PastilleDeGroupe,
+  SelecteurDeGroupe,
+} from "@/components/Groupes";
 import { ContractSheetEditor } from "@/components/ContractSheetEditor";
 import { DataState } from "@/components/DataState";
 import { NeedsChips } from "@/components/NeedsChips";
@@ -64,7 +72,12 @@ import { GradeInput } from "@/pages/SessionDetail/evaluation/GradeInput";
 
 interface EvaluationDetailProps {
   evaluation: Evaluation;
+  /** **Tous** les élèves de la classe. Le filtrage par groupe se fait ici, pas
+   *  chez l'appelant : c'est cet écran qui connaît le groupe de l'évaluation,
+   *  et il change sans que la liste des élèves bouge. */
   students: Student[];
+  /** Les groupes de la classe, détenus par le parent (règle 1). */
+  groups: StudentGroup[];
   onBack: () => void;
   /** Recharge la liste du parent. À appeler après toute écriture. */
   onChanged: () => Promise<void>;
@@ -104,12 +117,34 @@ function sameIds(a: string[], b: string[]): boolean {
 
 export function EvaluationDetail({
   evaluation,
-  students,
+  students: tousLesEleves,
+  groups,
   onBack,
   onChanged,
 }: EvaluationDetailProps) {
+  /**
+   * Les élèves que cette évaluation concerne — et, sous ce nom, les seuls que
+   * le reste de l'écran connaisse.
+   *
+   * Renommer la prop et redériver `students` plutôt que filtrer à chaque usage :
+   * la grille, le compte de cases, la fiche d'évaluation et le message « aucun
+   * élève » lisent tous cette liste, et un seul oubli aurait affiché une
+   * colonne de notes pour un élève que le bilan ne compte pas. Le prédicat est
+   * celui du backend, partagé (`concerneLeGroupe`).
+   */
+  const students = useMemo(
+    () =>
+      tousLesEleves.filter((student) =>
+        concerneLeGroupe(evaluation.group_id, student.group_id),
+      ),
+    [tousLesEleves, evaluation.group_id],
+  );
   const [competencies, setCompetencies] = useState<CompetencyInfo[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
+  /** Les cases déclarées « ne sera pas évaluée » (palier 022). Liste à part et
+   *  non un champ de `Grade` : une case déclarée n'a pas de note, et les
+   *  mélanger redemanderait à chaque lecture « celle-là en est-elle une ? ». */
+  const [waivers, setWaivers] = useState<GradeWaiver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -131,6 +166,13 @@ export function EvaluationDetail({
   const [trimesterChoice, setTrimesterChoice] = useState(
     trimesterChoiceOf(evaluation),
   );
+  /** `null` = toute la classe. Le changer retire ou rend des lignes à la
+   *  grille ; **aucune note n'est touchée** — celles d'un élève sorti du
+   *  groupe restent en base, comme les notes d'une compétence retirée (règle
+   *  arrêtée le 2026-11-06), et reviennent si l'enseignant revient en arrière. */
+  const [groupDraft, setGroupDraft] = useState<string | null>(
+    evaluation.group_id,
+  );
   const [savingMeta, setSavingMeta] = useState(false);
 
   // Clés dérivées de l'entité fournie par le parent : elles changent quand le
@@ -141,18 +183,21 @@ export function EvaluationDetail({
     evaluation.date,
     String(evaluation.trimester),
     String(evaluation.trimester_is_manual),
+    evaluation.group_id ?? "",
   ].join("|");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [comps, grs] = await Promise.all([
+      const [comps, grs, sans] = await Promise.all([
         api.getEvaluationCompetencies(evaluation.id),
         api.getGrades(evaluation.id),
+        api.getGradeWaivers(evaluation.id),
       ]);
       setCompetencies(comps);
       setGrades(grs);
+      setWaivers(sans);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -177,6 +222,7 @@ export function EvaluationDetail({
     setTitle(evaluation.title);
     setDate(evaluation.date);
     setTrimesterChoice(trimesterChoiceOf(evaluation));
+    setGroupDraft(evaluation.group_id);
   }, [metaKey]);
 
   const gradeIndex = useMemo(() => {
@@ -189,9 +235,27 @@ export function EvaluationDetail({
 
   /** La note d'une case, ou `null` si elle est vierge. **`null`, et jamais 0** :
    *  depuis le palier 018, l'absence de note est l'absence de ligne, et 0 n'est
-   *  plus une valeur que l'enseignant puisse saisir. */
+   *  plus une valeur que l'enseignant puisse saisir.
+   *
+   *  `null` ne dit pas pourquoi : la case est soit **en attente**, soit
+   *  déclarée **« ne sera pas évaluée »** — c'est `sansNote` qui tranche. */
   const noteDe = (studentId: string, competencyId: string): number | null =>
     gradeIndex.get(studentId + "|" + competencyId) ?? null;
+
+  const waiverIndex = useMemo(() => {
+    const set = new Set<string>();
+    for (const waiver of waivers) {
+      set.add(waiver.student_id + "|" + waiver.competency_id);
+    }
+    return set;
+  }, [waivers]);
+
+  /** La case est déclarée « cet élève ne sera pas évalué sur cette
+   *  compétence ». Elle n'a jamais de note en même temps : `set_grade` lève la
+   *  déclaration dans sa transaction, `set_grade_waiver` refuse tant qu'une
+   *  note est là. */
+  const sansNote = (studentId: string, competencyId: string): boolean =>
+    waiverIndex.has(studentId + "|" + competencyId);
 
   /** Compétences retirées du brouillon qui portent encore des notes. Sert à
    *  prévenir AVANT d'enregistrer ; le refus du backend reste le vrai garde-fou. */
@@ -221,12 +285,27 @@ export function EvaluationDetail({
     ).length;
   }, [competencies, grades, students]);
 
+  /** Les cases déclarées « ne sera pas évaluée », limitées à la grille
+   *  affichée. Même filtre que `filledCount`, et pour la même raison : une
+   *  déclaration survit au retrait de sa compétence de l'évaluation, mais elle
+   *  ne décrit plus une case de l'écran tant que celle-ci n'est pas revenue. */
+  const waivedCount = useMemo(() => {
+    const studentIds = new Set(students.map((student) => student.id));
+    const competencyIds = new Set(competencies.map((comp) => comp.id));
+    return waivers.filter(
+      (waiver) =>
+        studentIds.has(waiver.student_id) &&
+        competencyIds.has(waiver.competency_id),
+    ).length;
+  }, [competencies, waivers, students]);
+
   const cellCount = students.length * competencies.length;
 
   const metaDirty =
     title.trim() !== evaluation.title ||
     date !== evaluation.date ||
-    trimesterChoice !== trimesterChoiceOf(evaluation);
+    trimesterChoice !== trimesterChoiceOf(evaluation) ||
+    groupDraft !== evaluation.group_id;
 
   const compsDirty = !sameIds(draftIds, evaluation.competency_ids);
 
@@ -256,6 +335,10 @@ export function EvaluationDetail({
     // Théo redevenait vierge à l'écran alors que la base portait sa note. Le
     // message d'erreur parlait de Léa, et rien ne signalait Théo.
     const avant = grades.find(viseCetteCase) ?? null;
+    // `set_grade` efface la déclaration dans sa transaction — poser une note,
+    // c'est évaluer. L'écran fait le même geste au même moment, sinon la case
+    // afficherait un instant la note ET « ne sera pas évaluée ».
+    const etaitSansNote = sansNote(studentId, competencyId);
 
     // Optimiste : la grille se remplit colonne après colonne, attendre
     // l'aller-retour ferait clignoter chaque cellule.
@@ -272,6 +355,15 @@ export function EvaluationDetail({
         },
       ];
     });
+    if (mark !== null && etaitSansNote) {
+      setWaivers((current) =>
+        current.filter(
+          (waiver) =>
+            waiver.student_id !== studentId ||
+            waiver.competency_id !== competencyId,
+        ),
+      );
+    }
     setActionError(null);
     try {
       if (mark === null) {
@@ -285,6 +377,61 @@ export function EvaluationDetail({
       setGrades((current) => {
         const sansCetteCase = current.filter((grade) => !viseCetteCase(grade));
         return avant === null ? sansCetteCase : [...sansCetteCase, avant];
+      });
+      if (mark !== null && etaitSansNote) {
+        setWaivers((current) => [
+          ...current,
+          {
+            evaluation_id: evaluation.id,
+            student_id: studentId,
+            competency_id: competencyId,
+          },
+        ]);
+      }
+      setActionError(errorMessage(err));
+    }
+  };
+
+  /**
+   * Pose ou retire la déclaration « cet élève ne sera pas évalué sur cette
+   * compétence ».
+   *
+   * Deux commandes derrière un seul geste, comme `handleGrade` : poser et
+   * retirer ne touchent pas à la même ligne, et le rattrapage optimiste est
+   * le même — **cette case et elle seule**, sur l'état courant, pour ne pas
+   * défaire les écritures voisines qui ont abouti entre-temps.
+   */
+  const handleWaiver = async (
+    studentId: string,
+    competencyId: string,
+    waived: boolean,
+  ) => {
+    const viseCetteCase = (waiver: GradeWaiver) =>
+      waiver.student_id === studentId && waiver.competency_id === competencyId;
+    const avant = waivers.some(viseCetteCase);
+    const ligne: GradeWaiver = {
+      evaluation_id: evaluation.id,
+      student_id: studentId,
+      competency_id: competencyId,
+    };
+
+    setWaivers((current) => {
+      const sansCetteCase = current.filter((waiver) => !viseCetteCase(waiver));
+      return waived ? [...sansCetteCase, ligne] : sansCetteCase;
+    });
+    setActionError(null);
+    try {
+      if (waived) {
+        await api.setGradeWaiver(evaluation.id, studentId, competencyId);
+      } else {
+        await api.deleteGradeWaiver(evaluation.id, studentId, competencyId);
+      }
+    } catch (err) {
+      setWaivers((current) => {
+        const sansCetteCase = current.filter(
+          (waiver) => !viseCetteCase(waiver),
+        );
+        return avant ? [...sansCetteCase, ligne] : sansCetteCase;
       });
       setActionError(errorMessage(err));
     }
@@ -301,6 +448,10 @@ export function EvaluationDetail({
         forcedTrimester(evaluation),
         draftIds,
         deleteOrphanGrades,
+        // Le groupe transite **inchangé** : cet enregistrement ne porte que
+        // les compétences, et l'omettre rendrait une évaluation d'atelier à la
+        // classe entière au premier ajout de compétence.
+        evaluation.group_id,
       );
       setOrphanPrompt(null);
       await onChanged();
@@ -342,6 +493,7 @@ export function EvaluationDetail({
         trimesterChoice === "auto" ? null : Number(trimesterChoice),
         evaluation.competency_ids,
         false,
+        groupDraft,
       );
       await onChanged();
     } catch (err) {
@@ -372,7 +524,7 @@ export function EvaluationDetail({
    *  affichés deux colonnes plus loin.
    *
    *  **La fiche reçoit les DEGRÉS, jamais les notes par compétence.** L'élève
-   *  lit « Presque maîtrisé » et sa moyenne sur l'évaluation, pas le 11/20 qui
+   *  lit « Maîtrise fragile » et sa moyenne sur l'évaluation, pas le 9/20 qui
    *  a produit le premier — décision de l'auteur du 2026-11-07. La conversion
    *  est faite ici, à la source : ainsi la note par compétence n'arrive même
    *  pas jusqu'au papier, et aucune retouche future de `pdf.ts` ne peut
@@ -386,10 +538,18 @@ export function EvaluationDetail({
     () =>
       students.map((student) => {
         const levels: Record<string, MasteryLevel> = {};
+        const waived: string[] = [];
         const notes: number[] = [];
         for (const comp of competencies) {
           const note = noteDe(student.id, comp.id);
-          if (note === null) continue;
+          if (note === null) {
+            // Une case en attente ne dit rien sur le papier — elle reste à
+            // cocher au stylo. Une case déclarée, elle, s'imprime en toutes
+            // lettres : c'est précisément la ligne vide qui se lisait comme un
+            // oubli, et que l'auteur a demandé de distinguer.
+            if (sansNote(student.id, comp.id)) waived.push(comp.id);
+            continue;
+          }
           levels[comp.id] = niveauDeNote(note);
           notes.push(note);
         }
@@ -398,12 +558,14 @@ export function EvaluationDetail({
           full_name: `${student.last_name} ${student.first_name}`.trim(),
           note: enrollmentNote(student),
           levels,
+          waived,
           mark20: moyenneDesNotes(notes),
         };
       }),
-    // `gradeIndex` porte déjà `grades`, et `enrollmentNote` ne lit que la date
-    // de l'évaluation : ces quatre entrées sont toutes celles du calcul.
-    [students, competencies, gradeIndex, evaluation.date],
+    // `gradeIndex` porte déjà `grades` et `waiverIndex` porte `waivers` ;
+    // `enrollmentNote` ne lit que la date de l'évaluation : ces cinq entrées
+    // sont toutes celles du calcul.
+    [students, competencies, gradeIndex, waiverIndex, evaluation.date],
   );
 
   return (
@@ -416,6 +578,7 @@ export function EvaluationDetail({
           <h3 className="truncate text-lg font-semibold">{evaluation.title}</h3>
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>{formatDate(evaluation.date)}</span>
+            <PastilleDeGroupe groupName={evaluation.group_name} />
             <Badge variant="outline" className="font-normal">
               T{evaluation.trimester}
               {" · "}
@@ -535,7 +698,14 @@ export function EvaluationDetail({
                 </p>
               </div>
             )}
-            <CompetencyPicker selected={draftIds} onChange={setDraftIds} />
+            {/* `sessionId` : l'établissement de la classe retire des
+                propositions les compétences qu'il n'emploie pas. Celles
+                déjà cochées restent là, notes comprises. */}
+            <CompetencyPicker
+              selected={draftIds}
+              onChange={setDraftIds}
+              sessionId={evaluation.session_id}
+            />
           </CardContent>
         </Card>
       )}
@@ -548,6 +718,22 @@ export function EvaluationDetail({
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto] md:items-end">
+                {/* Sur sa propre ligne et avant les trois autres champs : il
+                    change la liste des élèves notés, ce qu'aucun d'eux ne
+                    fait. Placé après, il renvoyait le bouton d'enregistrement
+                    sur une troisième ligne. Il disparaît tout seul quand la
+                    classe n'a aucun groupe, et la grille redevient alors celle
+                    d'avant le palier 023. */}
+                <div className="md:col-span-4">
+                  <SelecteurDeGroupe
+                    id="evaluation-meta-group"
+                    groups={groups}
+                    value={groupDraft}
+                    onChange={setGroupDraft}
+                    disabled={savingMeta}
+                    aide="Seuls les élèves de ce groupe sont notés. Les notes déjà saisies pour les autres restent en base et réapparaissent si vous revenez en arrière."
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="evaluation-meta-title">Titre</Label>
                   <Input
@@ -617,8 +803,9 @@ export function EvaluationDetail({
               <Card>
                 <CardContent className="py-8 text-center">
                   <p className="text-muted-foreground">
-                    Aucun élève dans cette classe. Ajoutez-en dans l'onglet
-                    Élèves pour pouvoir noter.
+                    {evaluation.group_name
+                      ? `Aucun élève n'est rangé dans « ${evaluation.group_name} » : répartissez-les dans l'onglet Élèves, ou rendez cette évaluation à toute la classe.`
+                      : "Aucun élève dans cette classe. Ajoutez-en dans l'onglet Élèves pour pouvoir noter."}
                   </p>
                 </CardContent>
               </Card>
@@ -713,6 +900,7 @@ export function EvaluationDetail({
                                     <GradeInput
                                       key={student.id + "|" + comp.id}
                                       value={noteDe(student.id, comp.id)}
+                                      waived={sansNote(student.id, comp.id)}
                                       label={
                                         student.last_name +
                                         " " +
@@ -732,6 +920,13 @@ export function EvaluationDetail({
                                           student.id,
                                           comp.id,
                                           null,
+                                        )
+                                      }
+                                      onWaive={(next) =>
+                                        void handleWaiver(
+                                          student.id,
+                                          comp.id,
+                                          next,
                                         )
                                       }
                                       onRefus={setActionError}
@@ -812,8 +1007,41 @@ export function EvaluationDetail({
                     {filledCount} note{filledCount > 1 ? "s" : ""} saisie
                     {filledCount > 1 ? "s" : ""} sur {cellCount} case
                     {cellCount > 1 ? "s" : ""}
+                    {waivedCount > 0 && (
+                      <>
+                        {" · "}
+                        {waivedCount} ne sera
+                        {waivedCount > 1 ? "nt" : ""} pas évaluée
+                        {waivedCount > 1 ? "s" : ""}
+                      </>
+                    )}
                   </span>
                 </div>
+
+                {/* Le geste ne se devine pas : la phrase reste même depuis que
+                    le bouton barré est visible au repos, parce qu'elle dit ce
+                    que le bouton ne peut pas dire — l'effet sur la moyenne et
+                    sur la feuille. Même doctrine que la légende des absences
+                    sous l'emploi du temps : une infobulle ne se découvre pas. */}
+                <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                  <span>
+                    Une case vide est{" "}
+                    <strong className="font-medium">en attente</strong> de sa
+                    note. Si cet élève ne sera pas évalué sur cette compétence,
+                    cliquez
+                  </span>
+                  <Ban
+                    className="inline h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    dans la case (ou tapez{" "}
+                    <strong className="font-medium">N</strong>) : elle sort de
+                    sa moyenne et la feuille remise à l'élève imprimera « non
+                    évalué » au lieu d'une ligne vierge. Un clic sur le
+                    cartouche « ne sera pas évaluée » revient en arrière.
+                  </span>
+                </p>
               </>
             )}
           </DataState>

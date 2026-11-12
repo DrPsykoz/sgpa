@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent, type ReactElement } from "react";
 import { AlertTriangle, CalendarPlus } from "lucide-react";
 
+import { SelecteurDeGroupe } from "@/components/Groupes";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useGroupesDeClasse } from "@/hooks/useGroupes";
 import { api } from "@/lib/api";
 import { schoolYearLabel } from "@/types";
 import type { Seance, Session } from "@/types";
@@ -108,6 +110,7 @@ export function OneOffSeanceDialog({
   onCreated,
 }: OneOffSeanceDialogProps): ReactElement {
   const [sessionId, setSessionId] = useState(AUCUNE_CLASSE);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [date, setDate] = useState(defaultDate);
   const [startTime, setStartTime] = useState(defaultStartTime);
   const [endTime, setEndTime] = useState(defaultEndTime);
@@ -126,6 +129,7 @@ export function OneOffSeanceDialog({
   useEffect(() => {
     if (!open) return;
     setSessionId(AUCUNE_CLASSE);
+    setGroupId(null);
     setDate(defaultDate);
     setStartTime(defaultStartTime);
     setEndTime(defaultEndTime);
@@ -146,6 +150,25 @@ export function OneOffSeanceDialog({
     sessionId === AUCUNE_CLASSE && classesDeLAnnee.length === 1
       ? classesDeLAnnee[0].id
       : sessionId;
+
+  /**
+   * Changer de classe efface le groupe choisi — même raison que dans
+   * `SlotDialog` : un groupe appartient à une classe, et garder l'identifiant
+   * en changeant de classe enverrait au backend un couple qu'il refuse, au
+   * moment de la création et non à celui du geste.
+   */
+  const changerDeClasse = (valeur: string) => {
+    setSessionId(valeur);
+    setGroupId(null);
+  };
+
+  // Les groupes de la classe résolue, et non de `sessionId` : avec une seule
+  // classe dans l'année, le sélecteur affiche déjà cette classe sans qu'on
+  // l'ait touché, et il serait incompréhensible que son groupe, lui, attende
+  // un clic.
+  const { groupes, erreur: erreurGroupes } = useGroupesDeClasse(
+    classeChoisie === AUCUNE_CLASSE ? null : classeChoisie,
+  );
 
   // Bornes de l'année scolaire de l'écran, bascule au 1er août — les mêmes que
   // celles du backend (`year_start_for`). Elles ne sont qu'un confort : la
@@ -184,6 +207,7 @@ export function OneOffSeanceDialog({
         null,
         startTime,
         endTime,
+        groupId,
       );
       onOpenChange(false);
       await onCreated(creee);
@@ -229,7 +253,7 @@ export function OneOffSeanceDialog({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="ponctuel-classe">Classe</Label>
-              <Select value={classeChoisie} onValueChange={setSessionId}>
+              <Select value={classeChoisie} onValueChange={changerDeClasse}>
                 <SelectTrigger id="ponctuel-classe">
                   <SelectValue />
                 </SelectTrigger>
@@ -249,6 +273,27 @@ export function OneOffSeanceDialog({
                 cette classe.
               </p>
             </div>
+
+            {/* Le groupe, sous la classe dont il dépend, et absent tant qu'elle
+                n'en a aucun. Il est posé **à la création et seulement là** :
+                c'est un fait et non un réglage — la séance existe, son appel
+                aussi —, et c'est pourquoi `seances.group_id` est en RESTRICT
+                quand celui du créneau est en SET NULL. Il reste modifiable
+                ensuite depuis la fiche de la séance, pas d'ici. */}
+            <SelecteurDeGroupe
+              id="ponctuel-groupe"
+              groups={groupes}
+              value={groupId}
+              onChange={setGroupId}
+              disabled={pending}
+              aide="L'appel ne convoquera que ce groupe, et la séance sortira de l'assiduité des autres élèves de la classe."
+            />
+            {erreurGroupes && (
+              <p className="text-xs text-destructive">
+                Les groupes de cette classe n'ont pas pu être lus :{" "}
+                {erreurGroupes}
+              </p>
+            )}
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-2">
@@ -308,10 +353,13 @@ export function OneOffSeanceDialog({
                     Cette date est déjà passée.
                   </strong>{" "}
                   Une séance qui existe compte au dénominateur d'assiduité. Tant
-                  que son appel n'est pas fait, chaque élève de la classe perd
-                  une séance de présence sur le bilan remis à sa famille. Si ce
-                  cours n'a pas eu lieu, ne le créez pas — et pensez à faire
-                  l'appel dans la foulée s'il a eu lieu.
+                  que son appel n'est pas fait,{" "}
+                  {groupId
+                    ? "chaque élève du groupe convoqué"
+                    : "chaque élève de la classe"}{" "}
+                  perd une séance de présence sur le bilan remis à sa famille.
+                  Si ce cours n'a pas eu lieu, ne le créez pas — et pensez à
+                  faire l'appel dans la foulée s'il a eu lieu.
                 </span>
               </p>
             )}

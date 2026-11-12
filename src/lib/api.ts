@@ -21,23 +21,31 @@ import type {
 	DaySchedule,
 	Evaluation,
 	Grade,
+	GradeWaiver,
 	HomeOverview,
 	LevelCode,
 	LockStatus,
 	NeedTag,
 	NodeKind,
 	ProfessionalField,
+	ActivityDomain,
+	Ra16Field,
+	Ra16Kind,
 	Progression,
 	ProgressionDomaine,
+	NatureDActivite,
 	ProgressionEtape,
 	RecomputePreview,
 	RecomputeResult,
 	Seance,
 	Session,
 	SessionReport,
+	Establishment,
+	DisabledCompetencyCount,
 	SetupResult,
 	Student,
 	StudentDeletionImpact,
+	StudentGroup,
 	StudentNeeds,
 	TeacherAbsenceInput,
 	TimetableSlot,
@@ -152,9 +160,26 @@ export const api = {
 
 	getSession: (id: string) => call<Session>("get_session", { id }),
 
-	createSession: (name: string, levelCode: LevelCode, yearStart: number) =>
-		call<Session>("create_session", { name, levelCode, yearStart }),
+	createSession: (
+		name: string,
+		levelCode: LevelCode,
+		yearStart: number,
+		establishmentId: string | null,
+	) =>
+		call<Session>("create_session", {
+			name,
+			levelCode,
+			yearStart,
+			establishmentId,
+		}),
 
+	/** Corrige le nom, le niveau et l'année — et **pas** l'établissement.
+	 *
+	 *  Le rattachement s'écrit par `setSessionEstablishment` et par elle
+	 *  seule : troisième règle d'architecture du projet. Le bénéfice est
+	 *  direct — aucun appelant n'a d'établissement à faire transiter, donc
+	 *  aucun ne peut l'effacer en l'omettant, contrairement à l'horaire
+	 *  d'`updateSeanceMeta`. */
 	updateSession: (
 		id: string,
 		name: string,
@@ -162,7 +187,84 @@ export const api = {
 		yearStart: number,
 	) => call<Session>("update_session", { id, name, levelCode, yearStart }),
 
+	/** Rattache une classe à un établissement, ou l'en détache (`null`).
+	 *
+	 *  Détacher n'est pas une perte de données : la classe revient à l'état
+	 *  d'avant le palier 025, où rien n'était retiré de ses menus. */
+	setSessionEstablishment: (
+		sessionId: string,
+		establishmentId: string | null,
+	) =>
+		call<Session>("set_session_establishment", {
+			sessionId,
+			establishmentId,
+		}),
+
 	deleteSession: (id: string) => call<void>("delete_session", { id }),
+
+	// ---- Établissements (palier 025) ----
+
+	/** Les établissements, avec le nombre de classes rattachées et de
+	 *  compétences désactivées — l'écran doit pouvoir annoncer le prix d'une
+	 *  suppression, qui ne refuse jamais. */
+	getEstablishments: () => call<Establishment[]>("get_establishments"),
+
+	/** Crée un ou plusieurs établissements. Les doublons sont **ignorés et
+	 *  rendus** dans `skipped`, jamais une erreur : même contrat que les deux
+	 *  référentiels, ce qui permet de réemployer `ChampDAjout` tel quel. */
+	createEstablishmentsBulk: (names: string[]) =>
+		call<BulkResult>("create_establishments_bulk", { names }),
+
+	renameEstablishment: (id: string, name: string) =>
+		call<void>("rename_establishment", { id, name }),
+
+	/** Supprime un établissement, et **réussit toujours**. Les classes
+	 *  rattachées reviennent à « aucun établissement », ce qui est leur état
+	 *  d'avant le palier : aucun chiffre ne bouge, aucun document ne change.
+	 *  C'est à l'écran de dire combien, par `session_count`. */
+	deleteEstablishment: (id: string) =>
+		call<void>("delete_establishment", { id }),
+
+	reorderEstablishments: (orderedIds: string[]) =>
+		call<void>("reorder_establishments", { orderedIds }),
+
+	/** Les compétences que cet établissement n'emploie pas, dans l'ordre du
+	 *  référentiel. */
+	getEstablishmentDisabledCompetencies: (establishmentId: string) =>
+		call<string[]>("get_establishment_disabled_competencies", {
+			establishmentId,
+		}),
+
+	/** Remplace la liste entière, en une transaction. Une compétence inconnue
+	 *  annule **tout** l'enregistrement : l'écran envoie une arborescence de
+	 *  coches, et un enregistrement partiel laisserait un réglage que
+	 *  l'enseignant n'a pas voulu. */
+	setEstablishmentDisabledCompetencies: (
+		establishmentId: string,
+		competencyIds: string[],
+	) =>
+		call<void>("set_establishment_disabled_competencies", {
+			establishmentId,
+			competencyIds,
+		}),
+
+	/** Ce que la saisie ne doit plus proposer **dans cette classe**. Vide
+	 *  quand la classe n'est rattachée à rien, c'est-à-dire par défaut.
+	 *
+	 *  **Ce n'est pas un masque sur des faits** : l'appelant retire de ses
+	 *  MENUS ce qui n'est pas encore choisi, et laisse voir, cochée et notée,
+	 *  toute compétence déjà rattachée. Une note qui existe encore mais que
+	 *  plus aucun écran n'affiche est la panne qu'on ne voit pas. */
+	getDisabledCompetenciesForSession: (sessionId: string) =>
+		call<string[]>("get_disabled_competencies_for_session", {
+			sessionId,
+		}),
+
+	/** Combien d'établissements désactivent chaque compétence. Sert l'écran
+	 *  du référentiel : une compétence disparue des menus doit pouvoir dire
+	 *  qu'elle reste employée ailleurs. */
+	getDisabledCompetencyCounts: () =>
+		call<DisabledCompetencyCount[]>("get_disabled_competency_counts"),
 
 	// ---- Élèves ----
 	getStudents: (sessionId: string) =>
@@ -213,6 +315,46 @@ export const api = {
 	getStudentAgendaEntries: (studentId: string) =>
 		call<AgendaEntrySummary[]>("get_student_agenda_entries", { studentId }),
 
+	// ---- Groupes d'une classe (palier 023) ----
+
+	/** Les groupes d'une classe, avec ce qu'une suppression heurterait.
+	 *
+	 *  `seance_count` et `evaluation_count` sont rendus pour que l'écran sache
+	 *  **avant** de proposer le bouton : les clés étrangères sont en RESTRICT,
+	 *  donc le refus viendrait de toute façon, mais dans les mots de SQLite. */
+	getStudentGroups: (sessionId: string) =>
+		call<StudentGroup[]>("get_student_groups", { sessionId }),
+
+	/** Le nom est unique dans la classe, **casse ignorée** : « groupe 1 » et
+	 *  « Groupe 1 » sont le même groupe, et le backend le dit en français plutôt
+	 *  que de laisser passer un doublon invisible. */
+	createStudentGroup: (sessionId: string, name: string) =>
+		call<StudentGroup>("create_student_group", { sessionId, name }),
+
+	/** Renommer n'a aucun effet sur les séances ni sur les appels : le groupe
+	 *  garde son identifiant. C'est le geste à proposer quand la suppression est
+	 *  refusée. */
+	renameStudentGroup: (id: string, name: string) =>
+		call<StudentGroup>("rename_student_group", { id, name }),
+
+	/** Refusée si le groupe a tenu une séance ou porte une évaluation — un bilan
+	 *  déjà rendu changerait de chiffres sans que personne ne l'ait demandé. Les
+	 *  élèves, les créneaux et les périodes, eux, sont seulement détachés. */
+	deleteStudentGroup: (id: string) =>
+		call<void>("delete_student_group", { id }),
+
+	/** Range un élève dans un groupe, ou l'en sort (`groupId` à `null`).
+	 *
+	 *  Commande à part et non un champ d'`updateStudent` : l'écran qui répartit
+	 *  la classe n'a ni prénom ni date d'inscription à faire transiter, donc il
+	 *  ne peut pas en écraser.
+	 *
+	 *  **Sortir un élève d'un groupe n'est pas le ranger « nulle part »** : il
+	 *  est alors convoqué à TOUTES les séances, y compris celles d'un groupe
+	 *  nommé. */
+	setStudentGroup: (studentId: string, groupId: string | null) =>
+		call<void>("set_student_group", { studentId, groupId }),
+
 	// ---- Référentiel ----
 	getReferentialTree: () => call<CycleNode[]>("get_referential_tree"),
 
@@ -256,6 +398,11 @@ export const api = {
 		trimester: number | null,
 		startTime = "",
 		endTime = "",
+		/** `null` = toute la classe. Sans valeur par défaut **exprès** : les deux
+		 *  écrans qui créent une séance doivent l'un comme l'autre poser la
+		 *  question, sans quoi un cours de groupe saisi à la main appellerait
+		 *  toute la classe sans que rien ne le dise. */
+		groupId: string | null = null,
 	) =>
 		call<Seance>("create_seance", {
 			sessionId,
@@ -264,6 +411,7 @@ export const api = {
 			startTime,
 			endTime,
 			trimester,
+			groupId,
 		}),
 
 	/** Fabrique l'occurrence d'un créneau à une date. **Idempotente** : si la
@@ -305,7 +453,14 @@ export const api = {
 		cancelled: boolean,
 		/** Motif d'annulation. Le backend le vide dès que `cancelled` est faux :
 		 *  une séance qui a lieu n'a pas de raison de ne pas avoir eu lieu. */
-		cancelReason = "",
+		cancelReason: string,
+		/** Le groupe réuni, `null` = toute la classe.
+		 *
+		 *  ⚠ **Sans valeur par défaut, et c'est le garde-fou** : il s'écrit sans
+		 *  condition, donc un appelant qui l'omettrait détacherait la séance de
+		 *  son groupe au premier renommage — même piège que l'horaire et le
+		 *  motif. Le faire transiter inchangé est obligatoire. */
+		groupId: string | null,
 	) =>
 		call<Seance>("update_seance_meta", {
 			id,
@@ -316,6 +471,7 @@ export const api = {
 			trimester,
 			cancelled,
 			cancelReason,
+			groupId,
 		}),
 
 	/** Cahier de texte seul — n'écrit JAMAIS le titre ni la date. */
@@ -640,6 +796,8 @@ export const api = {
 		date: string,
 		trimester: number | null,
 		competencyIds: string[],
+		/** `null` = toute la classe. */
+		groupId: string | null,
 	) =>
 		call<Evaluation>("create_evaluation", {
 			sessionId,
@@ -647,6 +805,7 @@ export const api = {
 			date,
 			trimester,
 			competencyIds,
+			groupId,
 		}),
 
 	updateEvaluation: (
@@ -656,6 +815,13 @@ export const api = {
 		trimester: number | null,
 		competencyIds: string[],
 		deleteOrphanGrades: boolean,
+		/** Le groupe évalué, `null` = toute la classe.
+		 *
+		 *  ⚠ Sans valeur par défaut, même raison que pour `updateSeanceMeta` :
+		 *  il s'écrit sans condition. Restreindre à un groupe est **refusé** si
+		 *  un élève hors de ce groupe y porte déjà une note ou un
+		 *  « non évalué » — rien n'est jamais effacé en silence. */
+		groupId: string | null,
 	) =>
 		call<Evaluation>("update_evaluation", {
 			id,
@@ -664,6 +830,7 @@ export const api = {
 			trimester,
 			competencyIds,
 			deleteOrphanGrades,
+			groupId,
 		}),
 
 	deleteEvaluation: (id: string) => call<void>("delete_evaluation", { id }),
@@ -688,16 +855,56 @@ export const api = {
 			mark,
 		}),
 
-	/** Efface une note : la case redevient vierge, donc « non évaluée ».
+	/** Efface une note : la case redevient vierge, c'est-à-dire **en attente**.
 	 *  Commande distincte de `setGrade` et non un `setGrade(…, 0)` — 0 n'est
 	 *  plus une note, et effacer ne doit pas pouvoir arriver par débordement
-	 *  d'une autre saisie. */
+	 *  d'une autre saisie.
+	 *
+	 *  Elle ne déclare pas « ne sera pas évaluée » : ce second sens de la case
+	 *  vide a sa propre commande, `setGradeWaiver` (palier 022). */
 	deleteGrade: (
 		evaluationId: string,
 		studentId: string,
 		competencyId: string,
 	) =>
 		call<void>("delete_grade", {
+			evaluationId,
+			studentId,
+			competencyId,
+		}),
+
+	// ---- Les cases qui ne seront pas notées ----
+
+	/** Les cases déclarées « ne sera pas évaluée » pour cette évaluation.
+	 *  Se charge à côté de `getGrades` : les deux décrivent la même grille,
+	 *  et une case ne peut porter ni les deux, ni rien d'autre. */
+	getGradeWaivers: (evaluationId: string) =>
+		call<GradeWaiver[]>("get_grade_waivers", { evaluationId }),
+
+	/** Déclare qu'un élève ne sera pas évalué sur une compétence.
+	 *
+	 *  **Refuse en français si la case porte déjà une note** : c'est
+	 *  `setGrade` qui cède à l'autre sens — poser une note, c'est évaluer —,
+	 *  jamais l'inverse. Effacer d'abord est un geste conscient ; écraser une
+	 *  note parce qu'on a cliqué à côté n'en est pas un. */
+	setGradeWaiver: (
+		evaluationId: string,
+		studentId: string,
+		competencyId: string,
+	) =>
+		call<void>("set_grade_waiver", {
+			evaluationId,
+			studentId,
+			competencyId,
+		}),
+
+	/** Retire la déclaration : la case redevient **en attente**. */
+	deleteGradeWaiver: (
+		evaluationId: string,
+		studentId: string,
+		competencyId: string,
+	) =>
+		call<void>("delete_grade_waiver", {
 			evaluationId,
 			studentId,
 			competencyId,
@@ -754,6 +961,62 @@ export const api = {
 
 	createProfessionalField: (name: string) =>
 		call<ProfessionalField>("create_professional_field", { name }),
+
+	/** L'arbre du référentiel professionnel d'un champ : domaines, et sous
+	 *  chacun ses activités de référence et ses métiers.
+	 *
+	 *  **Une liste vide est le cas normal** pour les quatre champs que le
+	 *  palier 024 n'a pas semés : l'écran y garde ses champs de saisie libre. */
+	getActivityReferential: (professionalFieldId: string) =>
+		call<ActivityDomain[]>("get_activity_referential", {
+			professionalFieldId,
+		}),
+
+	// ---- Référentiel des activités professionnelles (RA16) ----
+
+	/** L'arbre entier du référentiel professionnel, pour l'écran qui le RÈGLE.
+	 *
+	 *  Distinct de `getActivityReferential` juste au-dessus, et pas par
+	 *  commodité : celui-là sert à **remplir** une fiche contrat (un seul champ,
+	 *  aucun compteur), celui-ci à **modifier** le référentiel (les cinq champs,
+	 *  et le nombre de fiches qui citent chaque entrée). Deux lectures du même
+	 *  arbre pour deux métiers, comme `update_seance_meta` et
+	 *  `update_seance_content` sont deux écritures. */
+	getActivityReferentialTree: () =>
+		call<Ra16Field[]>("get_activity_referential_tree"),
+
+	/** Crée des entrées sous un parent : un domaine sous un champ, une activité
+	 *  de référence ou un métier sous un domaine.
+	 *
+	 *  Les doublons sont **ignorés et rendus** dans `skipped`, jamais une
+	 *  erreur : le référentiel se colle depuis le document national, et une
+	 *  colonne recopiée se répète toujours. */
+	createActivityNodesBulk: (
+		kind: Ra16Kind,
+		parentId: string,
+		names: string[],
+	) =>
+		call<BulkResult>("create_activity_nodes_bulk", { kind, parentId, names }),
+
+	renameActivityNode: (kind: Ra16Kind, id: string, name: string) =>
+		call<void>("rename_activity_node", { kind, id, name }),
+
+	/** Supprime une entrée, et **réussit toujours** — contrairement à
+	 *  `deleteNode` du référentiel de compétences, qui refuse ce qui porte des
+	 *  notes. Les fiches contrat qui citaient l'entrée gardent leur libellé
+	 *  imprimé et perdent le lien : rien d'imprimé ne change, donc rien à
+	 *  refuser. C'est l'écran qui doit dire le prix, par `sheet_count`. */
+	deleteActivityNode: (kind: Ra16Kind, id: string) =>
+		call<void>("delete_activity_node", { kind, id }),
+
+	/** Réécrit toutes les positions d'une fratrie. La liste doit être
+	 *  **complète** : le backend refuse en français si elle ne correspond plus
+	 *  au référentiel, ce qui arrive quand l'écran a vieilli. */
+	reorderActivityNodes: (
+		kind: Ra16Kind,
+		parentId: string,
+		orderedIds: string[],
+	) => call<void>("reorder_activity_nodes", { kind, parentId, orderedIds }),
 
 	// ---- Bilans ----
 	getReport: (sessionId: string, trimester: number) =>
@@ -833,13 +1096,18 @@ export const api = {
 	 *
 	 *  **`competences` est le texte libre d'avant le palier 021, et il
 	 *  transite** : tout appelant le fait passer inchangé, comme l'horaire dans
-	 *  `updateSeanceMeta`. Seul le bouton qui l'efface envoie `""`. */
+	 *  `updateSeanceMeta`. Seul le bouton qui l'efface envoie `""`.
+	 *
+	 *  `objectifs` et `metierCap` sont arrivés au palier 026, et ils transitent
+	 *  pour la même raison. */
 	updateProgressionEtape: (
 		id: string,
 		libelle: string,
 		competences: string,
 		connaissances: string,
 		priorites: string,
+		objectifs: string,
+		metierCap: string,
 		competencyIds: string[],
 	) =>
 		call<void>("update_progression_etape", {
@@ -848,6 +1116,8 @@ export const api = {
 			competences,
 			connaissances,
 			priorites,
+			objectifs,
+			metierCap,
 			competencyIds,
 		}),
 
@@ -862,24 +1132,44 @@ export const api = {
 		call<void>("reorder_progression_etapes", { progressionId, orderedIds }),
 
 	/** Ne rend rien, exprès : ajouter une activité change le rang de toutes celles
-	 *  qui suivent, donc leur couleur. L'écran relit la progression entière. */
+	 *  qui suivent, donc leur couleur. L'écran relit la progression entière.
+	 *
+	 *  Le backend écrit la ligne et ses compétences dans **une transaction**,
+	 *  comme pour l'étape : une compétence disparue du référentiel annule tout
+	 *  l'enregistrement plutôt que de laisser une activité sans les siennes. */
 	createProgressionActivite: (
 		etapeId: string,
 		libelle: string,
 		domaineId: string | null,
+		nature: NatureDActivite,
+		objectif: string,
+		competencyIds: string[],
 	) =>
 		call<void>("create_progression_activite", {
 			etapeId,
 			libelle,
 			domaineId,
+			nature,
+			objectif,
+			competencyIds,
 		}),
 
 	updateProgressionActivite: (
 		id: string,
 		libelle: string,
 		domaineId: string | null,
+		nature: NatureDActivite,
+		objectif: string,
+		competencyIds: string[],
 	) =>
-		call<void>("update_progression_activite", { id, libelle, domaineId }),
+		call<void>("update_progression_activite", {
+			id,
+			libelle,
+			domaineId,
+			nature,
+			objectif,
+			competencyIds,
+		}),
 
 	/** Emporte ses plages : une case de frise sans activité ne s'afficherait
 	 *  nulle part et ne se retirerait donc jamais. */

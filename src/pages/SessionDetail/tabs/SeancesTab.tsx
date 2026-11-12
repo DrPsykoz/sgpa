@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PastilleDeGroupe, SelecteurDeGroupe } from "@/components/Groupes";
 import { SeanceDetail } from "@/pages/SessionDetail/seance/SeanceDetail";
 import { api } from "@/lib/api";
 import {
@@ -44,7 +45,7 @@ import {
   renduDeLaSeance,
 } from "@/lib/contenu";
 import { cn } from "@/lib/utils";
-import type { Seance, Session, Student } from "@/types";
+import type { Seance, Session, Student, StudentGroup } from "@/types";
 
 export /**
  * L'icône d'état du cahier de texte, dans la liste d'une classe.
@@ -85,6 +86,10 @@ function IconeDuCahier({ seance }: { seance: Seance }): ReactElement {
 interface SeancesTabProps {
   session: Session;
   students: Student[];
+  /** Les groupes de cette classe, détenus par le parent (règle 1) : le
+   *  dialogue de création et l'écran de séance les reçoivent d'ici, et un
+   *  groupe créé ou renommé dans l'onglet Élèves se voit aussitôt ici. */
+  groups: StudentGroup[];
   /** Séance à ouvrir d'emblée, quand on arrive depuis un rappel de l'accueil.
    *  Lu une seule fois, à la construction de l'état : le parent remonte
    *  l'instance (`key`) quand la cible change, donc une prop figée suffit et
@@ -125,7 +130,12 @@ function messageOf(err: unknown): string {
     : "Une erreur inattendue est survenue.";
 }
 
-export function SeancesTab({ session, students, openId }: SeancesTabProps) {
+export function SeancesTab({
+  session,
+  students,
+  groups,
+  openId,
+}: SeancesTabProps) {
   const [seances, setSeances] = useState<Seance[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -143,6 +153,9 @@ export function SeancesTab({ session, students, openId }: SeancesTabProps) {
   const [newTitle, setNewTitle] = useState(() => defaultTitle(today()));
   const [titleTouched, setTitleTouched] = useState(false);
   const [newChoice, setNewChoice] = useState<TrimesterChoice>("auto");
+  // `null` = toute la classe, et c'est le cas normal : une classe sans groupe
+  // ne voit même pas le champ.
+  const [newGroupId, setNewGroupId] = useState<string | null>(null);
 
   const [toDelete, setToDelete] = useState<Seance | null>(null);
 
@@ -173,6 +186,7 @@ export function SeancesTab({ session, students, openId }: SeancesTabProps) {
     setNewTitle(defaultTitle(iso));
     setTitleTouched(false);
     setNewChoice("auto");
+    setNewGroupId(null);
     setCreateError(null);
     setCreateOpen(true);
   };
@@ -197,6 +211,9 @@ export function SeancesTab({ session, students, openId }: SeancesTabProps) {
         title,
         newDate,
         newChoice === "auto" ? null : Number(newChoice),
+        "",
+        "",
+        newGroupId,
       );
       setCreateOpen(false);
       await load();
@@ -228,6 +245,7 @@ export function SeancesTab({ session, students, openId }: SeancesTabProps) {
         key={selected.id}
         seance={selected}
         students={students}
+        groups={groups}
         onBack={() => setSelectedId(null)}
         onChanged={load}
       />
@@ -297,6 +315,10 @@ export function SeancesTab({ session, students, openId }: SeancesTabProps) {
                         >
                           {seance.title}
                         </p>
+                        <PastilleDeGroupe
+                          groupName={seance.group_name}
+                          className="text-muted-foreground"
+                        />
                         {seance.cancelled && (
                           <span className="text-xs text-muted-foreground">
                             Annulée
@@ -413,6 +435,15 @@ export function SeancesTab({ session, students, openId }: SeancesTabProps) {
                 </SelectContent>
               </Select>
             </div>
+
+            <SelecteurDeGroupe
+              id="new-seance-group"
+              groups={groups}
+              value={newGroupId}
+              onChange={setNewGroupId}
+              disabled={creating}
+              aide="L'appel ne convoquera que ce groupe, et la séance sortira de l'assiduité des autres élèves."
+            />
 
             {createError && (
               <p className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">

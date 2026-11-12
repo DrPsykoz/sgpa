@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 21;
+pub const SCHEMA_VERSION: i32 = 26;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -111,6 +111,31 @@ const STEPS: &[(i32, &str, &str)] = &[
         21,
         "les compétences d'une étape de progression, prises dans le référentiel",
         include_str!("sql/021_competences_de_progression.sql"),
+    ),
+    (
+        22,
+        "la case qui ne sera jamais notée, distincte de celle qui attend sa note",
+        include_str!("sql/022_case_non_evaluee.sql"),
+    ),
+    (
+        23,
+        "les groupes d'élèves dans une classe",
+        include_str!("sql/023_groupes.sql"),
+    ),
+    (
+        24,
+        "le référentiel RA16 du champ Habitat, et la fiche contrat qui y puise",
+        include_str!("sql/024_referentiel_ra16.sql"),
+    ),
+    (
+        25,
+        "l'établissement d'une classe, et les compétences qu'il n'emploie pas",
+        include_str!("sql/025_etablissements.sql"),
+    ),
+    (
+        26,
+        "la progression telle que ses documents la portent",
+        include_str!("sql/026_progression_des_documents.sql"),
     ),
 ];
 
@@ -448,11 +473,16 @@ mod tests {
     /// `stage_placements`, `school_holidays`, `savoir_groups`, `savoirs`,
     /// `contract_sheet_savoirs`, `contract_sheet_requirements`,
     /// `seance_attachments`, `student_need_tags`, `student_needs`,
-    /// `agenda_entry_attachments`, et les cinq tables de la progression
+    /// `agenda_entry_attachments`, les cinq tables de la progression
     /// annuelle — `progression_domaines`, `progressions`,
-    /// `progression_etapes`, `progression_activites`, `progression_plages`.
+    /// `progression_etapes`, `progression_activites`, `progression_plages` —,
+    /// puis `progression_etape_competences` (palier 021) et `grade_waivers`
+    /// (palier 022), et les trois du référentiel professionnel —
+    /// `activity_domains`, `reference_activities`, `careers` (palier 024),
+    /// enfin `establishments` et `establishment_disabled_competencies`
+    /// (palier 025) et `progression_activite_competences` (palier 026).
     /// Un palier qui ajoute une table change cette ligne, et une seule.
-    const TABLES_ATTENDUES: i64 = 37;
+    const TABLES_ATTENDUES: i64 = 45;
 
     /// Applique les paliers un par un **sans** passer par `run`, pour fabriquer
     /// une base telle qu'elle existe chez l'enseignant *avant* la mise à jour :
@@ -1083,8 +1113,18 @@ SELECT st.id,
         // La note est lue dans `mark` et non dans `level` : le palier 018, que
         // ce `run` traverse aussi, a converti la colonne. `niveau 3` devient
         // donc `12/20` — et c'est la seconde chose que ce test tient, puisque
-        // 12 est la borne haute de la tranche « Presque maîtrisé », exactement
+        // 12 était la borne haute de la tranche « Presque maîtrisé », exactement
         // le libellé que le niveau 3 portait. La conversion n'a rien arbitré.
+        //
+        // L'ÉCHELLE A CHANGÉ DEPUIS, le 2026-11-12 : « Presque maîtrisé » a été
+        // retiré et les quatre degrés restants découpent 1-5 / 6-10 / 11-15 /
+        // 16-20, si bien que ce même 12 se lit aujourd'hui « Maîtrise
+        // satisfaisante ». Ça ne retire rien à ce que le test vérifie — il
+        // vérifie un NOMBRE, et la base n'a jamais stocké de libellé, ce qui
+        // est précisément ce qui a permis de changer l'échelle sans migration.
+        // La phrase ci-dessus décrit l'échelle du jour du palier 018 ; ne pas
+        // la « corriger » en remplaçant le libellé, elle serait fausse pour
+        // 018 sans devenir vraie pour aujourd'hui.
         let (note, notes): (i32, i64) = conn
             .query_row(
                 "SELECT (SELECT mark FROM grades
@@ -1967,6 +2007,1216 @@ SELECT st.id,
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
         assert!(!orphan);
         drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le palier 022 distingue « pas encore noté » de « ne sera jamais noté »
+    /// **sans qu'aucune case existante ne change de sens**.
+    ///
+    /// C'est tout l'enjeu en production : une base déjà remplie traverse le
+    /// palier avec ses notes au chiffre près, et ses cases vides restent des
+    /// cases vides — « en attente », comme la veille. La table naît vide parce
+    /// que deviner les cases « jamais évaluées » à partir des cases vierges
+    /// aurait décidé à la place de l'enseignant sur toutes ses évaluations
+    /// passées.
+    ///
+    /// Il garde aussi la frontière du palier : le schéma n'interdit PAS qu'une
+    /// case porte à la fois une note et une déclaration — SQLite ne sait pas
+    /// poser un CHECK qui regarde une autre table. Ce sont `set_grade` et
+    /// `set_grade_waiver` qui s'en chargent, chacune dans son sens. Le test le
+    /// vérifie explicitement pour que personne ne croie tenir ici une garantie
+    /// qui n'y est pas.
+    #[test]
+    fn une_base_v21_peuplee_traverse_le_palier_022_intacte() {
+        let dir = temp_dir("v21-non-evaluee");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 21);
+
+        let competence: String = conn
+            .query_row("SELECT id FROM competencies LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+
+        // Une évaluation comme en produit l'écran de notation : deux élèves,
+        // une compétence rattachée, une seule note posée — donc une case
+        // remplie et une case vide, les deux états d'avant le palier.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème B', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'A', 'UN',   '2026-09-01'),
+                         ('e2', 's1', 'B', 'DEUX', '2026-09-01');
+             INSERT INTO evaluations (id, session_id, title, date, trimester)
+                  VALUES ('ev1', 's1', 'Séquence 1', '2026-10-05', 1);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO evaluation_competencies (evaluation_id, competency_id)
+                  VALUES ('ev1', ?1)",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO grades (evaluation_id, competency_id, student_id, mark)
+                  VALUES ('ev1', ?1, 'e1', 14)",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // LE point du palier : la note est là, au chiffre près, et elle est
+        // toujours la seule ligne de `grades`.
+        let (notes, mark): (i64, i32) = conn
+            .query_row(
+                "SELECT COUNT(*), MAX(mark) FROM grades WHERE evaluation_id = 'ev1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(notes, 1, "le palier n'ajoute ni ne retire aucune note");
+        assert_eq!(mark, 14, "la note traverse le palier au chiffre près");
+
+        let declarees: i64 = conn
+            .query_row("SELECT COUNT(*) FROM grade_waivers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            declarees, 0,
+            "aucune case devinée : une case vide reste « en attente »"
+        );
+
+        // La case vide d'e2 se déclare, et ne se déclare qu'une fois — c'est la
+        // clé primaire qui le dit, pas un contrôle en Rust qu'un second
+        // appelant pourrait oublier.
+        conn.execute(
+            "INSERT INTO grade_waivers (evaluation_id, competency_id, student_id)
+                  VALUES ('ev1', ?1, 'e2')",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+        assert!(
+            conn.execute(
+                "INSERT INTO grade_waivers (evaluation_id, competency_id, student_id)
+                      VALUES ('ev1', ?1, 'e2')",
+                rusqlite::params![competence],
+            )
+            .is_err(),
+            "une case ne se déclare pas deux fois"
+        );
+
+        // La frontière, écrite noir sur blanc : le schéma ACCEPTE une case qui
+        // porte une note et une déclaration. Les deux commandes l'interdisent,
+        // le schéma ne le peut pas, et le compte de complétude de l'accueil
+        // parcourt les cases pour que cet état-là reste sans conséquence.
+        conn.execute(
+            "INSERT INTO grade_waivers (evaluation_id, competency_id, student_id)
+                  VALUES ('ev1', ?1, 'e1')",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM grade_waivers WHERE student_id = 'e1'",
+            [],
+        )
+        .unwrap();
+
+        // RESTRICT : le référentiel ne peut pas emporter en silence une case
+        // qu'une feuille imprimée annonce « non évalué ».
+        assert!(
+            conn.execute(
+                "DELETE FROM competencies WHERE id = ?1",
+                rusqlite::params![competence],
+            )
+            .is_err(),
+            "supprimer une compétence déclarée non évaluée est refusé"
+        );
+
+        // CASCADE sur l'élève, comme `grades`.
+        conn.execute("DELETE FROM students WHERE id = 'e2'", [])
+            .unwrap();
+        let restantes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM grade_waivers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(restantes, 0, "l'élève supprimé emporte ses déclarations");
+
+        // CASCADE sur l'évaluation, comme `grades` : les deux tables se vident
+        // ensemble, sans ligne orpheline ni BLOB perdu.
+        conn.execute(
+            "INSERT INTO grade_waivers (evaluation_id, competency_id, student_id)
+                  VALUES ('ev1', ?1, 'e1')",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM evaluations WHERE id = 'ev1'", [])
+            .unwrap();
+        let (apres_notes, apres_declarees): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM grades), (SELECT COUNT(*) FROM grade_waivers)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(apres_notes, 0);
+        assert_eq!(
+            apres_declarees, 0,
+            "l'évaluation supprimée emporte ses déclarations comme ses notes"
+        );
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "022 ajoute une table");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// LA REQUÊTE D'ASSIDUITÉ TELLE QU'ELLE A ÉTÉ LIVRÉE AU PALIER 022, GELÉE.
+    ///
+    /// Même rôle qu'`ASSIDUITE_005` : c'est l'étalon. Le palier 023 ajoute un
+    /// filtre de groupe à trois endroits de la requête courante, et la seule
+    /// preuve qui vaille qu'il ne change rien chez l'enseignant est de faire
+    /// tourner l'ANCIENNE requête sur sa base AVANT la mise à jour, la
+    /// NOUVELLE APRÈS, et d'exiger les mêmes lignes. Comparer la requête
+    /// courante à elle-même ne prouverait rien.
+    const ASSIDUITE_022: &str = "\
+SELECT st.id,
+       COUNT(se.id) AS applicable,
+       COALESCE(SUM(ar.status = 'present'), 0) AS present,
+       COALESCE(SUM(ar.status = 'absent'),  0) AS absent,
+       COALESCE(SUM(ar.status = 'retard'),  0) AS retard,
+       COALESCE(SUM(ar.status = 'excuse'),  0) AS excuse,
+       COALESCE(SUM(se.id IS NOT NULL
+                AND (ar.status IS NULL OR ar.status = 'non_fait')), 0) AS non_renseigne,
+       (SELECT COUNT(*) FROM seances sx
+         WHERE sx.session_id = st.session_id
+           AND sx.trimester = ?2
+           AND sx.cancelled = 0
+           AND sx.date >= st.enrolled_on
+           AND (st.left_on IS NULL OR sx.date <= st.left_on)
+           AND (EXISTS (SELECT 1 FROM absence_periods p
+                         WHERE p.session_id = st.session_id
+                           AND (p.student_id IS NULL OR p.student_id = st.id)
+                           AND p.attendance_expected = 0
+                           AND sx.date BETWEEN p.start_date AND p.end_date
+                           AND NOT EXISTS (SELECT 1 FROM stage_placements sp
+                                             JOIN students sv ON sv.id = sp.student_id
+                                            WHERE sp.absence_period_id = p.id
+                                              AND sv.session_id = p.session_id
+                                              AND (p.student_id IS NULL
+                                                OR sp.student_id = p.student_id)))
+             OR EXISTS (SELECT 1 FROM stage_placements sp
+                         WHERE sp.student_id = st.id
+                           AND sx.date BETWEEN sp.start_date AND sp.end_date))) AS neutralisees
+  FROM students st
+  LEFT JOIN seances se ON se.session_id = st.session_id
+                      AND se.trimester = ?2
+                      AND se.cancelled = 0
+                      AND se.date >= st.enrolled_on
+                      AND (st.left_on IS NULL OR se.date <= st.left_on)
+                      AND NOT EXISTS (SELECT 1 FROM absence_periods p
+                                       WHERE p.session_id = st.session_id
+                                         AND (p.student_id IS NULL OR p.student_id = st.id)
+                                         AND p.attendance_expected = 0
+                                         AND se.date BETWEEN p.start_date AND p.end_date
+                                         AND NOT EXISTS (SELECT 1 FROM stage_placements sp
+                                                           JOIN students sv ON sv.id = sp.student_id
+                                                          WHERE sp.absence_period_id = p.id
+                                                            AND sv.session_id = p.session_id
+                                                            AND (p.student_id IS NULL
+                                                              OR sp.student_id = p.student_id)))
+                      AND NOT EXISTS (SELECT 1 FROM stage_placements sp
+                                       WHERE sp.student_id = st.id
+                                         AND se.date BETWEEN sp.start_date AND sp.end_date)
+  LEFT JOIN attendance_records ar ON ar.seance_id = se.id AND ar.student_id = st.id
+ WHERE st.session_id = ?1
+ GROUP BY st.id";
+
+    /// Les quatre seaux d'assiduité de la classe, le quatrième compris :
+    /// élève, applicables, neutralisées, autre groupe, hors inscription.
+    ///
+    /// Le dernier n'est PAS lu dans la requête — c'est le reste, calculé ici
+    /// comme `load_attendance` le calcule. Le test peut donc exiger la
+    /// partition elle-même : `applicable + hors + neutralisées + autre` doit
+    /// faire le nombre de séances du trimestre, ni plus, ni moins.
+    fn seaux(conn: &Connection, total: i64) -> Vec<(String, i64, i64, i64, i64)> {
+        let mut stmt = conn
+            .prepare(crate::commands::reports::ATTENDANCE_SQL)
+            .unwrap();
+        let rows = stmt
+            .query_map(rusqlite::params!["s1", 1], |r| {
+                let id: String = r.get(0)?;
+                let applicable: i64 = r.get(1)?;
+                let neutralisees: i64 = r.get(7)?;
+                let autre: i64 = r.get(8)?;
+                let hors = (total - applicable - neutralisees - autre).max(0);
+                Ok((id, applicable, neutralisees, autre, hors))
+            })
+            .unwrap();
+        let mut out: Vec<_> = rows.collect::<rusqlite::Result<_>>().unwrap();
+        out.sort();
+        out
+    }
+
+    /// Le palier 023 ajoute les groupes d'élèves **sans qu'un chiffre
+    /// d'assiduité ne bouge** tant qu'aucun groupe n'existe.
+    ///
+    /// C'est la promesse du palier 006, reposée à l'identique et pour la même
+    /// raison : un bilan de trimestre déjà imprimé et remis à une famille doit
+    /// rester exact après la mise à jour. Le test l'établit en chiffres —
+    /// l'étalon `ASSIDUITE_022` tourne AVANT, la requête courante APRÈS, sur
+    /// la même base peuplée, et les lignes doivent être identiques. Toutes les
+    /// colonnes du palier naissent NULL, et NULL veut dire « comme avant »
+    /// partout.
+    ///
+    /// Puis il pose des groupes et exige l'invariant que le palier ajoute :
+    ///
+    /// ```text
+    ///   applicable + hors_inscription + neutralisees + autre_groupe
+    ///     == seances_trimestre
+    /// ```
+    ///
+    /// Trois choses s'y vérifient qu'aucune base sans groupe ne pourrait
+    /// montrer. **Le filtre de groupe se lit aux trois points de la requête ou
+    /// à aucun** : une séance de l'autre groupe tombant dans une période qui
+    /// vise l'élève serait comptée deux fois si `neutralisees` l'ignorait, et
+    /// la somme dépasserait — c'est le cas `p3` ci-dessous. **Les deux sens de
+    /// « sans groupe » sont opposés** : l'élève non rangé est convoqué à tout,
+    /// mais une période qui vise un groupe nommé ne l'excuse pas. Et **les
+    /// deux sorts de suppression** tiennent : un réglage lâche prise
+    /// (SET NULL), un fait imprimé retient (RESTRICT).
+    #[test]
+    fn une_base_v22_peuplee_traverse_le_palier_023_intacte() {
+        let dir = temp_dir("v22-groupes");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 22);
+
+        // Une classe telle qu'elle existe en novembre : trois élèves dont un
+        // arrivé en cours d'année, quatre séances passées, une hospitalisation
+        // nominative d'un jour, et des appels faits en partie seulement.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème B', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'A', 'UN',    '2026-09-01'),
+                         ('e2', 's1', 'B', 'DEUX',  '2026-09-01'),
+                         ('e3', 's1', 'C', 'TROIS', '2026-11-02');
+             INSERT INTO seances (id, session_id, title, date, trimester)
+                  VALUES ('c1', 's1', 'Atelier', '2026-09-10', 1),
+                         ('c2', 's1', 'Atelier', '2026-09-17', 1),
+                         ('c3', 's1', 'Atelier', '2026-09-24', 1),
+                         ('c4', 's1', 'Atelier', '2026-11-05', 1);
+             INSERT INTO absence_periods (id, session_id, student_id, reason,
+                                          start_date, end_date)
+                  VALUES ('p1', 's1', 'e2', 'Hospitalisation',
+                          '2026-09-17', '2026-09-17');
+             INSERT INTO attendance_records (seance_id, student_id, status)
+                  VALUES ('c1', 'e1', 'present'),
+                         ('c1', 'e2', 'absent'),
+                         ('c3', 'e1', 'retard');",
+        )
+        .unwrap();
+
+        // Ce que l'enseignant lit AVANT la mise à jour.
+        let avant = assiduite(&conn, ASSIDUITE_022);
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // LE point du palier : le même bilan, ligne pour ligne.
+        let apres = assiduite(&conn, crate::commands::reports::ATTENDANCE_SQL);
+        assert_eq!(
+            avant, apres,
+            "le palier 023 ne doit déplacer aucun chiffre d'un bilan déjà rendu"
+        );
+
+        // Et les chiffres eux-mêmes, écrits en clair : sans quoi une erreur
+        // présente des DEUX côtés passerait inaperçue.
+        assert_eq!(
+            apres,
+            vec![
+                ("e1".to_string(), 4, 1, 0, 1, 0, 2, 0),
+                ("e2".to_string(), 3, 0, 1, 0, 0, 2, 1),
+                ("e3".to_string(), 1, 0, 0, 0, 0, 1, 0),
+            ],
+            "élève, applicables, présent, absent, retard, excusé, non renseigné, neutralisées"
+        );
+
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM seances
+                  WHERE session_id = 's1' AND trimester = 1 AND cancelled = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 4);
+
+        // Aucun groupe encore : le quatrième seau est vide partout, et la
+        // partition se referme sur les trois d'avant.
+        for (eleve, app, neutr, autre, hors) in seaux(&conn, total) {
+            assert_eq!(autre, 0, "{eleve} : aucun groupe, aucune séance écartée");
+            assert_eq!(app + neutr + autre + hors, total, "{eleve}");
+        }
+
+        // ----- Les groupes entrent en scène -------------------------------
+        // Deux groupes, un élève dans chacun, un troisième non rangé — le cas
+        // ordinaire de septembre, où l'enseignant n'a pas fini sa liste. Une
+        // seule séance est tenue avec le groupe 1.
+        conn.execute_batch(
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g1', 's1', 'Groupe 1', 0),
+                         ('g2', 's1', 'Groupe 2', 1),
+                         ('g3', 's1', 'Groupe 3', 2);
+             UPDATE students SET group_id = 'g1' WHERE id = 'e1';
+             UPDATE students SET group_id = 'g2' WHERE id = 'e2';
+             UPDATE seances  SET group_id = 'g1' WHERE id = 'c3';",
+        )
+        .unwrap();
+
+        assert_eq!(
+            seaux(&conn, total),
+            vec![
+                // Sa séance : elle reste dans son dénominateur.
+                ("e1".to_string(), 4, 0, 0, 0),
+                // Celle de l'autre groupe sort, et sort PAR LA BONNE PORTE —
+                // ni « hors inscription », ni « absence justifiée ».
+                ("e2".to_string(), 2, 1, 1, 0),
+                // Non rangé, donc convoqué à tout : la séance de groupe reste
+                // la sienne. Ses trois séances d'avant l'inscription aussi.
+                ("e3".to_string(), 1, 0, 0, 3),
+            ],
+            "élève, applicables, neutralisées, autre groupe, hors inscription"
+        );
+
+        // Une période qui vise un GROUPE : elle écarte ses élèves et personne
+        // d'autre — surtout pas l'élève non rangé, qu'un oubli de rangement ne
+        // doit jamais excuser.
+        conn.execute_batch(
+            "INSERT INTO absence_periods (id, session_id, group_id, reason,
+                                          start_date, end_date)
+                  VALUES ('p2', 's1', 'g1', 'Stage en entreprise',
+                          '2026-09-10', '2026-09-10');",
+        )
+        .unwrap();
+
+        assert_eq!(
+            seaux(&conn, total),
+            vec![
+                ("e1".to_string(), 3, 1, 0, 0),
+                ("e2".to_string(), 2, 1, 1, 0),
+                ("e3".to_string(), 1, 0, 0, 3),
+            ],
+            "la période de groupe n'écarte ni l'autre groupe ni l'élève non rangé"
+        );
+
+        // LE PIÈGE DU PALIER, rendu exécutable : une séance de l'autre groupe
+        // qui tombe AUSSI dans une période nominative de l'élève. Elle doit
+        // être comptée une fois, du côté du groupe. Sans le filtre de groupe
+        // dans la sous-requête `neutralisees`, elle compterait deux fois et la
+        // somme passerait à cinq pour un trimestre de quatre séances.
+        conn.execute_batch(
+            "INSERT INTO absence_periods (id, session_id, student_id, reason,
+                                          start_date, end_date)
+                  VALUES ('p3', 's1', 'e2', 'Hospitalisation',
+                          '2026-09-24', '2026-09-24');",
+        )
+        .unwrap();
+
+        for (eleve, app, neutr, autre, hors) in seaux(&conn, total) {
+            assert_eq!(
+                app + neutr + autre + hors,
+                total,
+                "{eleve} : la partition doit rester exacte"
+            );
+        }
+        assert_eq!(
+            seaux(&conn, total)[1],
+            ("e2".to_string(), 2, 1, 1, 0),
+            "le groupe passe avant la neutralisation, la séance ne compte qu'une fois"
+        );
+
+        // ----- Les deux sorts de suppression ------------------------------
+        // RESTRICT : une séance tenue avec un groupe le retient. Supprimer le
+        // groupe changerait un bilan déjà imprimé sans que rien ne le dise.
+        assert!(
+            conn.execute("DELETE FROM student_groups WHERE id = 'g1'", [])
+                .is_err(),
+            "un groupe qui a tenu une séance ne se supprime pas"
+        );
+        conn.execute(
+            "INSERT INTO evaluations (id, session_id, title, date, trimester, group_id)
+                  VALUES ('ev1', 's1', 'Séquence 1', '2026-10-05', 1, 'g3')",
+            [],
+        )
+        .unwrap();
+        assert!(
+            conn.execute("DELETE FROM student_groups WHERE id = 'g3'", [])
+                .is_err(),
+            "un groupe qui porte une évaluation ne se supprime pas"
+        );
+
+        // SET NULL : un réglage lâche prise. L'élève, le créneau et la période
+        // reviennent à « toute la classe », c'est-à-dire à l'état d'avant le
+        // palier — jamais à un groupe fantôme.
+        conn.execute_batch(
+            "INSERT INTO timetable_slots (id, year_start, session_id, label,
+                                          weekday, start_time, end_time, group_id)
+                  VALUES ('t1', 2026, 's1', 'Atelier', 1, '08:00', '09:00', 'g2');
+             INSERT INTO absence_periods (id, session_id, group_id, reason,
+                                          start_date, end_date)
+                  VALUES ('p4', 's1', 'g2', 'Sortie', '2026-12-07', '2026-12-08');",
+        )
+        .unwrap();
+        conn.execute("DELETE FROM student_groups WHERE id = 'g2'", [])
+            .unwrap();
+        let (eleve, creneau, periode): (i64, i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM students        WHERE group_id IS NOT NULL),
+                        (SELECT COUNT(*) FROM timetable_slots WHERE group_id IS NOT NULL),
+                        (SELECT COUNT(*) FROM absence_periods WHERE group_id = 'g2')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(eleve, 1, "e2 revient sans groupe, e1 garde le sien");
+        assert_eq!(creneau, 0, "le créneau revient à toute la classe");
+        assert_eq!(periode, 0, "la période aussi");
+
+        // ----- Ce que le schéma refuse de lui-même ------------------------
+        assert!(
+            conn.execute(
+                "INSERT INTO absence_periods (id, session_id, student_id, group_id,
+                                              reason, start_date, end_date)
+                      VALUES ('px', 's1', 'e1', 'g1', 'Stage',
+                              '2026-12-01', '2026-12-02')",
+                [],
+            )
+            .is_err(),
+            "une période ne vise pas un groupe ET un élève"
+        );
+        assert!(
+            conn.execute(
+                "INSERT INTO absence_periods (id, session_id, group_id, teacher_absent,
+                                              reason, start_date, end_date)
+                      VALUES ('py', 's1', 'g1', 1, 'Formation',
+                              '2026-12-01', '2026-12-02')",
+                [],
+            )
+            .is_err(),
+            "le professeur n'est pas absent pour un groupe seulement"
+        );
+        assert!(
+            conn.execute(
+                "INSERT INTO student_groups (id, session_id, name)
+                      VALUES ('gx', 's1', 'groupe 1')",
+                [],
+            )
+            .is_err(),
+            "deux groupes d'une même classe ne portent pas le même nom à la casse près"
+        );
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "023 ajoute une table");
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan);
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Les six colonnes du palier 024 sur la fiche 'f1' : trois couples
+    /// (clé, libellé figé), lus ensemble parce qu'ils ne se vérifient jamais
+    /// séparément — tout l'objet du couple est que l'un puisse disparaître
+    /// sans l'autre.
+    type ReferentielDeFiche = (
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+    );
+
+    fn referentiel_de_la_fiche(conn: &Connection) -> ReferentielDeFiche {
+        conn.query_row(
+            "SELECT activity_domain_id, activity_domain_label,
+                    reference_activity_id, reference_activity_label,
+                    career_id, career_label
+               FROM contract_sheets WHERE id = 'f1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .unwrap()
+    }
+
+    /// Une base v23 peuplée traverse le palier 024 sans qu'une fiche bouge.
+    ///
+    /// Le palier ajoute trois tables de référentiel et six colonnes à
+    /// `contract_sheets`. **Les six naissent vides** — `NULL` pour les clés,
+    /// `''` pour les libellés —, donc une fiche déjà saisie doit se relire mot
+    /// pour mot après la mise à jour : c'est ce que le test établit d'abord,
+    /// sur les trois champs de saisie libre que le palier ne vide pas
+    /// (`professional_subset`, `reference_activities`, `target_careers`).
+    ///
+    /// Puis il vérifie ce que le semis apporte et ce qu'il ne touche pas :
+    ///
+    /// - **Trois domaines, trente-quatre activités, vingt-et-un métiers**, et
+    ///   tous sous le seul champ Habitat. Un `INSERT ... SELECT` semant depuis
+    ///   un parent absent n'insère rien plutôt que d'insérer un orphelin — les
+    ///   paliers tournent `PRAGMA foreign_keys = OFF`, donc aucune contrainte
+    ///   ne l'aurait rattrapé.
+    /// - **Les quatre autres champs n'ont pas de référentiel**, et ce n'est
+    ///   pas un oubli : c'est le choix de l'enseignant du 2026-11-12. L'écran
+    ///   y garde ses champs de saisie libre.
+    /// - **Les deux sorts de suppression**, mêmes que partout : supprimer un
+    ///   domaine emporte ses activités et ses métiers (CASCADE — ce sont ses
+    ///   enfants), mais la fiche qui le citait garde **son libellé** et perd
+    ///   seulement le lien (SET NULL). Un document remis à un élève ne se vide
+    ///   pas parce qu'un référentiel a été rangé.
+    #[test]
+    fn une_base_v23_peuplee_traverse_le_palier_024_intacte() {
+        let dir = temp_dir("v23-referentiel");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 23);
+
+        // Une fiche contrat telle qu'elle existe aujourd'hui : les trois
+        // champs de l'en-tête saisis à la main, parce qu'il n'y avait rien
+        // d'autre.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026);
+             INSERT INTO evaluations (id, session_id, title, date, trimester)
+                  VALUES ('ev1', 's1', 'Séquence 1', '2026-10-05', 1);
+             INSERT INTO contract_sheets (id, evaluation_id, project_title,
+                                          professional_field_id,
+                                          professional_field_label,
+                                          professional_subset,
+                                          reference_activities, target_careers)
+                  VALUES ('f1', 'ev1', 'Le meuble à chaussures',
+                          'seed-pf-habitat', 'Habitat',
+                          'AMENAGEMENT AGENCEMENT FINITION',
+                          'Poser des éléments de menuiserie',
+                          'menuisier, agenceur');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // LE point du palier : la fiche se relit telle quelle, et les six
+        // colonnes neuves sont vides. Un enseignant qui ne touche à rien doit
+        // retrouver exactement sa fiche de la veille.
+        let libres: (String, String, String) = conn
+            .query_row(
+                "SELECT professional_subset, reference_activities, target_careers
+                   FROM contract_sheets WHERE id = 'f1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            libres,
+            (
+                "AMENAGEMENT AGENCEMENT FINITION".to_string(),
+                "Poser des éléments de menuiserie".to_string(),
+                "menuisier, agenceur".to_string(),
+            ),
+            "le palier ne vide aucun des trois champs de saisie libre"
+        );
+        assert_eq!(
+            referentiel_de_la_fiche(&conn),
+            (
+                None,
+                String::new(),
+                None,
+                String::new(),
+                None,
+                String::new()
+            ),
+            "les six colonnes du palier naissent vides"
+        );
+
+        // Le référentiel RA16, semé sous le seul champ Habitat.
+        let compte = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM activity_domains"),
+            3,
+            "RA16 Habitat : Construction, Aménagement, Équipements techniques"
+        );
+        assert_eq!(compte("SELECT COUNT(*) FROM reference_activities"), 34);
+        assert_eq!(compte("SELECT COUNT(*) FROM careers"), 21);
+        assert_eq!(
+            compte(
+                "SELECT COUNT(*) FROM activity_domains
+                  WHERE professional_field_id <> 'seed-pf-habitat'"
+            ),
+            0,
+            "seul Habitat a un référentiel ; les quatre autres champs restent en saisie libre"
+        );
+        assert_eq!(
+            compte(
+                "SELECT COUNT(*) FROM activity_domains d
+                  WHERE NOT EXISTS (SELECT 1 FROM reference_activities a
+                                     WHERE a.activity_domain_id = d.id)
+                     OR NOT EXISTS (SELECT 1 FROM careers c
+                                     WHERE c.activity_domain_id = d.id)"
+            ),
+            0,
+            "aucun domaine semé à vide : un INSERT ... SELECT sans parent n'aurait rien dit"
+        );
+        // Le piège du semis : les paliers tournent foreign_keys OFF, donc un
+        // identifiant de parent fautif aurait posé des orphelins en silence.
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan, "aucun orphelin semé sous foreign_keys OFF");
+        drop(stmt);
+
+        // ----- La fiche puise dans le référentiel -------------------------
+        let (domaine, activite, metier): (String, String, String) = conn
+            .query_row(
+                "SELECT (SELECT id FROM activity_domains
+                          WHERE professional_field_id = 'seed-pf-habitat'
+                          ORDER BY position LIMIT 1),
+                        (SELECT a.id FROM reference_activities a
+                           JOIN activity_domains d ON d.id = a.activity_domain_id
+                          ORDER BY d.position, a.position LIMIT 1),
+                        (SELECT c.id FROM careers c
+                           JOIN activity_domains d ON d.id = c.activity_domain_id
+                          ORDER BY d.position, c.position LIMIT 1)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        conn.execute(
+            "UPDATE contract_sheets
+                SET activity_domain_id = ?1, activity_domain_label = 'Construction',
+                    reference_activity_id = ?2, reference_activity_label = 'Une activité',
+                    career_id = ?3, career_label = 'Maçon'
+              WHERE id = 'f1'",
+            rusqlite::params![domaine, activite, metier],
+        )
+        .unwrap();
+
+        // CASCADE vers le bas : le domaine emporte ses enfants.
+        conn.execute("DELETE FROM activity_domains WHERE id = ?1", rusqlite::params![domaine])
+            .unwrap();
+        assert_eq!(compte("SELECT COUNT(*) FROM activity_domains"), 2);
+        assert!(
+            compte("SELECT COUNT(*) FROM reference_activities") < 34,
+            "les activités du domaine supprimé partent avec lui"
+        );
+
+        // SET NULL vers le haut : la fiche perd ses liens, JAMAIS ses mots.
+        assert_eq!(
+            referentiel_de_la_fiche(&conn),
+            (
+                None,
+                "Construction".to_string(),
+                None,
+                "Une activité".to_string(),
+                None,
+                "Maçon".to_string(),
+            ),
+            "un référentiel rangé ne vide pas une fiche déjà remise à un élève"
+        );
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "024 ajoute trois tables");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Palier 025 : une base peuplée gagne l'établissement **sans rien
+    /// rattacher**, et la désactivation d'une compétence ne touche aucune note.
+    ///
+    /// Ce que ce test protège, dans l'ordre où l'enseignant le verrait :
+    ///
+    /// - **Rien n'est deviné.** La table naît vide et la classe déjà saisie
+    ///   ressort `establishment_id IS NULL`. Créer d'office un établissement
+    ///   depuis `app_settings.school_name` aurait rattaché toutes ses classes
+    ///   passées à un nom qu'il n'a pas posé.
+    /// - **`school_name` n'est ni lu ni vidé.** C'est encore la seule source
+    ///   de l'en-tête des PDF : un bilan réimprimé après migration porte le
+    ///   même nom qu'avant, au caractère près.
+    /// - **Désactiver une compétence ne retire pas une note.** Le rattachement
+    ///   de l'évaluation et la note saisie survivent intacts — la
+    ///   désactivation est un filtre de saisie, jamais un masque sur des faits.
+    /// - **Les deux sorts de suppression.** Supprimer l'établissement rend la
+    ///   classe à l'état d'avant le palier (SET NULL) et emporte ses
+    ///   désactivations (CASCADE) ; supprimer la compétence emporte la ligne
+    ///   de désactivation sans rien laisser derrière — un réglage local ne
+    ///   bloque pas un rangement de référentiel, il le suit.
+    #[test]
+    fn une_base_v24_peuplee_traverse_le_palier_025_intacte() {
+        let dir = temp_dir("v24-etablissements");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 24);
+
+        // Une classe, une évaluation sur une compétence du référentiel, une
+        // note : exactement ce qu'un enseignant a en base à la mise à jour.
+        //
+        // DEUX compétences, et c'est nécessaire : `grades.competency_id` est en
+        // ON DELETE RESTRICT depuis le palier 001. La seconde — celle qui ne
+        // porte aucune note — est la seule par laquelle on puisse vérifier le
+        // CASCADE de la table de désactivation côté référentiel.
+        let competences: Vec<String> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT c.id FROM competencies c
+                       JOIN fields f  ON f.id = c.field_id
+                       JOIN domains d ON d.id = f.domain_id
+                      ORDER BY d.position, f.position, c.position LIMIT 2",
+                )
+                .unwrap();
+            let ids = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            ids
+        };
+        assert_eq!(competences.len(), 2, "le référentiel est semé au palier 001");
+        let competence = competences[0].clone();
+        let autre_competence = competences[1].clone();
+        conn.execute_batch(
+            "UPDATE app_settings SET school_name = 'Collège Jean Moulin' WHERE id = 1;
+             INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '4ème A', '4eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Hugo', 'MARTIN', '2026-09-01');
+             INSERT INTO evaluations (id, session_id, title, date, trimester)
+                  VALUES ('ev1', 's1', 'Séquence 1', '2026-10-05', 1);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO evaluation_competencies (evaluation_id, competency_id)
+                  VALUES ('ev1', ?1)",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+        // `grades` n'a pas d'identifiant propre : sa clé est le triplet
+        // (évaluation, compétence, élève), depuis le palier 001 et encore après
+        // la reconstruction du palier 018.
+        conn.execute(
+            "INSERT INTO grades (evaluation_id, competency_id, student_id, mark)
+                  VALUES ('ev1', ?1, 'e1', 14)",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        let compte = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+
+        // LE point du palier : rien n'est deviné, rien n'est rattaché.
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM establishments"),
+            0,
+            "la table des établissements naît vide : le vocabulaire est celui de l'enseignant"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM sessions WHERE establishment_id IS NOT NULL"),
+            0,
+            "aucune classe n'est rattachée d'office — NULL veut dire « comme avant »"
+        );
+        let ecole: String = conn
+            .query_row(
+                "SELECT school_name FROM app_settings WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            ecole, "Collège Jean Moulin",
+            "school_name reste la source de l'en-tête des PDF : aucun document imprimé ne change"
+        );
+
+        // ----- L'enseignant pose son établissement et désactive une compétence
+        conn.execute_batch(
+            "INSERT INTO establishments (id, name) VALUES ('et1', 'Collège Jean Moulin');
+             UPDATE sessions SET establishment_id = 'et1' WHERE id = 's1';",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO establishment_disabled_competencies (establishment_id, competency_id)
+                  VALUES ('et1', ?1)",
+            rusqlite::params![competence],
+        )
+        .unwrap();
+
+        // La compétence est désactivée ET notée : les deux coexistent, et
+        // c'est tout le sens du palier. Un filtre de saisie ne masque pas un
+        // fait — sinon la note serait encore là sans qu'aucun écran ne la
+        // montre, qui est la panne qu'on ne voit pas.
+        assert_eq!(compte("SELECT COUNT(*) FROM grades"), 1);
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM evaluation_competencies WHERE evaluation_id = 'ev1'"),
+            1,
+            "désactiver ne détache pas la compétence d'une évaluation déjà composée"
+        );
+        let note: i64 = conn
+            .query_row(
+                "SELECT mark FROM grades WHERE evaluation_id = 'ev1' AND student_id = 'e1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            note, 14,
+            "aucune note ne bouge quand on désactive sa compétence"
+        );
+
+        // ----- SET NULL vers le haut, CASCADE vers le bas -----------------
+        conn.execute("DELETE FROM establishments WHERE id = 'et1'", [])
+            .unwrap();
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM sessions WHERE id = 's1'"),
+            1,
+            "supprimer un établissement ne supprime JAMAIS une classe"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM sessions WHERE establishment_id IS NOT NULL"),
+            0,
+            "la classe revient à l'état d'avant le palier : un réglage perdu, pas une donnée"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM establishment_disabled_competencies"),
+            0,
+            "les désactivations partent avec leur établissement : aucune ligne orpheline"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM grades"),
+            1,
+            "et la note n'a toujours rien à voir avec tout cela"
+        );
+
+        // ----- CASCADE côté compétence : le réglage suit le référentiel ----
+        //
+        // Sur `autre_competence`, qui ne porte aucune note : le RESTRICT de
+        // `grades.competency_id` interdirait de supprimer la première, et c'est
+        // très bien ainsi — une compétence notée ne se range pas.
+
+        conn.execute_batch(
+            "INSERT INTO establishments (id, name) VALUES ('et2', 'SEGPA Les Tilleuls');",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO establishment_disabled_competencies (establishment_id, competency_id)
+                  VALUES ('et2', ?1)",
+            rusqlite::params![autre_competence],
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM competencies WHERE id = ?1",
+            rusqlite::params![autre_competence],
+        )
+        .unwrap();
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM establishment_disabled_competencies"),
+            0,
+            "un réglage local n'empêche pas un rangement de référentiel, il le suit"
+        );
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan, "aucun orphelin après les deux cascades");
+        drop(stmt);
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "025 ajoute deux tables");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Une base v25 peuplée traverse le palier 026 intacte.
+    ///
+    /// Le palier 026 ajoute quatre colonnes et une table à la progression. Ce
+    /// test tient les cinq promesses qui font qu'une base réelle peut le
+    /// traverser :
+    ///
+    /// - **Les textes de l'étape sortent mot pour mot.** `competences` — le
+    ///   texte libre d'avant le palier 021 —, `connaissances` et `priorites`
+    ///   ne sont ni vidés ni déplacés vers les deux colonnes neuves.
+    /// - **Les deux colonnes neuves de l'étape naissent vides**, et rien n'est
+    ///   deviné : les objectifs d'une séquence ne se déduisent pas de ses
+    ///   connaissances.
+    /// - **`nature` vaut 'activite' partout, et `objectif` est vide.** C'est le
+    ///   DEFAULT qui reproduit le comportement d'avant : jusqu'à ce palier, une
+    ///   ligne de `progression_activites` ÉTAIT une activité, le modèle ne
+    ///   connaissait rien d'autre. Un PDF réimprimé après migration est donc le
+    ///   même qu'avant, au caractère près.
+    /// - **La table de rattachement des activités naît vide**, et celle des
+    ///   étapes garde ses lignes : l'activité GAGNE ses compétences, elle ne
+    ///   les PREND PAS à l'étape. Les répartir aurait écrit dans le plan de
+    ///   l'enseignant un rattachement qu'il n'a pas fait.
+    /// - **Les deux sorts de suppression.** CASCADE vers le bas (supprimer
+    ///   l'activité emporte ses rattachements), RESTRICT vers le haut
+    ///   (supprimer du référentiel une compétence citée par une activité est
+    ///   refusé — c'est ce refus que `delete_node` compte avant de le
+    ///   provoquer, et c'est son cinquième compte).
+    #[test]
+    fn une_base_v25_peuplee_traverse_le_palier_026_intacte() {
+        let dir = temp_dir("v25-progression");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 25);
+
+        // Deux compétences du référentiel semé au palier 001 : l'une pour
+        // l'étape, l'autre pour l'activité — c'est par la seconde que le
+        // RESTRICT se vérifie, aucune note ne la retenant.
+        let competences: Vec<String> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT c.id FROM competencies c
+                       JOIN fields f  ON f.id = c.field_id
+                       JOIN domains d ON d.id = f.domain_id
+                      ORDER BY d.position, f.position, c.position LIMIT 2",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(competences.len(), 2, "le référentiel est semé au palier 001");
+        let pour_l_etape = competences[0].clone();
+        let pour_l_activite = competences[1].clone();
+
+        // Une progression telle qu'un enseignant l'a en base à la mise à jour :
+        // un domaine de son vocabulaire, deux étapes dont une avec ses trois
+        // textes, trois activités, une semaine peinte.
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026);
+             INSERT INTO progression_domaines (id, name, position)
+                  VALUES ('d1', 'Aménagement', 1);
+             INSERT INTO progressions (id, session_id, titre, intitule_groupe, devise)
+                  VALUES ('p1', 's1', 'Progression 3ème', 'Gr 2', 'Faire pour comprendre');
+             INSERT INTO progression_etapes
+                      (id, progression_id, position, libelle, competences,
+                       connaissances, priorites)
+                  VALUES ('et1', 'p1', 1, 'SEQUENCE 1 : le dessin technique',
+                          'Tracer selon un plan\nRéaliser des découpes avec soin',
+                          'Vocabulaire du dessin technique',
+                          'Sécurité avant tout'),
+                         ('et2', 'p1', 2, 'SEQUENCE 2 : la boîte en bois', '', '', '');
+             INSERT INTO progression_activites (id, etape_id, domaine_id, position, libelle)
+                  VALUES ('a1', 'et1', 'd1', 1, 'Analyse de la situation'),
+                         ('a2', 'et1', NULL, 2, 'Le dessin technique'),
+                         ('a3', 'et2', 'd1', 1, 'Fixer un rail au sol');
+             INSERT INTO progression_plages (progression_id, week_monday, voie, activite_id)
+                  VALUES ('p1', '2026-09-07', 0, 'a1');",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO progression_etape_competences (etape_id, competency_id)
+                  VALUES ('et1', ?1)",
+            rusqlite::params![pour_l_etape],
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        let compte = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+
+        // ----- Les textes de l'étape, mot pour mot ------------------------
+        let (libre, connaissances, priorites, objectifs, metier): (
+            String,
+            String,
+            String,
+            String,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT competences, connaissances, priorites, objectifs, metier_cap
+                   FROM progression_etapes WHERE id = 'et1'",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            libre, "Tracer selon un plan\nRéaliser des découpes avec soin",
+            "le texte libre d'avant le palier 021 n'est ni vidé ni déplacé"
+        );
+        assert_eq!(connaissances, "Vocabulaire du dessin technique");
+        assert_eq!(priorites, "Sécurité avant tout");
+        assert_eq!(objectifs, "", "les objectifs ne se déduisent pas des connaissances");
+        assert_eq!(metier, "", "le métier découvert ne se devine pas non plus");
+
+        // ----- Les activités : DEFAULT = comportement d'avant --------------
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_activites WHERE nature = 'activite'"),
+            3,
+            "toute ligne existante ÉTAIT une activité : le modèle ne connaissait rien d'autre"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_activites WHERE objectif <> ''"),
+            0,
+            "aucun objectif n'est inventé à partir de l'intitulé"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_plages"),
+            1,
+            "la frise n'a pas bougé d'une semaine"
+        );
+
+        // ----- L'activité GAGNE ses compétences, elle ne les PREND PAS -----
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_activite_competences"),
+            0,
+            "la table naît vide : on ne peut pas deviner laquelle des \
+             compétences d'une étape appartient à laquelle de ses activités"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_etape_competences"),
+            1,
+            "et l'étape garde les siennes — la décision du 2026-11-07 n'est pas rouverte"
+        );
+
+        // ----- L'enseignant se sert du palier -----------------------------
+        conn.execute_batch(
+            "UPDATE progression_activites
+                SET nature = 'analyse',
+                    objectif = 'savoir repérer les différentes vues dans un ouvrage'
+              WHERE id = 'a1';
+             UPDATE progression_activites SET nature = 'tp' WHERE id = 'a3';
+             UPDATE progression_etapes
+                SET objectifs = 'réaliser une boîte',
+                    metier_cap = 'Découvrir le métier et le CAP de dessinateur industriel'
+              WHERE id = 'et2';",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO progression_activite_competences (activite_id, competency_id)
+                  VALUES ('a1', ?1)",
+            rusqlite::params![pour_l_activite],
+        )
+        .unwrap();
+
+        // La quatrième nature est refusée par le CHECK, qui redit ce que
+        // `verifier_nature` refuse déjà en français.
+        assert!(
+            conn.execute(
+                "UPDATE progression_activites SET nature = 'séance' WHERE id = 'a2'",
+                [],
+            )
+            .is_err(),
+            "le CHECK du schéma refuse une quatrième nature"
+        );
+
+        // ----- RESTRICT vers le haut : le référentiel ne se range pas sous
+        //       une activité qui le cite. C'est le refus que `delete_node`
+        //       compte AVANT de le provoquer — son cinquième compte.
+        assert!(
+            conn.execute(
+                "DELETE FROM competencies WHERE id = ?1",
+                rusqlite::params![pour_l_activite],
+            )
+            .is_err(),
+            "RESTRICT : supprimer la compétence retirerait une ligne d'un plan déjà imprimé"
+        );
+
+        // ----- CASCADE vers le bas : l'activité emporte ses rattachements --
+        conn.execute("DELETE FROM progression_activites WHERE id = 'a1'", [])
+            .unwrap();
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_activite_competences"),
+            0,
+            "le rattachement part avec son activité : aucune ligne orpheline"
+        );
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM progression_plages"),
+            0,
+            "et la plage de cette activité aussi, comme avant le palier"
+        );
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan, "aucun orphelin après les deux sorts");
+        drop(stmt);
+
+        let tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, TABLES_ATTENDUES, "026 ajoute une table");
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);

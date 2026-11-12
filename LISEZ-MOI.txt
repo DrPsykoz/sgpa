@@ -300,12 +300,82 @@ avant : le cours s'affichait, et l'horaire qu'on venait de rendre modifiable
 restait hors d'atteinte depuis l'écran où on le regardait.
 
 
+LES GROUPES — DÉDOUBLER UNE CLASSE
+----------------------------------
+
+Fiche de la classe, onglet « Élèves », bouton « Groupes ». Vous créez autant de
+groupes que vous voulez et vous les nommez comme vous voulez : « Groupe 1 » et
+« Groupe 2 », ou « Atelier bois » et « Atelier cuisine ». Le chiffre à côté du
+bouton dit combien la classe en compte.
+
+Un élève appartient à UN SEUL groupe. Dès qu'un groupe existe, le tableau des
+élèves gagne une colonne « Groupe » : vous y rangez chacun en deux clics.
+
+Une classe sans aucun groupe ne voit rien de tout cela. C'est le cas normal, et
+rien n'y change.
+
+CE QUE VOUS POUVEZ RESTREINDRE À UN GROUPE : un créneau de l'emploi du temps,
+un cours ponctuel, une séance, une évaluation, une période de stage ou
+d'absence. Partout c'est le même menu, et partout il propose d'abord « Toute la
+classe » — qui est ce qui se passait avant, et reste le réglage par défaut.
+
+« GROUPE 1 SEMAINE A, GROUPE 2 SEMAINE B » SE POSE AVEC CE QUI EXISTE DÉJÀ. Ce
+sont deux créneaux le même jour à la même heure, un par groupe, avec des
+périodicités complémentaires — voir « Deux cours sur le même créneau », juste
+au-dessus. Posez le premier, donnez-lui « Groupe 1 » et « semaines paires » ;
+« Un autre cours à cet horaire » ouvre le second déjà réglé sur « impaires », et
+vous lui donnez « Groupe 2 ».
+
+L'APPEL NE CONVOQUE QUE LE GROUPE. Une séance qui porte un groupe ne liste que
+les élèves de ce groupe : l'autre moitié n'est ni présente ni absente, elle
+n'était pas censée être là. Même chose dans la grille d'une évaluation.
+
+UN ÉLÈVE QUE VOUS N'AVEZ RANGÉ NULLE PART EST CONVOQUÉ PARTOUT, y compris aux
+séances d'un groupe nommé. C'est voulu : un élève sans groupe est presque
+toujours un oubli — vous créez vos groupes en novembre, vous inscrivez un
+nouvel élève en janvier. Le faire disparaître des appels le retirerait en
+silence de vos calculs ; le faire apparaître partout se voit tout de suite et
+se corrige en deux clics. Une seule exception, dans l'autre sens : une période
+d'absence qui vise un groupe ne le couvre pas. Un oubli de rangement ne doit
+pas excuser une absence par accident.
+
+SUR LE BILAN, UNE QUATRIÈME LIGNE. Quand des séances du trimestre ont été
+tenues avec l'autre groupe, le bilan de l'élève l'écrit en toutes lettres —
+« tenues avec un autre groupe, non comptabilisées » —, à l'écran comme sur le
+PDF. Elles ne pouvaient pas se ranger dans les lignes existantes : ce n'est ni
+« hors de sa période d'inscription » pour un enfant inscrit depuis septembre,
+ni « pendant une absence justifiée » pour un enfant qui n'était pas absent, et
+ces phrases-là s'impriment sur un document que lit une famille.
+
+RENOMMER EST TOUJOURS POSSIBLE ; SUPPRIMER, PAS TOUJOURS. Sous le nom de chaque
+groupe, le dialogue écrit ce qu'il retient : tant d'élèves, tant de séances,
+tant d'évaluations. Dès qu'une séance a été tenue avec ce groupe ou qu'une
+évaluation lui est rattachée, le bouton de suppression est grisé et vous dit
+pourquoi en le survolant — ces cours ont bien eu lieu avec ces élèves-là, et
+les rendre rétroactivement « toute la classe » changerait des chiffres déjà
+imprimés. Renommer, en revanche, ne ment sur rien : c'est le même groupe
+d'élèves sous un autre nom. Pour réorganiser en janvier, créez les nouveaux
+groupes — n'effacez pas ceux de novembre.
+
+RESTREINDRE UNE ÉVALUATION APRÈS COUP PEUT ÊTRE REFUSÉ. Si des élèves hors du
+groupe que vous choisissez y ont déjà une note ou un « non évalué », SGPA
+refuse et vous le dit. Il ne les supprime pas — vos notes vous appartiennent —
+et il ne les cache pas non plus : une note encore enregistrée mais que plus
+aucun écran n'affiche est le pire des deux. Retirez d'abord ces notes si c'est
+bien ce que vous voulez. Élargir à toute la classe ne cache rien, et ne
+déclenche donc jamais ce refus.
+
+Rien de tout cela ne change une classe existante : tant que vous n'avez pas
+créé de groupe, chaque écran se comporte exactement comme avant et aucun bilan
+déjà remis ne change de chiffre.
+
+
 STAGES, SORTIES, ABSENCES — TROIS SITUATIONS DIFFÉRENTES
 --------------------------------------------------------
 
 Fiche de la classe, onglet « Stages et absences ». Une période nomme les jours
-où la classe, ou un seul élève, n'est pas en cours. Ce qui les distingue n'est
-pas le motif que vous écrivez : c'est l'appel.
+où la classe, un groupe, ou un seul élève, n'est pas en cours. Ce qui les
+distingue n'est pas le motif que vous écrivez : c'est l'appel.
 
   * STAGE, HOSPITALISATION, DÉPART ANTICIPÉ — « Nouvelle période », et laissez
     la case « L'appel se fait quand même » décochée. Les séances de la période
@@ -330,8 +400,15 @@ réclame plus rien sur ces séances — ni appel, ni cahier de texte, ni motif
 d'annulation : personne ne les a assurées.
 
 Une absence de votre part ne peut pas être « avec appel », ni viser un seul
-élève : vous n'êtes pas absent pour un élève en particulier. Ses dates, elles,
-se corrigent normalement.
+élève ou un seul groupe : vous n'êtes pas absent pour une moitié de la classe.
+Ses dates, elles, se corrigent normalement.
+
+LE MENU « CONCERNE » PROPOSE AUSSI VOS GROUPES, quand la classe en a. C'est le
+cas qui revient tous les ans en SEGPA : les groupes partent en stage en
+alternance. Deux périodes qui visent des groupes DIFFÉRENTS peuvent se
+chevaucher sans que SGPA proteste — c'est exactement ce que vous voulez dire
+quand une moitié part en entreprise et que l'autre reste. Deux périodes du même
+groupe, elles, se gênent comme deux périodes de la même classe.
 
 SOUS LA GRILLE, LA LISTE DES PÉRIODES DE LA SEMAINE. Quand deux classes sont
 hors cours le même jour, l'en-tête de la colonne ne peut plus que les compter.
@@ -370,28 +447,43 @@ LA PROGRESSION DE L'ANNÉE
 Fiche de la classe, onglet « Progression ». C'est la mise au propre de votre
 plan d'année : ce que vous explorez, et la semaine où ça tombe.
 
-Vous définissez d'abord des ÉTAPES. Une étape porte son intitulé, ses
-compétences, ses connaissances et ses priorités. Les CONNAISSANCES et les
-PRIORITÉS sont en texte libre, vos phrases. Les COMPÉTENCES, elles, SE
-COCHENT DANS LE RÉFÉRENTIEL — le même sélecteur que dans une évaluation,
-pour qu'une compétence soit écrite du même mot dans votre plan d'année et
-dans le bulletin de l'élève. Une compétence renommée dans Réglages se
-renomme ici et sur le document imprimé. Dans chaque étape, vous posez des
-ACTIVITÉS : ce que vous faites concrètement. Chacune peut relever d'un
-DOMAINE.
+Vous définissez d'abord des SÉQUENCES (les étapes de l'année), comme dans vos
+documents. Une séquence porte son nom, ses OBJECTIFS et le MÉTIER ET LE CAP
+qu'elle fait découvrir, en texte libre : « Découvrir le métier et le CAP de
+menuisier ».
 
-SI VOUS AVEZ DÉJÀ ÉCRIT VOS COMPÉTENCES À LA MAIN, elles ne sont pas
-perdues. Avant cette version, ce champ était un simple texte. Ce que vous y
-avez tapé reste affiché, et reste imprimé, sous le titre « Compétences
-saisies à la main » : retrouvez ces compétences dans le référentiel juste
-au-dessus, puis cliquez « Effacer ce texte » quand c'est fait. Tant que vous
-ne cliquez pas, rien ne bouge — SGPA n'efface pas vos phrases, et ne devine
-pas à votre place à quelle compétence du référentiel elles correspondent.
+Dans chaque séquence, vous posez des ACTIVITÉS : ce que vous faites
+concrètement. Chacune DOIT avoir un NOM, un OBJECTIF et AU MOINS UNE
+COMPÉTENCE, cochée dans le référentiel — le même sélecteur que dans une
+évaluation, pour qu'une compétence soit écrite du même mot dans votre plan
+d'année et dans le bulletin de l'élève. Une activité porte aussi sa NATURE —
+« Analyse de la situation », « Activité » ou « TP ». Elle s'imprime devant le nom, sur l'écran comme sur le
+document.
+
+Les CONNAISSANCES et les PRIORITÉS ne se saisissent plus, et les compétences
+ne se choisissent plus au niveau de la séquence. RIEN N'EST PERDU : ce que
+vous aviez déjà écrit reste affiché et imprimé, sous « saisies avant » dans
+la fenêtre de la séquence, jusqu'à ce que vous cliquiez « Effacer ce texte »
+ou « Retirer ces compétences ». Vos activités d'avant, sans objectif ni
+compétence, restent lisibles telles quelles ; SGPA vous demandera de les
+compléter la prochaine fois que vous les modifierez.
+
+VOS PROGRESSIONS D'AVANT CETTE VERSION N'ONT PAS BOUGÉ. Les trois champs
+nouveaux sont vides, et toutes vos lignes existantes sont des « Activité » —
+c'est la nature la plus fréquente. Corrigez-les quand vous passerez dessus ;
+rien ne vous y oblige, et aucune de vos phrases n'a été déplacée. SGPA ne
+devine pas laquelle des compétences d'une étape appartient à laquelle de ses
+lignes : c'est à vous de le dire, étape par étape, le jour où ça vous sert.
 
 Ensuite vous les posez sur la frise. Vous choisissez une activité dans la
 liste, puis : CLIC GAUCHE POUR LA POSER, CLIC DROIT POUR EFFACER. Glissez
 sans relâcher pour couvrir plusieurs semaines d'un coup. Au clavier, la
 touche Entrée pose et la touche Suppr efface.
+
+La frise montre aussi, sous les deux bandes, une ligne « Élèves absents » :
+les semaines où un élève de la classe est en stage ou absent (période
+nominative saisie dans l'onglet des absences), avec son nom au survol et la
+liste sous la frise. C'est une information d'écran : elle n'est pas imprimée.
 
 Un clic, ou une touche, vaut UNE SEMAINE : pour effacer six semaines
 d'affilée, glissez dessus avec le bouton droit. C'est exprès — un clic droit
@@ -408,11 +500,9 @@ vous n'avez rien à peindre pour eux ; les semaines de stage d'une classe s'y
 voient aussi. Une semaine fermée reste pâle MAIS RESTE PEIGNABLE : le
 calendrier bouge, et ce n'est pas à l'application de vous dire où planifier.
 
-LES DOMAINES SONT VIDES À LA LIVRAISON, exprès. Ce sont vos mots, pas ceux de
-l'application. Bouton « Domaines » pour les créer. Ils sont partagés entre
-toutes vos classes : un domaine exploré en 4ᵉ et en 3ᵉ est le même. SGPA
-refuse de supprimer un domaine encore employé par une activité, et vous dit
-combien en dépendent.
+LES DOMAINES de progression ne sont plus proposés : ni bouton, ni menu, ni
+colonne sur le document. Ceux que vous aviez déjà saisis restent conservés
+dans vos données, sans rien afficher.
 
 LES COULEURS, VOUS NE LES CHOISISSEZ PAS. SGPA les attribue dans l'ordre de
 vos étapes puis de vos activités, de façon à ce que deux activités voisines
@@ -434,7 +524,119 @@ Une feuille A4 EN PAYSAGE — quarante-cinq semaines ne tiennent pas en
 portrait. La frise en haut, le tableau de vos étapes en bas, et un NUMÉRO sur
 chaque activité pour relier les deux. Ce numéro est là pour que le document
 reste lisible photocopié en noir et blanc, où toutes les teintes se
-ressemblent. Le PDF part dans exports\ , sur la clé.
+ressemblent.
+
+DANS LE TABLEAU, chaque étape ouvre par un BANDEAU qui porte son intitulé et
+ses textes — objectifs, métier et CAP, compétences, connaissances, priorités
+—, puis chacune de ses lignes tient une rangée à elle : son numéro, sa nature
+et son intitulé, son objectif, ses compétences, ses semaines.
+C'est la forme de vos propres documents. Une étape sans aucune ligne garde
+son bandeau : ses compétences valent d'être lues même si rien n'est encore
+posé en face.
+
+Le PDF part dans exports\ , sur la clé.
+
+
+LA FICHE CONTRAT ET LE RÉFÉRENTIEL
+----------------------------------
+
+Dans une classe, ouvrez une évaluation, puis le bouton « Fiche contrat ». Le
+haut de la fiche décrit le projet : le champ professionnel, le DOMAINE
+D'ACTIVITÉ, l'ACTIVITÉ DE RÉFÉRENCE et le MÉTIER VISÉ.
+
+CES TROIS DERNIÈRES CASES SE CHOISISSENT DANS UNE LISTE quand le champ
+professionnel que vous avez retenu possède un référentiel. Aujourd'hui, un
+seul en a un : HABITAT. Vous y trouverez ses trois domaines d'activité, ses
+trente-quatre activités de référence et ses vingt-et-un métiers, repris mot
+pour mot du document national — vous n'avez plus à les retaper.
+
+Les listes s'enchaînent : choisir un domaine d'activité remplit la liste des
+activités et celle des métiers avec ce qui lui correspond, et seulement avec
+ça. Changer de domaine vide les deux cases du dessous, parce qu'une activité
+de « Construction » n'a rien à faire sous « Équipements techniques » — et la
+fiche part entre les mains d'un élève.
+
+SUR LES AUTRES CHAMPS PROFESSIONNELS, RIEN NE CHANGE : les trois cases restent
+des zones de texte libre, exactement comme avant.
+
+CE QUE VOUS AVIEZ DÉJÀ ÉCRIT N'A PAS BOUGÉ. Sur une fiche remplie avant cette
+mise à jour, votre texte s'affiche sous la liste, dans un cadre « Saisi à la
+main », et il continue de s'imprimer sur le PDF. SGPA n'a pas deviné à votre
+place à quel domaine du référentiel vos phrases correspondaient. Quand vous
+avez retrouvé l'équivalent dans la liste, le bouton « Effacer » retire
+l'ancien texte — et c'est le seul geste qui l'efface.
+
+
+MODIFIER LE RÉFÉRENTIEL — LES DEUX ONGLETS
+------------------------------------------
+
+Réglages, puis « Référentiel ». L'écran a maintenant DEUX ONGLETS, parce qu'il
+y a deux référentiels et qu'ils ne servent pas à la même chose.
+
+COMPÉTENCES — l'arbre Cycle › Domaine › Champ › Compétence, celui dans lequel
+vous piochez quand vous montez une évaluation ou une étape de progression. Il
+est livré rempli avec les cinq domaines du socle.
+
+ACTIVITÉS — le référentiel des champs professionnels : Champ › Domaine
+d'activité › activités de référence et métiers. C'est ce que la fiche contrat
+propose dans ses trois listes. Il est livré rempli pour le seul champ HABITAT
+(trois domaines, trente-quatre activités, vingt-et-un métiers).
+
+LES DEUX S'UTILISENT PAREIL. Un bouton « Ajouter » sous chaque niveau, qui
+accepte aussi plusieurs lignes collées depuis un tableur — une par ligne. Au
+survol d'une ligne : renommer, monter, descendre, supprimer. Et avant de
+supprimer, SGPA vous dit ce que l'entrée coûte : combien de fiches contrat la
+citent, combien d'enfants partiraient avec elle.
+
+C'EST PAR LÀ QUE PASSENT LES QUATRE AUTRES CHAMPS PROFESSIONNELS. Ils n'ont pas
+de référentiel national chargé dans SGPA ; si vous voulez que leurs fiches
+contrat proposent des listes au lieu de zones de texte, créez-y vos domaines
+d'activité, vos activités et vos métiers dans cet onglet. Tant qu'un champ reste
+vide, la fiche contrat y garde ses zones de texte libre, exactement comme avant.
+
+
+LES ÉTABLISSEMENTS — ET LES COMPÉTENCES QU'ON N'EMPLOIE PAS
+-----------------------------------------------------------
+
+Réglages, carte « Établissements ». Elle est VIDE À LA LIVRAISON : SGPA ne sait
+pas dans quel collège vous enseignez, et n'invente rien.
+
+ATTENTION, IL Y A DEUX CHOSES QUI S'APPELLENT « ÉTABLISSEMENT » DANS RÉGLAGES,
+et elles ne font pas la même chose :
+
+  • la case « Établissement » de la carte « Identité », tout en haut : c'est le
+    NOM IMPRIMÉ en tête de vos bilans et de vos fiches contrat ;
+
+  • la carte « Établissements », juste en dessous : c'est une LISTE à laquelle
+    vous rattachez vos classes. RIEN DE CE QU'ELLE RÈGLE NE S'IMPRIME.
+
+À QUOI ÇA SERT. Un établissement porte un réglage : LES COMPÉTENCES QU'IL
+N'EMPLOIE PAS. Cochez-les dans « Compétences », et elles ne vous seront plus
+proposées quand vous monterez une évaluation ou une étape de progression dans
+les classes de cet établissement. Le référentiel ne perd rien — c'est la liste
+des choix qui raccourcit.
+
+RATTACHER UNE CLASSE. Écran « Classes », le crayon sur la carte de la classe :
+un menu « Établissement » apparaît dans le formulaire dès qu'il existe au
+moins un établissement. Tant que la liste est vide, le menu ne s'affiche pas,
+et c'est normal. Si vous enseignez dans un seul collège, vous pouvez ignorer
+cette carte entièrement : SANS ÉTABLISSEMENT, TOUT SE PASSE COMME AVANT.
+
+CE N'EST PAS UN MASQUE SUR VOS NOTES, et c'est le point à retenir :
+
+  • aucune note n'est supprimée, aucune moyenne ne change, aucun document
+    imprimé ne bouge ;
+  • une compétence DÉJÀ retenue dans une évaluation ou dans une étape reste
+    affichée, cochée et notée, même si vous venez de l'écarter ;
+  • le sélecteur de compétences vous dit combien il en a retirées et où le
+    réglage se trouve, pour qu'une compétence absente ne passe pas pour un
+    défaut de l'application.
+
+SUPPRIMER UN ÉTABLISSEMENT NE SUPPRIME RIEN D'AUTRE. Ses classes reviennent à
+« aucun établissement » — l'état qu'elles avaient avant que vous ne le créiez —
+et ses compétences écartées sont oubliées avec lui. Vos élèves, vos séances, vos
+notes et vos bilans ne bougent pas. Si vous voulez seulement corriger un nom, le
+bouton « Renommer » est à côté.
 
 
 COMMENT ON NOTE
@@ -443,27 +645,71 @@ COMMENT ON NOTE
 Dans la grille d'une évaluation, vous tapez une NOTE ENTIÈRE DE 1 À 20 dans la
 case, et SGPA affiche à côté le libellé de maîtrise qui lui correspond :
 
-     1 à 4    maîtrise insuffisante
-     5 à 8    maîtrise fragile
-     9 à 12   presque maîtrisé
-    13 à 16   maîtrise satisfaisante
-    17 à 20   très bonne maîtrise
+     1 à 5    maîtrise insuffisante
+     6 à 10   maîtrise fragile
+    11 à 15   maîtrise satisfaisante
+    16 à 20   très bonne maîtrise
+
+Ces quatre libellés sont ceux du LSU. ILS ÉTAIENT CINQ JUSQU'AU 12 NOVEMBRE
+2026 : « presque maîtrisé » tenait le milieu de l'échelle, et les tranches
+allaient de quatre en quatre. AUCUNE DE VOS NOTES N'A ÉTÉ MODIFIÉE — SGPA n'a
+jamais enregistré le libellé, seulement le nombre que vous avez tapé. En
+revanche le mot affiché à côté peut avoir changé : un 9 se lisait « presque
+maîtrisé », il se lit maintenant « maîtrise fragile ». Un bilan que vous aviez
+imprimé avant cette date et le même bilan réimprimé aujourd'hui ne portent donc
+pas forcément le même mot pour la même note.
 
 La note part quand vous quittez la case ou que vous appuyez sur Entrée, pas à
 chaque chiffre tapé : sans cela, le « 1 » de « 14 » serait enregistré au
 passage. Les virgules et les décimales sont refusées, et SGPA vous le dit.
 
-IL N'Y A PAS DE NOTE DE 0. Une case vide veut dire « pas encore évalué », ce
-qui n'est pas la même chose qu'une note basse : une compétence non évaluée est
+IL N'Y A PAS DE NOTE DE 0. Une case vide veut dire « pas de note », ce qui
+n'est pas la même chose qu'une note basse : une compétence non évaluée est
 écartée des moyennes au lieu d'y entrer pour zéro. Pour effacer une note,
-videz la case : la note est supprimée, et l'élève redevient non évalué sur
-cette compétence.
+videz la case : la note est supprimée, et la case redevient vide.
+
+UNE CASE VIDE DIT DEUX CHOSES, ET VOUS POUVEZ LES DISTINGUER. « Je n'ai pas
+encore noté » et « je ne noterai jamais cet élève sur cette compétence » ne
+sont pas le même état, et SGPA les confondait jusqu'au 12 novembre 2026. À
+côté de chaque case sans note, un mot gris le dit maintenant :
+
+    en attente             la note viendra ; l'accueil continue de vous
+                           la réclamer dans « Notes manquantes »
+
+    ne sera pas évaluée    décidé ; la case sort de la moyenne de l'élève
+                           exactement comme avant, mais l'accueil se tait
+
+Pour déclarer une case, UN BOUTON EST POSÉ À CÔTÉ D'ELLE — une pastille barrée,
+toujours visible, dont l'infobulle dit « ne sera pas évaluée » — ou tapez la
+touche N dans la case vide. Une case déjà déclarée devient elle-même un bouton,
+à bord pointillé : cliquez-le pour revenir en arrière. Rien n'est définitif, et
+rien n'est effacé. (JUSQU'AU 12 NOVEMBRE 2026 il fallait cliquer le mot
+« en attente » lui-même, ce que rien n'indiquait.)
+
+Poser une note sur une case déclarée demande d'abord de retirer la
+déclaration ; à l'inverse, SGPA refuse de déclarer une case qui porte déjà
+une note, pour qu'un clic à côté ne puisse pas faire disparaître un chiffre
+que vous aviez saisi.
+
+À quoi ça sert : une évaluation dont trois élèves étaient en stage reste
+« incomplète » pour toujours sur l'écran d'accueil tant que ces cases sont
+vides. Déclarées, elles comptent comme réglées, et l'évaluation quitte la
+liste — sans que vous ayez inventé des notes.
+
+VOS ÉVALUATIONS EXISTANTES N'ONT PAS BOUGÉ : toutes leurs cases vides sont
+« en attente », c'est-à-dire exactement ce qu'elles étaient la veille. SGPA ne
+devine pas à votre place lesquelles ne seront jamais notées.
 
 SUR LA FICHE D'ÉVALUATION QUE VOUS REMETTEZ À L'ÉLÈVE, il ne lit PAS sa note par
-compétence : il lit le libellé de maîtrise — une croix dans l'une des cinq
+compétence : il lit le libellé de maîtrise — une croix dans l'une des quatre
 colonnes — et sa MOYENNE sur l'évaluation, en haut à droite. C'est voulu : le
 chiffre exact d'une compétence est un outil de travail pour vous, pas une note
 à rendre.
+
+Une compétence déclarée « ne sera pas évaluée » y est écrite en toutes lettres,
+« non évalué », en travers des quatre colonnes. Une compétence seulement en
+attente, elle, laisse ses quatre cases vides : la feuille est aussi une trame
+qui se coche au stylo pendant la séquence.
 
 
 LES DEUX RÈGLES DE CALCUL DES BILANS

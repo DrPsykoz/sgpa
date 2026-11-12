@@ -35,6 +35,7 @@ import {
   SETTINGS_UPDATED_EVENT,
 } from "@/components/layout/AppLayout";
 import { DataState } from "@/components/DataState";
+import { EtablissementsCard } from "@/components/EtablissementsCard";
 import { NeedTagsCard } from "@/components/NeedTagsCard";
 import { PinInput } from "@/components/PinInput";
 import { RecoveryPhrase } from "@/components/RecoveryPhrase";
@@ -566,6 +567,13 @@ export default function Settings() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Juste sous Identite : les deux parlent d'etablissement et ne
+                disent pas la meme chose, donc elles doivent se lire a la
+                suite. Celle du dessus porte le nom imprime en tete des
+                bilans ; celle-ci porte les entites auxquelles on rattache
+                des classes. */}
+            <EtablissementsCard />
 
             <Card>
               <CardHeader>

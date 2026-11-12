@@ -14,6 +14,7 @@ import { Link } from "react-router-dom";
 
 import { TriangleAlert } from "lucide-react";
 
+import { PastilleDeGroupe } from "@/components/Groupes";
 import { PastilleDeCategorie } from "@/components/PastilleCategorie";
 
 import {
@@ -21,6 +22,7 @@ import {
   absencesGroupees,
   adresseDeLaSeance,
   cibleDuRendezVous,
+  groupeDuCours,
   motifDeFermeture as fermetureDuJour,
   motsDeAbsence,
   motsDeLegende,
@@ -320,18 +322,28 @@ export function WeekGrid({
 
       for (const slot of slots) {
         if (slot.weekday !== jour) continue;
+        const seance = seanceParSlot.get(slot.id) ?? null;
         const contenu: Contenu = {
           nature: "creneau",
           slot,
-          seance: seanceParSlot.get(slot.id) ?? null,
+          seance,
           // La parité est celle de la semaine REGARDÉE, et non plus celle
           // d'une journée affichée dans l'autre onglet.
           horsSemaine:
             week.show_parity &&
             slot.week_parity !== "toutes" &&
             slot.week_parity !== week.week_parity,
+          // Le groupe passe avec la classe : une période qui vise le groupe 1
+          // n'estompe pas le cours de classe entière — l'autre moitié de
+          // l'atelier est là, et on attend son appel. Voir `absenceDuCreneau`.
           absence:
-            journee === null ? null : absenceDuCreneau(journee, slot.session_id),
+            journee === null
+              ? null
+              : absenceDuCreneau(
+                  journee,
+                  slot.session_id,
+                  groupeDuCours(slot, seance).id,
+                ),
         };
         if (estPlacable(slot.start_time, slot.end_time)) {
           candidats.push({
@@ -1100,6 +1112,15 @@ function titreDe(contenu: Contenu): string {
         .filter((part) => part)
         .join(" · "),
     );
+    // En toutes lettres, parce que la pastille de la carte est rognée à
+    // quelques caractères : « Atelier bois » et « Atelier bâtiment » s'y
+    // ressemblent, et c'est ici qu'ils se distinguent.
+    const groupe = groupeDuCours(slot, seance);
+    if (groupe.nom !== null) {
+      lignes.push(
+        `Groupe « ${groupe.nom} » : les autres élèves de la classe ne sont pas convoqués, et cette séance sort de leur assiduité.`,
+      );
+    }
     if (horsSemaine) lignes.push("Ce créneau ne tombe pas cette semaine-là.");
     // Avant l'état de la séance, et non à sa place : la séance peut très bien
     // exister à cette date — elle a été préparée avant que le stage ne soit
@@ -1121,6 +1142,11 @@ function titreDe(contenu: Contenu): string {
     const { seance } = contenu;
     lignes.push(`${seance.title} — ${seance.session_name}`);
     lignes.push(libelleHoraire(seance.start_time, seance.end_time));
+    if (seance.group_name !== null) {
+      lignes.push(
+        `Groupe « ${seance.group_name} » : les autres élèves de la classe ne sont pas convoqués, et cette séance sort de leur assiduité.`,
+      );
+    }
     lignes.push(etatDeLaSeance(seance));
     return lignes.filter((ligne) => ligne).join("\n");
   }
@@ -1184,7 +1210,18 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
           {slot.label}
         </span>
         {slot.session_name && (
-          <span className="block truncate">{slot.session_name}</span>
+          // La pastille SUR la ligne de la classe, et non sur une cinquième :
+          // c'est la classe qu'elle précise, et la carte n'a pas de ligne à
+          // donner. `min-w-0` des deux côtés — un enfant de flex garde
+          // `min-width: auto` et refuserait de rétrécir, donc un nom de groupe
+          // un peu long pousserait le nom de la classe hors de la carte.
+          <span className="flex min-w-0 items-baseline gap-1">
+            <span className="min-w-0 truncate">{slot.session_name}</span>
+            <PastilleDeGroupe
+              groupName={groupeDuCours(slot, seance).nom}
+              className="min-w-0"
+            />
+          </span>
         )}
         {/* Quatre lignes au plus : une carte d'une heure ne fait que 48 px, et
             les signes d'état partagent donc la ligne de la mention plutôt que
@@ -1218,7 +1255,10 @@ function CorpsCarte({ contenu }: { contenu: Contenu }): ReactElement {
         >
           {seance.title}
         </span>
-        <span className="block truncate">{seance.session_name}</span>
+        <span className="flex min-w-0 items-baseline gap-1">
+          <span className="min-w-0 truncate">{seance.session_name}</span>
+          <PastilleDeGroupe groupName={seance.group_name} className="min-w-0" />
+        </span>
         <span className="flex items-baseline justify-between gap-1 text-muted-foreground">
           <span className="truncate">
             {libelleHoraire(seance.start_time, seance.end_time)}

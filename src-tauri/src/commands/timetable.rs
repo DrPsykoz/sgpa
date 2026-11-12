@@ -47,6 +47,20 @@ pub struct TimetableSlot {
     pub end_time: String,
     /// `toutes` | `paires` | `impaires` — parité de la semaine ISO.
     pub week_parity: String,
+    /// Le groupe que ce créneau réunit, ou `None` pour « toute la classe ».
+    ///
+    /// **C'est un réglage, pas un fait** (palier 023) : il est *recopié* sur
+    /// chaque occurrence à sa naissance et n'est jamais relu ensuite, d'où le
+    /// `SET NULL` du schéma — un groupe supprimé rend le créneau à la classe
+    /// entière sans toucher aux appels déjà faits. C'est l'exact opposé du
+    /// `RESTRICT` que porte `seances.group_id`, et les deux sorts sont voulus.
+    ///
+    /// C'est aussi ce qui fait la semaine A/B par groupe sans aucun schéma
+    /// nouveau : deux créneaux au même horaire, de parités complémentaires, l'un
+    /// au groupe 1 et l'autre au groupe 2.
+    pub group_id: Option<String>,
+    /// Le nom du groupe, joint à la lecture. **Dérivé, jamais écrit.**
+    pub group_name: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -79,6 +93,18 @@ pub struct DaySeance {
     /// est posé dès le PREMIER élève pointé, il ne prouve donc pas qu'un appel
     /// soit terminé.
     pub attendance_done: i32,
+    /// Le nom du groupe réuni, ou `None` pour « toute la classe » — pour que la
+    /// carte du calendrier le dise sans recroiser la liste des groupes.
+    pub group_name: Option<String>,
+    /// Le groupe réuni, pour **comparer** — le nom ci-dessus sert à écrire.
+    ///
+    /// C'est le groupe de la SÉANCE et non celui de son créneau, et les deux
+    /// peuvent différer : `create_seance_from_slot` recopie le groupe du
+    /// créneau au moment où l'occurrence naît, et changer le créneau ensuite
+    /// ne réécrit aucune séance passée — un fait ne suit pas un réglage. Sans
+    /// cette colonne, l'écran estomperait les cartes d'après le réglage
+    /// d'aujourd'hui alors qu'il en affiche le nom d'après le fait d'alors.
+    pub group_id: Option<String>,
 }
 
 /// Un créneau du jour, et l'occurrence qui lui correspond si elle existe.
@@ -200,12 +226,17 @@ pub struct DaySchedule {
     /// rend toutes plutôt que d'en choisir une : l'affichage décide, le backend
     /// constate.
     pub closures: Vec<DayClosure>,
-    /// Classes dont TOUTE la classe est hors cours ce jour-là — une période
-    /// d'`absence_periods` à `student_id IS NULL`, c'est-à-dire un stage.
+    /// Classes hors cours ce jour-là — une période d'`absence_periods` à
+    /// `student_id IS NULL`, c'est-à-dire un stage et non une hospitalisation.
     ///
     /// Une période NOMINATIVE n'y figure jamais : la classe est là, un élève
     /// manque. Les confondre referait, à l'envers, le défaut que le palier 006
     /// a corrigé.
+    ///
+    /// Une période qui vise un GROUPE, elle, y figure — avec son `group_id`,
+    /// que l'écran doit lire. C'est le seul endroit où la nuance se joue :
+    /// l'ignorer masquerait les cours de toute la classe parce que la moitié
+    /// est en stage, c'est-à-dire exactement le même défaut d'un cran plus bas.
     pub sessions_away: Vec<SessionAway>,
     /// Dernier jour que le calendrier embarqué couvre, ou `None` si le fichier
     /// est illisible.
@@ -247,6 +278,28 @@ pub struct SessionAway {
     pub attendance_expected: bool,
     /// C'est le professeur qui était absent, pas la classe.
     pub teacher_absent: bool,
+    /// Le groupe visé, `None` = toute la classe (palier 023).
+    ///
+    /// ⚠ **Le prédicat de l'écran n'est pas celui du bilan, et c'est voulu.**
+    /// Partout ailleurs la règle est symétrique — `porteur IS NULL OR élève IS
+    /// NULL OR porteur = élève`. Ici elle ne l'est pas : un créneau de classe
+    /// entière pendant le stage du groupe 1 **a bien lieu**, l'autre moitié de
+    /// la classe est là, et estomper sa carte ferait disparaître à l'œil un
+    /// cours dont on attend l'appel. Un créneau n'est donc écarté que si la
+    /// période vise toute la classe, ou vise exactement son groupe :
+    ///
+    /// ```text
+    /// away.group_id IS NULL  ||  away.group_id == slot.group_id
+    /// ```
+    ///
+    /// Le bilan, lui, retire bien la séance de classe entière du dénominateur
+    /// des élèves du groupe 1 : `reports::ATTENDANCE_SQL` teste le groupe de
+    /// l'ÉLÈVE, pas celui de la séance. Les deux règles disent la même chose
+    /// vue de deux endroits — la carte parle du cours, le bilan parle de
+    /// l'élève — et les aligner casserait l'une des deux.
+    pub group_id: Option<String>,
+    /// Le nom du groupe visé. **Dérivé, jamais écrit.**
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -258,6 +311,24 @@ pub struct WeekSchedule {
     pub show_parity: bool,
     /// Sept journées, du lundi au dimanche.
     pub days: Vec<DaySchedule>,
+}
+
+/// Un élève absent de ses cours sur une période nominative : un stage, une
+/// hospitalisation.
+///
+/// **À l'écran seulement.** Le nom d'un élève ne va ni au journal ni sur un
+/// document imprimé : cette structure ne sert qu'à la frise de la progression.
+/// Elle ne retire aucune carte de cours — la classe est là, un élève manque —
+/// et reste donc distincte de `SessionAway`, qui parle de la classe.
+#[derive(Debug, Clone, Serialize)]
+pub struct StudentAway {
+    pub session_id: String,
+    pub student_id: String,
+    /// « Prénom Nom », composé ici une fois pour toutes.
+    pub student_name: String,
+    pub reason: String,
+    /// L'appel se fait quand même (sortie, séjour) : l'élève est avec la classe.
+    pub attendance_expected: bool,
 }
 
 /// Une semaine de l'année scolaire, telle que la vue annuelle la montre.
@@ -296,6 +367,9 @@ pub struct YearWeek {
     ///
     /// Jamais une période nominative : la classe est là, un élève manque.
     pub sessions_away: Vec<SessionAway>,
+    /// Les élèves en stage ou absents sur une période nominative cette
+    /// semaine-là (additif : un client qui l'ignore se lit comme avant).
+    pub students_away: Vec<StudentAway>,
 }
 
 /// L'année scolaire entière, semaine par semaine.
@@ -327,6 +401,10 @@ pub struct TimetableSlotInput {
     pub start_time: String,
     pub end_time: String,
     pub week_parity: String,
+    /// Absent comme nul, il vaut « toute la classe » : un front qui ignore les
+    /// groupes continue de poser des créneaux de classe entière.
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -658,6 +736,7 @@ fn optional_id(value: Option<String>) -> Option<String> {
 
 const SLOTS_DU_JOUR: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name, ts.label,
        ts.room, ts.weekday, ts.start_time, ts.end_time, ts.week_parity,
+       ts.group_id, (SELECT g.name FROM student_groups g WHERE g.id = ts.group_id),
        ts.created_at, ts.updated_at
   FROM timetable_slots ts
   LEFT JOIN sessions s ON s.id = ts.session_id
@@ -668,6 +747,7 @@ const SLOTS_DU_JOUR: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name,
 
 const SLOTS_DE_LA_SEMAINE: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name, ts.label,
        ts.room, ts.weekday, ts.start_time, ts.end_time, ts.week_parity,
+       ts.group_id, (SELECT g.name FROM student_groups g WHERE g.id = ts.group_id),
        ts.created_at, ts.updated_at
   FROM timetable_slots ts
   LEFT JOIN sessions s ON s.id = ts.session_id
@@ -677,6 +757,7 @@ const SLOTS_DE_LA_SEMAINE: &str = "SELECT ts.id, ts.year_start, ts.session_id, s
 
 const SLOTS_DE_L_ANNEE: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name, ts.label,
        ts.room, ts.weekday, ts.start_time, ts.end_time, ts.week_parity,
+       ts.group_id, (SELECT g.name FROM student_groups g WHERE g.id = ts.group_id),
        ts.created_at, ts.updated_at
   FROM timetable_slots ts
   LEFT JOIN sessions s ON s.id = ts.session_id
@@ -685,6 +766,7 @@ const SLOTS_DE_L_ANNEE: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.na
 
 const SLOT_PAR_ID: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name, ts.label,
        ts.room, ts.weekday, ts.start_time, ts.end_time, ts.week_parity,
+       ts.group_id, (SELECT g.name FROM student_groups g WHERE g.id = ts.group_id),
        ts.created_at, ts.updated_at
   FROM timetable_slots ts
   LEFT JOIN sessions s ON s.id = ts.session_id
@@ -695,6 +777,12 @@ const SLOT_PAR_ID: &str = "SELECT ts.id, ts.year_start, ts.session_id, s.name, t
 /// Les deux sous-requêtes bornent le comptage à la période d'inscription, comme
 /// `get_attendance` : un élève arrivé en janvier ne doit pas manquer à l'appel
 /// d'octobre, et un élève parti ne doit pas le bloquer à 19/20 pour toujours.
+///
+/// ⚠ Elles portent aussi, et **toutes les deux**, le prédicat de groupe —
+/// jumeau de celui d'`APPEL_DE_LA_SEANCE` (`commands/seances.rs`), dont il doit
+/// dire exactement la même chose. Sur une séance du groupe 1, le dénominateur n'est
+/// pas la classe : sans lui, un atelier de six élèves tous pointés s'afficherait
+/// « 6/14 » et l'accueil le réclamerait éternellement.
 const SEANCES_DE_LA_PERIODE: &str = "SELECT se.id, se.session_id, s.name, se.slot_id, se.title,
        se.date, se.start_time, se.end_time, se.trimester, se.cancelled,
        se.content_html <> '',
@@ -704,13 +792,17 @@ const SEANCES_DE_LA_PERIODE: &str = "SELECT se.id, se.session_id, s.name, se.slo
        (SELECT COUNT(*) FROM students st
          WHERE st.session_id = se.session_id
            AND st.enrolled_on <= se.date
-           AND (st.left_on IS NULL OR se.date <= st.left_on)),
+           AND (st.left_on IS NULL OR se.date <= st.left_on)
+           AND (se.group_id IS NULL OR st.group_id IS NULL OR se.group_id = st.group_id)),
        (SELECT COUNT(*) FROM attendance_records ar
           JOIN students sa ON sa.id = ar.student_id
          WHERE ar.seance_id = se.id
            AND ar.status <> 'non_fait'
            AND sa.enrolled_on <= se.date
-           AND (sa.left_on IS NULL OR se.date <= sa.left_on))
+           AND (sa.left_on IS NULL OR se.date <= sa.left_on)
+           AND (se.group_id IS NULL OR sa.group_id IS NULL OR se.group_id = sa.group_id)),
+       (SELECT g.name FROM student_groups g WHERE g.id = se.group_id),
+       se.group_id
   FROM seances se
   JOIN sessions s ON s.id = se.session_id
  WHERE se.date BETWEEN ?1 AND ?2
@@ -770,8 +862,10 @@ fn map_slot(row: &rusqlite::Row<'_>) -> rusqlite::Result<TimetableSlot> {
         start_time: row.get(7)?,
         end_time: row.get(8)?,
         week_parity: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        group_id: row.get(10)?,
+        group_name: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
@@ -793,6 +887,8 @@ fn map_day_seance(row: &rusqlite::Row<'_>) -> rusqlite::Result<DaySeance> {
         attendance_taken_at: row.get(13)?,
         attendance_total: row.get(14)?,
         attendance_done: row.get(15)?,
+        group_name: row.get(16)?,
+        group_id: row.get(17)?,
     })
 }
 
@@ -951,13 +1047,62 @@ const VACANCES_DE_LA_PERIODE: &str = "SELECT sh.start_date, sh.end_date, sh.labe
 /// classe est là, un élève manque. Les confondre referait, à l'envers, le défaut
 /// que le palier 006 a corrigé.
 const CLASSES_HORS_COURS: &str = "SELECT p.session_id, s.name, p.reason, p.start_date, p.end_date,
-       p.attendance_expected, p.teacher_absent
+       p.attendance_expected, p.teacher_absent,
+       p.group_id, (SELECT g.name FROM student_groups g WHERE g.id = p.group_id)
   FROM absence_periods p
   JOIN sessions s ON s.id = p.session_id
  WHERE p.student_id IS NULL
    AND p.end_date   >= ?1
    AND p.start_date <= ?2
  ORDER BY s.name, p.start_date";
+
+/// Les périodes **nominatives** d'une plage — l'élève en stage, hospitalisé.
+///
+/// Le complément exact de `CLASSES_HORS_COURS` (`student_id IS NOT NULL`) : la
+/// frise de la progression montre ce qui arrive à la classe, puis ce qui arrive
+/// à tel élève. Une absence du professeur n'est jamais nominative (palier 020),
+/// donc aucun filtre sur ce drapeau.
+const PERIODES_NOMINATIVES: &str = "SELECT p.session_id, p.student_id,
+       st.first_name || ' ' || st.last_name, p.reason, p.start_date, p.end_date,
+       p.attendance_expected
+  FROM absence_periods p
+  JOIN students st ON st.id = p.student_id
+ WHERE p.student_id IS NOT NULL
+   AND p.end_date   >= ?1
+   AND p.start_date <= ?2
+ ORDER BY st.last_name, st.first_name, p.start_date";
+
+struct PeriodeNominative {
+    session_id: String,
+    student_id: String,
+    student_name: String,
+    reason: String,
+    start_date: String,
+    end_date: String,
+    attendance_expected: bool,
+}
+
+fn map_periode_nominative(row: &rusqlite::Row<'_>) -> rusqlite::Result<PeriodeNominative> {
+    Ok(PeriodeNominative {
+        session_id: row.get(0)?,
+        student_id: row.get(1)?,
+        student_name: row.get(2)?,
+        reason: row.get(3)?,
+        start_date: row.get(4)?,
+        end_date: row.get(5)?,
+        attendance_expected: row.get(6)?,
+    })
+}
+
+fn eleves_du_jour<'a>(
+    jour: &str,
+    periodes: &'a [PeriodeNominative],
+) -> impl Iterator<Item = &'a PeriodeNominative> {
+    let jour = jour.to_string();
+    periodes
+        .iter()
+        .filter(move |p| p.start_date.as_str() <= jour.as_str() && jour.as_str() <= p.end_date.as_str())
+}
 
 /// Une période recouvrant des jours : les bornes, et de quoi la décrire.
 type Periode = (String, String, String, String);
@@ -977,6 +1122,8 @@ struct ClasseHorsCours {
     end_date: String,
     attendance_expected: bool,
     teacher_absent: bool,
+    group_id: Option<String>,
+    group_name: Option<String>,
 }
 
 fn map_periode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Periode> {
@@ -992,6 +1139,8 @@ fn map_classe_hors_cours(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClasseHors
         end_date: row.get(4)?,
         attendance_expected: row.get(5)?,
         teacher_absent: row.get(6)?,
+        group_id: row.get(7)?,
+        group_name: row.get(8)?,
     })
 }
 
@@ -1019,7 +1168,7 @@ fn closures_du_jour(date: NaiveDate, jour: &str, vacances: &[Periode]) -> Vec<Da
     closures
 }
 
-/// Les classes entières hors cours un jour donné.
+/// Les classes — ou les groupes — hors cours un jour donné.
 fn sessions_away_du_jour(jour: &str, periodes: &[ClasseHorsCours]) -> Vec<SessionAway> {
     periodes
         .iter()
@@ -1030,6 +1179,8 @@ fn sessions_away_du_jour(jour: &str, periodes: &[ClasseHorsCours]) -> Vec<Sessio
             reason: p.reason.clone(),
             attendance_expected: p.attendance_expected,
             teacher_absent: p.teacher_absent,
+            group_id: p.group_id.clone(),
+            group_name: p.group_name.clone(),
         })
         .collect()
 }
@@ -1215,6 +1366,12 @@ fn year_calendar(conn: &Connection, year_start: i32) -> Result<YearCalendar, Str
         params![iso(debut), iso(fin)],
         map_classe_hors_cours,
     )?;
+    let periodes_nominatives = collect(
+        conn,
+        PERIODES_NOMINATIVES,
+        params![iso(debut), iso(fin)],
+        map_periode_nominative,
+    )?;
 
     let mut weeks = Vec::new();
     let mut monday = debut;
@@ -1227,6 +1384,7 @@ fn year_calendar(conn: &Connection, year_start: i32) -> Result<YearCalendar, Str
 
         let mut closures: Vec<DayClosure> = Vec::new();
         let mut absents: Vec<SessionAway> = Vec::new();
+        let mut eleves_absents: Vec<StudentAway> = Vec::new();
         let mut school_days = 0;
 
         // Du lundi au vendredi : le samedi et le dimanche ne sont pas des jours
@@ -1251,9 +1409,32 @@ fn year_calendar(conn: &Connection, year_start: i32) -> Result<YearCalendar, Str
                 }
             }
 
+            // Dédoublonnage sur la classe ET le groupe : le stage du groupe 1
+            // et celui du groupe 2 sont deux absences de la même classe, et
+            // n'en garder qu'une aurait effacé la moitié de la semaine.
             for away in sessions_away_du_jour(&jour, &hors_cours) {
-                if !absents.iter().any(|a| a.session_id == away.session_id) {
+                if !absents
+                    .iter()
+                    .any(|a| a.session_id == away.session_id && a.group_id == away.group_id)
+                {
                     absents.push(away);
+                }
+            }
+
+            // Les élèves, eux, une seule fois par période et par semaine.
+            for p in eleves_du_jour(&jour, &periodes_nominatives) {
+                if !eleves_absents.iter().any(|e| {
+                    e.student_id == p.student_id
+                        && e.reason == p.reason
+                        && e.attendance_expected == p.attendance_expected
+                }) {
+                    eleves_absents.push(StudentAway {
+                        session_id: p.session_id.clone(),
+                        student_id: p.student_id.clone(),
+                        student_name: p.student_name.clone(),
+                        reason: p.reason.clone(),
+                        attendance_expected: p.attendance_expected,
+                    });
                 }
             }
         }
@@ -1268,6 +1449,7 @@ fn year_calendar(conn: &Connection, year_start: i32) -> Result<YearCalendar, Str
             closures,
             school_days,
             sessions_away: absents,
+            students_away: eleves_absents,
         });
 
         monday = monday
@@ -1362,8 +1544,15 @@ pub fn get_timetable_slots(
 // ---------------------------------------------------------------------------
 
 /// Valeurs d'un créneau, vérifiées et nettoyées : identifiant de classe, libellé,
-/// salle, heure de début, heure de fin.
-type SlotValues = (Option<String>, String, String, String, String);
+/// salle, heure de début, heure de fin, groupe (facultatif).
+type SlotValues = (
+    Option<String>,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+);
 
 fn validated_slot(
     conn: &Connection,
@@ -1382,7 +1571,22 @@ fn validated_slot(
     let session_id = optional_id(input.session_id.clone());
     check_session_year(conn, session_id.as_deref(), year_start)?;
 
-    Ok((session_id, label, room, start_time, end_time))
+    // Un groupe appartient à une classe : sans classe, il n'y a rien à
+    // restreindre. Le message le dit dans l'ordre où l'enseignant doit agir,
+    // plutôt que de laisser passer un réglage qui n'aurait aucun effet.
+    let group_id = optional_id(input.group_id.clone());
+    let Some(classe) = session_id.as_deref() else {
+        if group_id.is_some() {
+            return Err(
+                "Un groupe appartient à une classe : choisissez d'abord la classe de ce créneau."
+                    .to_string(),
+            );
+        }
+        return Ok((session_id, label, room, start_time, end_time, group_id));
+    };
+    super::groups::check_group_belongs(conn, classe, group_id.as_deref())?;
+
+    Ok((session_id, label, room, start_time, end_time, group_id))
 }
 
 #[tauri::command]
@@ -1396,13 +1600,15 @@ pub fn create_timetable_slot(
     let mut conn = state.conn()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let (session_id, label, room, start_time, end_time) = validated_slot(&tx, year_start, &slot)?;
+    let (session_id, label, room, start_time, end_time, group_id) =
+        validated_slot(&tx, year_start, &slot)?;
 
     let id = Uuid::new_v4().to_string();
     tx.execute(
         "INSERT INTO timetable_slots
-             (id, year_start, session_id, label, room, weekday, start_time, end_time, week_parity)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, year_start, session_id, label, room, weekday, start_time, end_time,
+              week_parity, group_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             id,
             year_start,
@@ -1412,7 +1618,8 @@ pub fn create_timetable_slot(
             slot.weekday,
             start_time,
             end_time,
-            slot.week_parity
+            slot.week_parity,
+            group_id
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -1436,14 +1643,15 @@ pub fn update_timetable_slot(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let year_start = load_slot(&tx, &id)?.year_start;
-    let (session_id, label, room, start_time, end_time) = validated_slot(&tx, year_start, &slot)?;
+    let (session_id, label, room, start_time, end_time, group_id) =
+        validated_slot(&tx, year_start, &slot)?;
 
     tx.execute(
         "UPDATE timetable_slots
             SET session_id = ?1, label = ?2, room = ?3, weekday = ?4,
-                start_time = ?5, end_time = ?6, week_parity = ?7,
+                start_time = ?5, end_time = ?6, week_parity = ?7, group_id = ?8,
                 updated_at = datetime('now')
-          WHERE id = ?8",
+          WHERE id = ?9",
         params![
             session_id,
             label,
@@ -1452,6 +1660,7 @@ pub fn update_timetable_slot(
             start_time,
             end_time,
             slot.week_parity,
+            group_id,
             id
         ],
     )
@@ -2014,6 +2223,13 @@ mod tests {
         assert_eq!(semaine("2026-11-23").sessions_away.len(), 1, "seconde semaine");
         assert!(semaine("2026-11-30").sessions_away.is_empty());
 
+        // L'élève hospitalisé, lui, paraît dans `students_away` — une seule
+        // fois pour la semaine, et seulement les semaines que sa période couvre.
+        assert_eq!(stage.students_away.len(), 1, "l'élève une fois, pas cinq");
+        assert_eq!(stage.students_away[0].reason, "Hospitalisation");
+        assert!(!stage.students_away[0].student_name.trim().is_empty());
+        assert!(semaine("2026-11-23").students_away.is_empty());
+
         // La parité remonte comme pour la grille hebdomadaire : un créneau de
         // quinzaine existe dans cette année, donc la frise peut le dire.
         assert!(annee.show_parity);
@@ -2026,5 +2242,63 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM trimester_bounds", [], |r| r.get(0))
             .unwrap();
         assert_eq!(bornes, 0, "aucune écriture pendant une lecture");
+    }
+
+    /// Une période qui vise un GROUPE sort de `sessions_away` avec son groupe,
+    /// et ne se fait pas passer pour une absence de toute la classe.
+    ///
+    /// C'est la moitié écran du palier 023. L'autre moitié — la séance de
+    /// classe entière qui sort quand même du dénominateur des élèves du groupe
+    /// parti — vit dans `reports::ATTENDANCE_SQL` et se teste là-bas : les deux
+    /// règles ne sont pas symétriques, et c'est ce qui est vérifié ici.
+    #[test]
+    fn une_periode_de_groupe_garde_son_groupe() {
+        let conn = migrated_db("hors-cours-groupe");
+        peupler(&conn);
+        conn.execute_batch(
+            "INSERT INTO student_groups (id, session_id, name, position)
+                  VALUES ('g1', 's1', 'Groupe 1', 0),
+                         ('g2', 's1', 'Groupe 2', 1);",
+        )
+        .unwrap();
+        // Deux appels et non un seul littéral : `sql_smoke` prépare chaque
+        // chaîne qui ressemble à du SQL, et SQLite refuse d'en préparer deux
+        // d'un coup.
+        conn.execute_batch(
+            "INSERT INTO absence_periods
+                 (id, session_id, student_id, reason, start_date, end_date, group_id)
+                  VALUES ('p1', 's1', NULL, 'Stage en entreprise',
+                          '2026-11-16', '2026-11-20', 'g1'),
+                         ('p2', 's1', NULL, 'Stage en entreprise',
+                          '2026-11-23', '2026-11-27', 'g2');",
+        )
+        .unwrap();
+
+        let jour = day_schedule(&conn, date("2026-11-17")).unwrap();
+        assert_eq!(jour.sessions_away.len(), 1, "une seule période ce jour-là");
+        let away = &jour.sessions_away[0];
+        assert_eq!(
+            away.group_id.as_deref(),
+            Some("g1"),
+            "sans le groupe, l'écran masquerait les cours de toute la classe"
+        );
+        assert_eq!(away.group_name.as_deref(), Some("Groupe 1"));
+        assert!(!away.teacher_absent);
+
+        // Les deux stages tombent sur deux semaines différentes, mais la frise
+        // annuelle les voit tous deux sur la même classe : le dédoublonnage ne
+        // doit pas en avaler un.
+        let annee = year_calendar(&conn, 2026).unwrap();
+        let groupes_absents: Vec<&str> = annee
+            .weeks
+            .iter()
+            .flat_map(|w| w.sessions_away.iter())
+            .filter_map(|a| a.group_id.as_deref())
+            .collect();
+        assert_eq!(
+            groupes_absents,
+            vec!["g1", "g2"],
+            "chaque groupe a sa semaine de stage, et la frise doit les montrer toutes les deux"
+        );
     }
 }

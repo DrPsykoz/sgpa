@@ -18,7 +18,7 @@ import { AbsencesTab } from "@/pages/SessionDetail/tabs/AbsencesTab";
 import { ProgressionTab } from "@/pages/SessionDetail/tabs/ProgressionTab";
 import { BilansTab } from "@/pages/SessionDetail/tabs/BilansTab";
 import { api } from "@/lib/api";
-import type { Session, Student } from "@/types";
+import type { Session, Student, StudentGroup } from "@/types";
 import { LEVEL_LABELS, schoolYearLabel } from "@/types";
 
 /** Les onglets de l'écran, dans l'ordre d'affichage. */
@@ -74,6 +74,16 @@ export default function SessionDetail(): ReactElement {
 
   const [session, setSession] = useState<Session | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
+  /**
+   * Les groupes de la classe, chargés **ici** et non dans chaque onglet.
+   *
+   * Quatre onglets les affichent — les élèves pour répartir, les séances, les
+   * évaluations et les absences pour cibler —, et Radix démonte le contenu
+   * inactif : un chargement par onglet relirait la liste à chaque aller-retour,
+   * et un groupe renommé dans « Élèves » garderait son ancien nom dans la
+   * grille de notation. Même raison que `NeedsProvider` juste en dessous.
+   */
+  const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,12 +96,14 @@ export default function SessionDetail(): ReactElement {
    */
   const reload = useCallback(async () => {
     if (!sessionId) return;
-    const [nextSession, nextStudents] = await Promise.all([
+    const [nextSession, nextStudents, nextGroups] = await Promise.all([
       api.getSession(sessionId),
       api.getStudents(sessionId),
+      api.getStudentGroups(sessionId),
     ]);
     setSession(nextSession);
     setStudents(nextStudents);
+    setGroups(nextGroups);
   }, [sessionId]);
 
   const load = useCallback(async () => {
@@ -185,6 +197,7 @@ export default function SessionDetail(): ReactElement {
                 <StudentsTab
                   session={session}
                   students={students}
+                  groups={groups}
                   reload={reload}
                 />
               </TabsContent>
@@ -197,6 +210,7 @@ export default function SessionDetail(): ReactElement {
                   key={`eval:${cible.ouvrir ?? ""}`}
                   session={session}
                   students={students}
+                  groups={groups}
                   openId={cible.onglet === "evaluations" ? cible.ouvrir : null}
                 />
               </TabsContent>
@@ -206,12 +220,17 @@ export default function SessionDetail(): ReactElement {
                   key={`seance:${cible.ouvrir ?? ""}`}
                   session={session}
                   students={students}
+                  groups={groups}
                   openId={cible.onglet === "seances" ? cible.ouvrir : null}
                 />
               </TabsContent>
 
               <TabsContent value="absences" className="mt-6">
-                <AbsencesTab session={session} students={students} />
+                <AbsencesTab
+                  session={session}
+                  students={students}
+                  groups={groups}
+                />
               </TabsContent>
 
               <TabsContent value="progression" className="mt-6">

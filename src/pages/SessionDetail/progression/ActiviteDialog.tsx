@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CompetencyPicker } from "@/components/CompetencyPicker";
 import {
   Dialog,
   DialogContent,
@@ -18,16 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { MOTS_DE_NATURE, NATURES_DACTIVITE } from "@/types";
 import type {
+  NatureDActivite,
   ProgressionActivite,
-  ProgressionDomaine,
   ProgressionEtape,
 } from "@/types";
-
-/** Radix refuse la chaîne vide comme valeur d'un `SelectItem` : il faut une
- *  sentinelle pour « aucun domaine ». Elle ne quitte jamais ce fichier —
- *  `domaine_id` part à `null`. */
-const AUCUN_DOMAINE = "aucun-domaine";
 
 export interface ActiviteDialogProps {
   open: boolean;
@@ -39,17 +37,38 @@ export interface ActiviteDialogProps {
   /** Les étapes de CETTE progression. Le backend refuse l'étape d'une autre
    *  progression ; elle n'est donc pas proposée. */
   etapes: ProgressionEtape[];
-  domaines: ProgressionDomaine[];
   onSubmit: (champs: {
     libelle: string;
     domaineId: string | null;
     etapeId: string;
+    /** La sorte de ligne (palier 026). */
+    nature: NatureDActivite;
+    /** L'objectif de la ligne (palier 026). */
+    objectif: string;
+    /** Les compétences évaluées par CETTE ligne (palier 026). */
+    competencyIds: string[];
   }) => Promise<void>;
+  /** La classe, pour que le sélecteur écarte les compétences que son
+   *  établissement n'emploie pas (palier 025). Même rôle que dans
+   *  `EtapeDialog`. */
+  sessionId: string;
 }
 
 /**
- * Une activité : ce qu'on fait, rattaché à une étape et, facultativement, à un
- * domaine.
+ * Une ligne de progression : ce qu'on fait, rattaché à une étape et,
+ * facultativement, à un domaine.
+ *
+ * **Trois choses sont arrivées au palier 026**, et toutes les trois viennent de
+ * la forme des documents de l'auteur :
+ *
+ * - la **nature** de la ligne, close à trois valeurs parce que c'est du code
+ *   qui la lit pour composer le préfixe imprimé — et non un vocabulaire
+ *   d'établissement, qui resterait libre comme la catégorie d'un rendez-vous ;
+ * - son **objectif**, une phrase ;
+ * - ses **compétences**, cochées dans le même référentiel que celles de
+ *   l'étape. L'activité les **gagne**, elle ne les **prend pas** à l'étape : la
+ *   décision du 2026-11-07 tient, les deux niveaux coexistent, et une
+ *   progression saisie avant ce palier se relit exactement comme la veille.
  *
  * Le sélecteur d'étape sert à **déplacer** l'activité, et un déplacement
  * recolorie la frise : la couleur d'une activité vient de son rang dans
@@ -63,12 +82,14 @@ export function ActiviteDialog({
   activite,
   etapeParDefaut,
   etapes,
-  domaines,
   onSubmit,
+  sessionId,
 }: ActiviteDialogProps): ReactElement {
   const [libelle, setLibelle] = useState("");
-  const [domaine, setDomaine] = useState(AUCUN_DOMAINE);
   const [etapeId, setEtapeId] = useState("");
+  const [nature, setNature] = useState<NatureDActivite>("activite");
+  const [objectif, setObjectif] = useState("");
+  const [competencyIds, setCompetencyIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,8 +99,13 @@ export function ActiviteDialog({
   useEffect(() => {
     if (!open) return;
     setLibelle(activite?.libelle ?? "");
-    setDomaine(activite?.domaine_id ?? AUCUN_DOMAINE);
     setEtapeId(activite?.etape_id ?? etapeParDefaut);
+    // « activité » par défaut à la création : c'est la nature de loin la plus
+    // fréquente dans les deux documents, et celle de toute ligne d'avant ce
+    // palier.
+    setNature(activite?.nature ?? "activite");
+    setObjectif(activite?.objectif ?? "");
+    setCompetencyIds((activite?.competences_ref ?? []).map((c) => c.id));
     setError(null);
     setPending(false);
   }, [open, activite, etapeParDefaut]);
@@ -87,8 +113,16 @@ export function ActiviteDialog({
   const handleSubmit = async () => {
     if (libelle.trim() === "") {
       setError(
-        "Donnez un intitulé à l'activité : c'est lui qui s'écrit sur la frise.",
+        "Donnez un nom à l'activité : c'est lui qui s'écrit sur la frise.",
       );
+      return;
+    }
+    if (objectif.trim() === "") {
+      setError("Donnez un objectif à l'activité : ce qu'elle cherche à obtenir.");
+      return;
+    }
+    if (competencyIds.length === 0) {
+      setError("Choisissez au moins une compétence évaluée par l'activité.");
       return;
     }
     setPending(true);
@@ -96,8 +130,13 @@ export function ActiviteDialog({
     try {
       await onSubmit({
         libelle,
-        domaineId: domaine === AUCUN_DOMAINE ? null : domaine,
+        // Le domaine n'existe plus à l'écran, mais celui d'une activité
+        // d'avant reste en base : il transite inchangé.
+        domaineId: activite?.domaine_id ?? null,
         etapeId,
+        nature,
+        objectif,
+        competencyIds,
       });
       onOpenChange(false);
     } catch (err) {
@@ -111,7 +150,7 @@ export function ActiviteDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {activite === null ? "Nouvelle activité" : "Modifier l'activité"}
@@ -125,7 +164,7 @@ export function ActiviteDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="activite-libelle">Intitulé</Label>
+            <Label htmlFor="activite-libelle">Nom</Label>
             <Input
               id="activite-libelle"
               value={libelle}
@@ -136,30 +175,56 @@ export function ActiviteDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="activite-domaine">Domaine</Label>
+            <Label htmlFor="activite-nature">Nature de la ligne</Label>
             <Select
-              value={domaine}
+              value={nature}
               disabled={pending}
-              onValueChange={setDomaine}
+              onValueChange={(valeur) => setNature(valeur as NatureDActivite)}
             >
-              <SelectTrigger id="activite-domaine">
+              <SelectTrigger id="activite-nature">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={AUCUN_DOMAINE}>Aucun domaine</SelectItem>
-                {domaines.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.name}
+                {NATURES_DACTIVITE.map((valeur) => (
+                  <SelectItem key={valeur} value={valeur}>
+                    {MOTS_DE_NATURE[valeur]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {domaines.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Aucun domaine n'est encore défini. Le bouton « Domaines », en
-                tête de l'onglet, ouvre votre vocabulaire.
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              Ce mot s'imprime devant l'intitulé, sur l'écran comme sur le
+              document. Les trois sont celles de vos progressions : on analyse
+              la situation, on mène des activités, on met en œuvre en TP.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="activite-objectif">Objectif *</Label>
+            <Textarea
+              id="activite-objectif"
+              value={objectif}
+              rows={2}
+              placeholder="Savoir repérer les différentes vues d'un ouvrage"
+              disabled={pending}
+              onChange={(event) => setObjectif(event.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>
+              Compétences évaluées * ({competencyIds.length} sélectionnée
+              {competencyIds.length > 1 ? "s" : ""})
+            </Label>
+            <CompetencyPicker
+              selected={competencyIds}
+              onChange={setCompetencyIds}
+              sessionId={sessionId}
+            />
+            <p className="text-xs text-muted-foreground">
+              Au moins une, prise dans le référentiel : c'est ici que se
+              choisissent les compétences, pour chaque activité.
+            </p>
           </div>
 
           <div className="space-y-2">

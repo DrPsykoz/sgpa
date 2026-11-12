@@ -20,14 +20,34 @@ pub struct Session {
     pub year_start: i32,
     pub created_at: String,
     pub student_count: i32,
+    /// L'établissement où cette classe se tient, ou `None` — palier 025.
+    ///
+    /// `None` veut dire « comme avant le palier » : aucun réglage local, aucune
+    /// compétence retirée des menus, et l'en-tête des PDF reste
+    /// `app_settings.school_name`. C'est l'état de toute base migrée.
+    pub establishment_id: Option<String>,
+    /// Son nom, rendu avec la classe pour qu'aucun écran n'ait à recroiser deux
+    /// listes pour afficher « 4ème A — Collège Jean Moulin ».
+    ///
+    /// Ce n'est **pas** un libellé figé comme `professional_field_label` d'une
+    /// fiche contrat : il est relu à chaque lecture, donc un renommage se voit
+    /// partout. La différence est que rien de ceci ne s'imprime — une fiche
+    /// déjà remise ne doit pas changer, une liste de classes à l'écran doit.
+    pub establishment_name: Option<String>,
 }
 
 /// Projection commune à toutes les lectures. L'effectif vient d'une sous-requête
 /// corrélée plutôt que d'un GROUP BY : une classe sans élève doit sortir avec 0,
 /// pas disparaître.
+/// Le `LEFT JOIN` et non un `JOIN` : une classe sans établissement est le cas
+/// NORMAL, celui de toute base migrée, et un `JOIN` l'aurait fait disparaître
+/// de la liste des classes — la panne la plus visible qu'un palier puisse
+/// produire.
 const SESSION_SELECT: &str = "SELECT s.id, s.name, s.level_code, s.year_start, s.created_at,
-       (SELECT COUNT(*) FROM students st WHERE st.session_id = s.id) AS student_count
-  FROM sessions s";
+       (SELECT COUNT(*) FROM students st WHERE st.session_id = s.id) AS student_count,
+       s.establishment_id, e.name AS establishment_name
+  FROM sessions s
+  LEFT JOIN establishments e ON e.id = s.establishment_id";
 
 fn map_session(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -37,7 +57,31 @@ fn map_session(row: &Row<'_>) -> rusqlite::Result<Session> {
         year_start: row.get(3)?,
         created_at: row.get(4)?,
         student_count: row.get(5)?,
+        establishment_id: row.get(6)?,
+        establishment_name: row.get(7)?,
     })
+}
+
+/// Vérifie qu'un établissement nommé existe, pour le dire **en français**.
+///
+/// La clé étrangère le refuserait de toute façon, mais sous la forme d'un
+/// « FOREIGN KEY constraint failed » qui n'apprend rien à l'enseignant. Même
+/// geste que `check_group_belongs` au palier 023.
+fn check_establishment(conn: &Connection, establishment_id: Option<&str>) -> Result<(), String> {
+    let Some(etablissement) = establishment_id else {
+        return Ok(());
+    };
+    let existe: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM establishments WHERE id = ?1",
+            params![etablissement],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if existe == 0 {
+        return Err("Établissement introuvable : rechargez l'écran.".to_string());
+    }
+    Ok(())
 }
 
 fn clean_name(name: &str) -> Result<String, String> {
@@ -102,6 +146,7 @@ pub fn create_session(
     name: String,
     level_code: String,
     year_start: i32,
+    establishment_id: Option<String>,
 ) -> Result<Session, String> {
     let name = clean_name(&name)?;
     check_level(&level_code)?;
@@ -109,11 +154,13 @@ pub fn create_session(
 
     let mut conn = state.conn()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    check_establishment(&tx, establishment_id.as_deref())?;
 
     let id = Uuid::new_v4().to_string();
     tx.execute(
-        "INSERT INTO sessions (id, name, level_code, year_start) VALUES (?1, ?2, ?3, ?4)",
-        params![id, name, level_code, year_start],
+        "INSERT INTO sessions (id, name, level_code, year_start, establishment_id)
+              VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, name, level_code, year_start, establishment_id],
     )
     .map_err(|e| e.to_string())?;
 
@@ -128,6 +175,19 @@ pub fn create_session(
     Ok(session)
 }
 
+/// Corrige le nom, le niveau et l'année d'une classe.
+///
+/// **Elle ne touche pas à `establishment_id`**, et c'est la troisième règle
+/// d'architecture du projet : deux écritures qui ne concernent pas les mêmes
+/// colonnes sont deux commandes. Le rattachement s'écrit par
+/// `set_session_establishment` et par elle seule, exactement comme
+/// l'appartenance d'un élève à un groupe s'écrit par `set_student_group`.
+///
+/// Le corollaire est le même, et il est agréable : **aucun appelant n'a
+/// d'établissement à faire transiter, donc aucun ne peut l'effacer en
+/// l'omettant.** L'ajouter ici aurait rouvert le piège que `update_seance_meta`
+/// documente pour son horaire — un simple renommage de classe aurait détaché
+/// l'établissement, et avec lui les compétences qu'il retire des menus.
 #[tauri::command]
 pub fn update_session(
     state: tauri::State<'_, AppState>,
@@ -158,6 +218,34 @@ pub fn update_session(
     let session = load_session(&tx, &id)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(session)
+}
+
+/// Rattache une classe à un établissement, ou l'en détache (`None`).
+///
+/// Commande à part entière, et non un champ d'`update_session` : voir le
+/// commentaire de celle-ci. Détacher n'est pas une perte de données — la classe
+/// revient à l'état d'avant le palier 025, où elle se comportait exactement
+/// comme aujourd'hui sans établissement : rien n'est retiré de ses menus, et
+/// l'en-tête de ses PDF reste `app_settings.school_name`.
+#[tauri::command]
+pub fn set_session_establishment(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    establishment_id: Option<String>,
+) -> Result<Session, String> {
+    let conn = state.conn()?;
+    check_establishment(&conn, establishment_id.as_deref())?;
+
+    let affected = conn
+        .execute(
+            "UPDATE sessions SET establishment_id = ?2 WHERE id = ?1",
+            params![session_id, establishment_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if affected == 0 {
+        return Err("Classe introuvable".to_string());
+    }
+    load_session(&conn, &session_id)
 }
 
 #[tauri::command]

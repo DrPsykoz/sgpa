@@ -1,8 +1,11 @@
 pub mod absences;
+pub mod activities;
 pub mod attachments;
 pub mod contracts;
 pub mod diagnostics;
+pub mod establishments;
 pub mod evaluations;
+pub mod groups;
 pub mod home;
 pub mod lock;
 pub mod maintenance;

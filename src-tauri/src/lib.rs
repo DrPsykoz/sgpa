@@ -9,8 +9,9 @@ mod sql_smoke;
 mod state;
 
 use commands::{
-    absences, attachments, contracts, diagnostics, evaluations, home, lock, maintenance, needs,
-    progressions, referential, reports, seances, sessions, students, timetable, trimesters,
+    absences, activities, attachments, contracts, diagnostics, establishments, evaluations, groups,
+    home, lock, maintenance, needs, progressions, referential, reports, seances, sessions, students,
+    timetable, trimesters,
 };
 use state::AppState;
 
@@ -133,6 +134,7 @@ pub fn run() {
             sessions::get_session,
             sessions::create_session,
             sessions::update_session,
+            sessions::set_session_establishment,
             sessions::delete_session,
             // Élèves
             students::get_students,
@@ -141,6 +143,12 @@ pub fn run() {
             students::update_student,
             students::get_student_deletion_impact,
             students::delete_student,
+            // Groupes d'élèves dans une classe — palier 023
+            groups::get_student_groups,
+            groups::create_student_group,
+            groups::rename_student_group,
+            groups::delete_student_group,
+            groups::set_student_group,
             // Besoins particuliers des élèves — JAMAIS imprimés, voir needs.rs
             needs::get_need_tags,
             needs::create_need_tag,
@@ -149,6 +157,23 @@ pub fn run() {
             needs::get_session_needs,
             needs::set_student_needs,
             needs::update_student_needs_note,
+            // Référentiel des activités professionnelles (RA16)
+            activities::get_activity_referential_tree,
+            activities::create_activity_nodes_bulk,
+            activities::rename_activity_node,
+            activities::delete_activity_node,
+            activities::reorder_activity_nodes,
+            // Établissements — le rattachement d'une classe et les
+            // compétences que l'établissement n'emploie pas (palier 025)
+            establishments::get_establishments,
+            establishments::create_establishments_bulk,
+            establishments::rename_establishment,
+            establishments::delete_establishment,
+            establishments::reorder_establishments,
+            establishments::get_establishment_disabled_competencies,
+            establishments::set_establishment_disabled_competencies,
+            establishments::get_disabled_competencies_for_session,
+            establishments::get_disabled_competency_counts,
             // Référentiel de compétences
             referential::get_referential_tree,
             referential::create_nodes_bulk,
@@ -188,6 +213,9 @@ pub fn run() {
             evaluations::get_grades,
             evaluations::set_grade,
             evaluations::delete_grade,
+            evaluations::get_grade_waivers,
+            evaluations::set_grade_waiver,
+            evaluations::delete_grade_waiver,
             // Accueil
             home::get_upcoming_days,
             home::get_home_overview,
@@ -242,6 +270,7 @@ pub fn run() {
             contracts::save_contract_sheet,
             contracts::get_professional_fields,
             contracts::create_professional_field,
+            contracts::get_activity_referential,
             // Bilans
             reports::get_report,
             reports::save_report_comment,

@@ -11,6 +11,7 @@ import {
 } from "@/lib/pdf";
 import {
   formatMark20,
+  MASTERY_LEVELS,
   type CompetencyInfo,
   type ContractRow,
   type MasteryLevel,
@@ -45,9 +46,19 @@ export interface EvaluationSheetCandidate {
    *  Vide = aucune note saisie.
    *
    *  La note elle-même ne passe pas par ici, et c'est voulu : la feuille dit
-   *  à l'élève « Presque maîtrisé », pas le 11/20 qui l'a produit. Seule la
+   *  à l'élève « Maîtrise fragile », pas le 9/20 qui l'a produit. Seule la
    *  moyenne ci-dessous est un chiffre qu'il lit. */
   levels: Record<string, MasteryLevel>;
+  /** Les compétences déclarées « cet élève ne sera pas évalué » (palier 022),
+   *  par identifiant. Disjoint de `levels` : une case porte un degré, ou une
+   *  déclaration, ou rien du tout — et ce « rien du tout » est le troisième
+   *  état, la case **en attente**, qui s'imprime vierge pour être cochée au
+   *  stylo.
+   *
+   *  Aucune note ici non plus : c'est une liste d'identifiants. La règle de
+   *  l'auteur — l'élève ne voit pas sa note par compétence — tient toujours
+   *  par la forme du type. */
+  waived: string[];
   /** La moyenne sur l'évaluation — la seule note du document. */
   mark20: number | null;
 }
@@ -123,12 +134,14 @@ export function EvaluationSheetPanel({
               project_title: saved.project_title,
               professional_field_label: saved.professional_field_label,
               professional_subset: saved.professional_subset,
+              activity_domain_label: saved.activity_domain_label,
               rows: saved.rows,
             }
           : {
               project_title: "",
               professional_field_label: "",
               professional_subset: "",
+              activity_domain_label: "",
               rows: proposal.rows,
             },
       );
@@ -183,7 +196,7 @@ export function EvaluationSheetPanel({
    *  croix ne peut se poser que sur une ligne liée au référentiel, alors que la
    *  note /20 est la moyenne de TOUTES les compétences notées. Or l'éditeur de
    *  fiche contrat s'ouvre vide et « Ajouter une ligne » ne rattache rien :
-   *  une fiche saisie à la main — le geste normal — imprimait donc ses cinq
+   *  une fiche saisie à la main — le geste normal — imprimait donc ses
    *  colonnes de maîtrise désespérément vides, sous une moyenne de niveaux qui
    *  n'apparaissaient nulle part. Les compétences absentes sont ajoutées en fin
    *  de tableau, avec les libellés du référentiel ; les lignes de l'enseignant
@@ -249,7 +262,7 @@ export function EvaluationSheetPanel({
     }
     // `socleMergeKey` préfixe d'`id:` ce qui vient du référentiel et de `txt:`
     // ce qui n'est qu'un libellé saisi à la main. Les seconds n'ont aucune note
-    // rattachable : leurs cinq cases sortiront vides, à cocher au stylo.
+    // rattachable : leurs cases de maîtrise sortiront vides, à cocher au stylo.
     let unlinked = 0;
     for (const key of blocks) {
       if (key.startsWith("txt:")) unlinked += 1;
@@ -277,6 +290,7 @@ export function EvaluationSheetPanel({
           id: who.id,
           full_name: who.full_name,
           levels: who.levels,
+          waived: who.waived,
           mark20: who.mark20,
         })),
         schoolName,
@@ -298,10 +312,13 @@ export function EvaluationSheetPanel({
         <CardTitle className="text-base">Fiche d'évaluation</CardTitle>
         <p className="text-sm text-muted-foreground">
           Une page par élève : les activités de la fiche contrat, ce qu'on exige
-          en face de chacune, les domaines et compétences du socle, et les cinq
-          niveaux de maîtrise à cocher. Les croix et la note sur 20 sont déjà
-          posées pour les compétences notées dans l'application ; le reste
-          s'imprime vierge, à remplir au stylo.
+          en face de chacune, les domaines et compétences du socle, et les{" "}
+          {MASTERY_LEVELS.length} niveaux de maîtrise à cocher. Les croix et la
+          note sur 20 sont déjà posées pour les compétences notées dans
+          l'application ; le reste s'imprime vierge, à remplir au stylo. Une
+          compétence déclarée « ne sera pas évaluée » s'imprime avec cette
+          mention en travers des colonnes, pour qu'une ligne volontairement
+          laissée de côté ne se lise pas comme un oubli.
         </p>
       </CardHeader>
 
@@ -343,9 +360,12 @@ export function EvaluationSheetPanel({
               {grid.unlinked > 0 && (
                 <>
                   {" "}
+                  {/* Le nombre de cases se lit de `MASTERY_LEVELS` et ne
+                      s'écrit pas à la main : elles étaient cinq jusqu'au
+                      2026-11-12, et cette phrase l'aurait dit encore. */}
                   {grid.unlinked > 1
-                    ? `${grid.unlinked} blocs du socle sont saisis à la main, sans lien vers le référentiel : leurs cinq cases`
-                    : "L'un des blocs du socle est saisi à la main, sans lien vers le référentiel : ses cinq cases"}{" "}
+                    ? `${grid.unlinked} blocs du socle sont saisis à la main, sans lien vers le référentiel : leurs ${MASTERY_LEVELS.length} cases`
+                    : `L'un des blocs du socle est saisi à la main, sans lien vers le référentiel : ses ${MASTERY_LEVELS.length} cases`}{" "}
                   restent à cocher au stylo.
                 </>
               )}
@@ -439,7 +459,7 @@ export function EvaluationSheetPanel({
                         title={
                           who.mark20 === null
                             ? "Aucune compétence évaluée : la case « note / 20 » s'imprimera vide."
-                            : "Moyenne des compétences évaluées, chaque niveau valant 4 points."
+                            : "Moyenne des notes posées, les compétences non évaluées étant écartées."
                         }
                       >
                         {formatMark20(who.mark20)}
