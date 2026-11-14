@@ -113,16 +113,16 @@ export function ActiviteDialog({
   const handleSubmit = async () => {
     if (libelle.trim() === "") {
       setError(
-        "Donnez un nom à l'activité : c'est lui qui s'écrit sur la frise.",
+        "Donnez un nom à la séance : c'est lui qui s'écrit sur la frise.",
       );
       return;
     }
     if (objectif.trim() === "") {
-      setError("Donnez un objectif à l'activité : ce qu'elle cherche à obtenir.");
+      setError("Donnez un objectif à la séance : ce qu'elle cherche à obtenir.");
       return;
     }
     if (competencyIds.length === 0) {
-      setError("Choisissez au moins une compétence évaluée par l'activité.");
+      setError("Choisissez au moins une compétence évaluée par la séance.");
       return;
     }
     setPending(true);
@@ -153,10 +153,10 @@ export function ActiviteDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {activite === null ? "Nouvelle activité" : "Modifier l'activité"}
+            {activite === null ? "Nouvelle séance" : "Modifier la séance"}
           </DialogTitle>
           <DialogDescription>
-            L'activité est ce qui se pose sur la frise. Son domaine dit ce
+            La séance est ce qui se pose sur la frise. Son domaine dit ce
             qu'elle explore ; il reste facultatif tant que vous n'avez pas
             tranché.
           </DialogDescription>
@@ -223,12 +223,12 @@ export function ActiviteDialog({
             />
             <p className="text-xs text-muted-foreground">
               Au moins une, prise dans le référentiel : c'est ici que se
-              choisissent les compétences, pour chaque activité.
+              choisissent les compétences, pour chaque séance.
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="activite-etape">Étape</Label>
+            <Label htmlFor="activite-etape">Séquence</Label>
             <Select
               value={etapeId}
               disabled={pending}
@@ -247,7 +247,7 @@ export function ActiviteDialog({
             </Select>
             {changeDEtape && (
               <p className="text-xs text-muted-foreground">
-                Déplacer l'activité change son rang dans l'année, donc sa
+                Déplacer la séance change son rang dans l'année, donc sa
                 couleur sur la frise. Les semaines où elle est posée ne bougent
                 pas.
               </p>

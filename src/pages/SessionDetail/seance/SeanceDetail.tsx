@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ComponentType } from "react";
 import {
   AlertTriangle,
@@ -43,7 +50,14 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { PastilleDeGroupe, SelecteurDeGroupe } from "@/components/Groupes";
+import {
+  PastilleDeGroupe,
+  SelecteurDeGroupe,
+  sectionsParGroupe,
+  titreDeSection,
+  type SectionDeGroupe,
+} from "@/components/Groupes";
+import { SeanceDeProgression } from "@/pages/SessionDetail/seance/SeanceDeProgression";
 import { Attachments } from "@/components/Attachments";
 import type { AttachmentsHandle } from "@/components/Attachments";
 import { useDraftGuard } from "@/hooks/useDrafts";
@@ -73,6 +87,8 @@ export interface SeanceDetailProps {
    *  renommé dans l'onglet Élèves se relit ici au rechargement. */
   groups: StudentGroup[];
   onBack: () => void;
+  /** Déplie « Modifier le cours » à l'ouverture. */
+  modifierDEmblee?: boolean;
   /** Recharge la liste du parent. À appeler après toute écriture. */
   onChanged: () => Promise<void>;
 }
@@ -186,6 +202,7 @@ export function SeanceDetail({
   groups,
   onBack,
   onChanged,
+  modifierDEmblee = false,
 }: SeanceDetailProps) {
   const [tab, setTab] = useState<"appel" | "cahier">("appel");
 
@@ -306,9 +323,12 @@ export function SeanceDetail({
     }
   }, [seance.id]);
 
+  // `seance.group_id` en dépendance : `get_attendance` ne convoque que les
+  // élèves du groupe de la séance, donc changer le groupe change la liste. Sans
+  // cela, la liste restait celle d'avant l'enregistrement.
   useEffect(() => {
     void loadAttendance();
-  }, [loadAttendance]);
+  }, [loadAttendance, seance.group_id]);
 
   const counts = useMemo(() => {
     const base: Record<AttendanceStatus, number> = {
@@ -324,6 +344,19 @@ export function SeanceDetail({
 
   const pending = counts.non_fait;
   const notConcerned = students.length - attendance.length;
+
+  // Appel découpé par groupe (le groupe vient de la liste d'élèves du parent :
+  // l'enregistrement d'appel ne le porte pas). Sans groupe : liste plate.
+  const groupeParEleve = new Map(students.map((s) => [s.id, s.group_id]));
+  const sectionsAppel = sectionsParGroupe(
+    attendance,
+    groups,
+    (record) => groupeParEleve.get(record.student_id) ?? null,
+  );
+  const appelDecoupe = sectionsAppel.length > 0;
+  const blocsAppel: SectionDeGroupe<AttendanceWithStudent>[] = appelDecoupe
+    ? sectionsAppel
+    : [{ group: null, items: attendance }];
   const hasUnsaved = metaDirty || contentDirty;
 
   /** Écrit uniquement les colonnes « méta » de la séance. */
@@ -339,11 +372,11 @@ export function SeanceDetail({
   }): Promise<boolean> => {
     const title = values.title.trim();
     if (!title) {
-      setMetaError("Le titre de la séance ne peut pas être vide.");
+      setMetaError("Le titre du cours ne peut pas être vide.");
       return false;
     }
     if (!values.date) {
-      setMetaError("La date de la séance est obligatoire.");
+      setMetaError("La date du cours est obligatoire.");
       return false;
     }
     setSavingMeta(true);
@@ -390,6 +423,11 @@ export function SeanceDetail({
     setMetaError(null);
     setMetaOpen(true);
   };
+
+  useEffect(() => {
+    if (modifierDEmblee) openMeta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const cancelMeta = () => {
     setTitleDraft(seance.title);
@@ -574,7 +612,7 @@ export function SeanceDetail({
             variant="ghost"
             size="icon"
             onClick={handleBack}
-            title="Retour à la liste des séances"
+            title="Retour à la liste des cours"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -618,7 +656,7 @@ export function SeanceDetail({
                   ? "bg-violet-100 text-violet-800"
                   : "bg-slate-100 text-slate-700",
               )}
-              title="Trimestre de la séance"
+              title="Trimestre du cours"
               disabled={savingMeta}
             >
               <span>{pillLabel}</span>
@@ -636,7 +674,7 @@ export function SeanceDetail({
           {!metaOpen && (
             <Button variant="outline" size="sm" onClick={openMeta}>
               <Pencil className="h-3.5 w-3.5" />
-              Modifier la séance
+              Modifier le cours
             </Button>
           )}
         </div>
@@ -651,10 +689,12 @@ export function SeanceDetail({
         </p>
       )}
 
+      <SeanceDeProgression sessionId={seance.session_id} date={seance.date} />
+
       {metaOpen && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Informations de la séance</CardTitle>
+            <CardTitle className="text-base">Informations du cours</CardTitle>
             <p className="text-sm text-muted-foreground">
               Ce bloc n'enregistre que le titre, la date,{" "}
               {ponctuelle ? "l'horaire, " : ""}le trimestre, le groupe et
@@ -713,7 +753,7 @@ export function SeanceDetail({
                     <span>
                       {timeLabel(seance.start_time, seance.end_time) ||
                         "Sans horaire"}{" "}
-                      — cette séance vient d'un créneau de l'emploi du temps.
+                      — ce cours vient d'un créneau de l'emploi du temps.
                       Son heure s'y modifie, et pour toutes les semaines à la
                       fois.
                     </span>
@@ -748,7 +788,7 @@ export function SeanceDetail({
                 value={groupDraft}
                 onChange={setGroupDraft}
                 disabled={savingMeta}
-                aide="L'appel ne convoque que ce groupe, et la séance sort de l'assiduité des autres élèves."
+                aide="L'appel ne convoque que ce groupe, et le cours sort de l'assiduité des autres élèves."
               />
               <div className="flex items-end">
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -760,7 +800,7 @@ export function SeanceDetail({
                   />
                   <span className="flex items-center gap-1.5">
                     <Ban className="h-3.5 w-3.5 text-muted-foreground" />
-                    Séance annulée (exclue de l'assiduité des bilans)
+                    Cours annulé (exclue de l'assiduité des bilans)
                   </span>
                 </label>
               </div>
@@ -799,7 +839,7 @@ export function SeanceDetail({
                 <p className="text-xs text-muted-foreground">
                   Ce motif ne figure sur aucun bilan : il est là pour vous
                   rappeler ce qui s'est passé, pas pour être remis aux familles.
-                  C'est l'annulation seule qui retire la séance de l'assiduité.
+                  C'est l'annulation seule qui retire le cours de l'assiduité.
                 </p>
               </div>
             )}
@@ -869,7 +909,7 @@ export function SeanceDetail({
           {seance.cancelled ? (
             <p className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
               <Ban className="mt-0.5 h-4 w-4 shrink-0" />
-              Séance annulée
+              Cours annulé
               {seance.cancel_reason && ` — ${seance.cancel_reason}`} : elle ne
               compte dans l'assiduité d'aucun bilan. L'appel reste modifiable si
               vous la rétablissez.
@@ -878,8 +918,8 @@ export function SeanceDetail({
             seance.attendance_taken_at === null && (
               <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                L'appel n'a pas encore été fait pour cette séance. Sans
-                pointage, ces séances comptent comme « non renseignées » dans
+                L'appel n'a pas encore été fait pour ce cours. Sans
+                pointage, ces cours comptent comme « non renseignées » dans
                 les bilans.
               </p>
             )
@@ -948,7 +988,7 @@ export function SeanceDetail({
                 emptyLabel={
                   students.length === 0
                     ? "Aucun élève dans cette classe. Ajoutez-en depuis l'onglet Élèves."
-                    : "Aucun élève inscrit à la date de cette séance."
+                    : "Aucun élève inscrit à la date de ce cours."
                 }
                 onRetry={() => {
                   void loadAttendance();
@@ -963,7 +1003,23 @@ export function SeanceDetail({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {attendance.map((record) => (
+                      {blocsAppel.map((bloc) => (
+                        <Fragment key={bloc.group?.id ?? "sans-groupe"}>
+                      {/* Sections par groupe : seulement quand la classe en a. */}
+                      {appelDecoupe && (
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableCell
+                            colSpan={2}
+                            className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            {titreDeSection(bloc)}
+                            <span className="ml-2 font-normal normal-case">
+                              {bloc.items.length}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {bloc.items.map((record) => (
                         <TableRow key={record.student_id}>
                           <TableCell className="font-medium">
                             <span className="flex flex-wrap items-center gap-2">
@@ -1015,6 +1071,8 @@ export function SeanceDetail({
                           </TableCell>
                         </TableRow>
                       ))}
+                        </Fragment>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
@@ -1033,7 +1091,7 @@ export function SeanceDetail({
                     : "élève de la classe n'apparaît pas"}{" "}
                   dans cet appel :{" "}
                   {seance.group_name
-                    ? `cette séance ne concerne que « ${seance.group_name} », ou leur période d'inscription ne couvre pas le ${formatShortDate(seance.date)}.`
+                    ? `ce cours ne concerne que « ${seance.group_name} », ou leur période d'inscription ne couvre pas le ${formatShortDate(seance.date)}.`
                     : `leur période d'inscription ne couvre pas le ${formatShortDate(seance.date)}.`}
                 </p>
               )}
@@ -1059,7 +1117,7 @@ export function SeanceDetail({
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-primary bg-background/85 text-center">
               <span className="flex items-center gap-2 font-medium">
                 <Paperclip className="h-4 w-4" />
-                Déposez pour joindre à cette séance
+                Déposez pour joindre à ce cours
               </span>
               <span className="px-6 text-sm text-muted-foreground">
                 Les fichiers rejoignent «&nbsp;Pièces jointes&nbsp;». Ils ne
@@ -1132,7 +1190,7 @@ export function SeanceDetail({
                       {seance.content_waived_at
                         ? ` le ${formatStamp(seance.content_waived_at)}`
                         : ""}
-                      . Cette séance n'est plus réclamée dans «&nbsp;À
+                      . Ce cours n'est plus réclamée dans «&nbsp;À
                       reprendre&nbsp;» sur l'accueil. L'appel, lui, compte
                       normalement.
                     </span>
@@ -1151,8 +1209,8 @@ export function SeanceDetail({
                 !aDuContenu(contentDraft) && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
                     <span>
-                      Rien à écrire pour cette séance&nbsp;? Évaluation
-                      surveillée, sortie, heure de vie de classe, séance confiée
+                      Rien à écrire pour ce cours&nbsp;? Évaluation
+                      surveillée, sortie, heure de vie de classe, cours confié
                       à l'AESH… Dites-le, et l'accueil cessera d'en réclamer le
                       compte rendu.
                     </span>
@@ -1194,7 +1252,7 @@ export function SeanceDetail({
         open={resetOpen}
         onOpenChange={setResetOpen}
         title="Réinitialiser l'appel ?"
-        description="Tous les statuts saisis pour cette séance seront effacés et la séance repassera en « appel non fait »."
+        description="Tous les statuts saisis pour ce cours seront effacés et le cours repassera en « appel non fait »."
         confirmLabel="Réinitialiser"
         onConfirm={handleReset}
       />
@@ -1206,7 +1264,7 @@ export function SeanceDetail({
         description={
           contentDirty
             ? "Le cahier de texte contient des modifications qui n'ont pas été enregistrées. Elles seront perdues."
-            : "Les informations de la séance ont été modifiées sans être enregistrées. Elles seront perdues."
+            : "Les informations du cours ont été modifiées sans être enregistrées. Elles seront perdues."
         }
         confirmLabel="Quitter sans enregistrer"
         onConfirm={() => {

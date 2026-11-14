@@ -129,6 +129,10 @@ export interface Establishment {
 	position: number;
 	session_count: number;
 	disabled_count: number;
+	/** Académie de l'établissement, `""` si non renseignée (palier 028). */
+	academie: string;
+	/** Vrai si son académie fixe le calendrier global de l'application. */
+	is_principal: boolean;
 }
 
 /** Combien d'établissements désactivent une compétence donnée.
@@ -1166,6 +1170,13 @@ export interface GradeWaiver {
 	competency_id: string;
 }
 
+/** Le commentaire du professeur sur la fiche d'un élève (palier 027). Pas de
+ *  ligne = pas de commentaire : jamais de chaîne vide stockée. */
+export interface EvaluationComment {
+	student_id: string;
+	comment: string;
+}
+
 // ---- Trimestres ----
 export interface TrimesterBounds {
 	year_start: number;
@@ -1647,10 +1658,59 @@ export interface ProgressionEtape {
 	 *  industriel », qui n'en est pas. Le lien au référentiel a sa place dans la
 	 *  fiche contrat, qui est nominative ; une étape est un plan de classe. */
 	metier_cap: string;
+	/** Le métier du référentiel choisi (palier 027), `null` = aucun. Son libellé
+	 *  est **figé** à l'écriture : si le métier quitte le référentiel la clé
+	 *  tombe et le libellé reste. S'écrit par `setEtapeMetierCap`, jamais par
+	 *  `updateProgressionEtape`, qui n'y touche pas. */
+	career_id: string | null;
+	career_label: string;
+	/** Le CAP du référentiel, sur le même modèle. */
+	cap_id: string | null;
+	cap_label: string;
 	/** Ses activités, dans l'ordre. L'étape détient les activités, **pas les
 	 *  semaines** : une activité peut revenir en janvier sans que l'étape se
 	 *  dédouble. */
 	activites: ProgressionActivite[];
+}
+
+/** Un métier du référentiel, tel que le menu d'une séquence le propose. */
+export interface MetierChoix {
+	id: string;
+	name: string;
+	/** Le domaine d'activité qui le porte : le menu range les métiers par domaine. */
+	domain_name: string;
+}
+
+/** Un CAP du référentiel. */
+export interface CapChoix {
+	id: string;
+	name: string;
+}
+
+/** Les deux listes du menu d'une séquence (palier 027). Vides pour un
+ *  référentiel qui n'en a pas : l'écran ne montre alors pas les menus. */
+export interface MetiersEtCaps {
+	metiers: MetierChoix[];
+	caps: CapChoix[];
+}
+
+/** La fiche remise à l'élève pour une séance de la progression (palier 027).
+ *
+ *  Les listes (`epi`, `outillage`, `materiaux`, `etapes`, `criteres`) sont **une
+ *  ligne par élément** ; une ligne d'`etapes` qui commence par « - » est une
+ *  sous-puce de l'étape qui précède. Pas de note ni de commentaire du professeur
+ *  ici : la fiche est celle de l'élève, qui coche Oui ou Non. */
+export interface FicheSeance {
+	domaine: string;
+	duree: string;
+	chantier: string;
+	situation: string;
+	epi: string;
+	consigne_securite: string;
+	outillage: string;
+	materiaux: string;
+	etapes: string;
+	criteres: string;
 }
 
 /** Une case de la frise : telle activité, telle semaine, telle bande.

@@ -23,8 +23,8 @@ export interface DomainesDialogProps {
 }
 
 function phraseEmploi(count: number): string {
-  if (count === 0) return "Employé par aucune activité";
-  return count > 1 ? `${count} activités` : "1 activité";
+  if (count === 0) return "Employé par aucune séance";
+  return count > 1 ? `${count} séances` : "1 séance";
 }
 
 /**
@@ -115,7 +115,7 @@ export function DomainesDialog({
           <DialogDescription>
             Vos mots, et vous seul les posez : l'application n'en propose aucun.
             Un domaine sert à toutes vos classes et à toutes les années — une
-            activité s'y rattache pour dire ce qu'elle explore.
+            séance s'y rattache pour dire ce qu'elle explore.
           </DialogDescription>
         </DialogHeader>
 
@@ -232,7 +232,7 @@ export function DomainesDialog({
                       aria-label={`Supprimer « ${domaine.name} »`}
                       title={
                         domaine.activity_count > 0
-                          ? "Ce domaine est encore employé : retirez-le d'abord des activités qui le citent."
+                          ? "Ce domaine est encore employé : retirez-le d'abord des séances qui le citent."
                           : "Supprimer ce domaine"
                       }
                       disabled={pending}

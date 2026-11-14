@@ -14,6 +14,7 @@ import type {
   Evaluation,
   Grade,
   GradeWaiver,
+  EvaluationComment,
   MasteryLevel,
   Student,
   StudentGroup,
@@ -56,6 +57,8 @@ import {
 import { CompetencyPicker } from "@/components/CompetencyPicker";
 import {
   concerneLeGroupe,
+  sectionsParGroupe,
+  titreDeSection,
   PastilleDeGroupe,
   SelecteurDeGroupe,
 } from "@/components/Groupes";
@@ -139,12 +142,28 @@ export function EvaluationDetail({
       ),
     [tousLesEleves, evaluation.group_id],
   );
+  /**
+   * Les lignes de la grille : les élèves, rangés groupe par groupe quand la
+   * classe en a et que l'évaluation en concerne plusieurs. Une classe sans
+   * groupe — ou une évaluation d'un seul groupe — garde sa liste plate.
+   */
+  const lignes = useMemo(() => {
+    const sections = sectionsParGroupe(students, groups, (s) => s.group_id);
+    if (sections.length < 2) {
+      return students.map((student) => ({ student, titre: undefined }));
+    }
+    return sections.flatMap((section) => [
+      { student: null, titre: titreDeSection(section) },
+      ...section.items.map((student) => ({ student, titre: undefined })),
+    ]);
+  }, [students, groups]);
   const [competencies, setCompetencies] = useState<CompetencyInfo[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
   /** Les cases déclarées « ne sera pas évaluée » (palier 022). Liste à part et
    *  non un champ de `Grade` : une case déclarée n'a pas de note, et les
    *  mélanger redemanderait à chaque lecture « celle-là en est-elle une ? ». */
   const [waivers, setWaivers] = useState<GradeWaiver[]>([]);
+  const [comments, setComments] = useState<EvaluationComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -190,14 +209,16 @@ export function EvaluationDetail({
     setLoading(true);
     setError(null);
     try {
-      const [comps, grs, sans] = await Promise.all([
+      const [comps, grs, sans, coms] = await Promise.all([
         api.getEvaluationCompetencies(evaluation.id),
         api.getGrades(evaluation.id),
         api.getGradeWaivers(evaluation.id),
+        api.getEvaluationComments(evaluation.id),
       ]);
       setCompetencies(comps);
       setGrades(grs);
       setWaivers(sans);
+      setComments(coms);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -515,6 +536,16 @@ export function EvaluationDetail({
     return null;
   };
 
+  const commentIndex = useMemo(
+    () => new Map(comments.map((row) => [row.student_id, row.comment])),
+    [comments],
+  );
+
+  const saveComment = async (studentId: string, comment: string) => {
+    await api.setEvaluationComment(evaluation.id, studentId, comment);
+    setComments(await api.getEvaluationComments(evaluation.id));
+  };
+
   /** Ce que la fiche d'évaluation imprimera, un élève par entrée.
    *
    *  Composé ICI, et non dans le panneau, pour une raison précise : la note /20
@@ -559,13 +590,14 @@ export function EvaluationDetail({
           note: enrollmentNote(student),
           levels,
           waived,
+          comment: commentIndex.get(student.id) ?? "",
           mark20: moyenneDesNotes(notes),
         };
       }),
     // `gradeIndex` porte déjà `grades` et `waiverIndex` porte `waivers` ;
     // `enrollmentNote` ne lit que la date de l'évaluation : ces cinq entrées
     // sont toutes celles du calcul.
-    [students, competencies, gradeIndex, waiverIndex, evaluation.date],
+    [students, competencies, gradeIndex, waiverIndex, commentIndex, evaluation.date],
   );
 
   return (
@@ -646,6 +678,7 @@ export function EvaluationDetail({
           candidates={sheetCandidates}
           competencies={competencies}
           onOpenContractSheet={() => setView("contract")}
+          onSaveComment={saveComment}
         />
       )}
 
@@ -863,7 +896,23 @@ export function EvaluationDetail({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {students.map((student) => {
+                          {lignes.map((ligne) => {
+                            if (ligne.student === null) {
+                              return (
+                                <TableRow
+                                  key={"groupe|" + ligne.titre}
+                                  className="bg-muted/40 hover:bg-muted/40"
+                                >
+                                  <TableCell
+                                    colSpan={competencies.length + 2}
+                                    className="sticky left-0 py-1.5 text-xs font-medium text-muted-foreground"
+                                  >
+                                    {ligne.titre}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            }
+                            const student = ligne.student;
                             const note = enrollmentNote(student);
                             return (
                               <TableRow key={student.id}>

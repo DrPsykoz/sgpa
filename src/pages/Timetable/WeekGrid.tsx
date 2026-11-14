@@ -1072,15 +1072,15 @@ function apparenceDe(contenu: Contenu): string {
  */
 function etatDeLaSeance(seance: DaySeance): string {
   if (seance.cancelled) {
-    return "Séance annulée : hors du dénominateur d'assiduité de toute la classe.";
+    return "Cours annulé : hors du dénominateur d'assiduité de toute la classe.";
   }
   const parts: string[] = [];
   if (seance.attendance_total === 0) {
-    parts.push("séance créée, aucun élève inscrit à cette date");
+    parts.push("cours créé, aucun élève inscrit à cette date");
   } else {
     const complet = seance.attendance_done >= seance.attendance_total;
     parts.push(
-      `séance créée, appel ${seance.attendance_done}/${seance.attendance_total}${
+      `cours créé, appel ${seance.attendance_done}/${seance.attendance_total}${
         complet ? " (terminé)" : ""
       }`,
     );
@@ -1118,7 +1118,7 @@ function titreDe(contenu: Contenu): string {
     const groupe = groupeDuCours(slot, seance);
     if (groupe.nom !== null) {
       lignes.push(
-        `Groupe « ${groupe.nom} » : les autres élèves de la classe ne sont pas convoqués, et cette séance sort de leur assiduité.`,
+        `Groupe « ${groupe.nom} » : les autres élèves de la classe ne sont pas convoqués, et ce cours sort de leur assiduité.`,
       );
     }
     if (horsSemaine) lignes.push("Ce créneau ne tombe pas cette semaine-là.");
@@ -1130,7 +1130,7 @@ function titreDe(contenu: Contenu): string {
       lignes.push(
         slot.session_id === null
           ? "Occupation sans classe : il n'y a rien à ouvrir derrière un modèle."
-          : "Aucune séance à cette date — le créneau revient chaque semaine.",
+          : "Aucun cours à cette date — le créneau revient chaque semaine.",
       );
     } else {
       lignes.push(etatDeLaSeance(seance));
@@ -1144,7 +1144,7 @@ function titreDe(contenu: Contenu): string {
     lignes.push(libelleHoraire(seance.start_time, seance.end_time));
     if (seance.group_name !== null) {
       lignes.push(
-        `Groupe « ${seance.group_name} » : les autres élèves de la classe ne sont pas convoqués, et cette séance sort de leur assiduité.`,
+        `Groupe « ${seance.group_name} » : les autres élèves de la classe ne sont pas convoqués, et ce cours sort de leur assiduité.`,
       );
     }
     lignes.push(etatDeLaSeance(seance));
@@ -1361,7 +1361,10 @@ function ouvertureDe(
  */
 function adresseDe(contenu: Contenu): string | null {
   if (contenu.nature !== "seanceLibre") return null;
-  return adresseDeLaSeance(contenu.seance);
+  // `&modifier=1` : on arrive sur la fiche du cours avec « Modifier le cours »
+  // déjà ouvert — c'est la définition de la carte qu'on vient chercher depuis
+  // l'emploi du temps, pas l'appel. L'accueil, lui, ouvre le cours tel quel.
+  return `${adresseDeLaSeance(contenu.seance)}&modifier=1`;
 }
 
 /**
@@ -1409,7 +1412,7 @@ function libelleOuverture(contenu: Contenu): string {
 function titreDeLaCarte(contenu: Contenu, ouvrable: boolean): string {
   const texte = titreDe(contenu);
   if (contenu.nature === "seanceLibre") {
-    return `${texte}\nCliquez pour ouvrir cette séance dans la fiche de sa classe.`;
+    return `${texte}\nCliquez pour ouvrir ce cours dans la fiche de sa classe.`;
   }
   if (!ouvrable) return texte;
   if (contenu.nature === "entree") {

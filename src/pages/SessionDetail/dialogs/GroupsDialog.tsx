@@ -39,7 +39,7 @@ function raisonDeNePasSupprimer(group: StudentGroup): string | null {
   const parts: string[] = [];
   if (group.seance_count > 0) {
     parts.push(
-      `${group.seance_count} séance${group.seance_count > 1 ? "s" : ""}`,
+      `${group.seance_count} cours`,
     );
   }
   if (group.evaluation_count > 0) {
@@ -164,7 +164,7 @@ export function GroupsDialog({
 
   const sansGroupeNote =
     groups.length > 0
-      ? "Un élève qu'aucun groupe ne réclame est convoqué à toutes les séances, y compris à celles d'un groupe nommé : un oubli de répartition se voit donc à l'appel, au lieu de disparaître des calculs."
+      ? "Un élève qu'aucun groupe ne réclame est convoqué à tous les cours, y compris à ceux d'un groupe nommé : un oubli de répartition se voit donc à l'appel, au lieu de disparaître des calculs."
       : null;
 
   return (
@@ -173,9 +173,9 @@ export function GroupsDialog({
         <DialogHeader>
           <DialogTitle>Groupes de la classe</DialogTitle>
           <DialogDescription>
-            Un groupe sert à tenir une séance ou une évaluation avec une partie
+            Un groupe sert à tenir un cours ou une évaluation avec une partie
             de la classe seulement. L'appel ne convoque alors que lui, et les
-            autres élèves ne voient pas cette séance compter dans leur
+            autres élèves ne voient pas ce cours compter dans leur
             assiduité. Un élève n'appartient qu'à un seul groupe.
           </DialogDescription>
         </DialogHeader>
@@ -205,7 +205,7 @@ export function GroupsDialog({
                 Aucun groupe dans cette classe.
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Tant qu'il n'y en a pas, rien ne change : chaque séance et
+                Tant qu'il n'y en a pas, rien ne change : chaque cours et
                 chaque évaluation concerne la classe entière.
               </p>
             </div>
@@ -262,7 +262,7 @@ export function GroupsDialog({
                           <p className="text-xs text-muted-foreground">
                             {compteDEleves(group.student_count)}
                             {group.seance_count > 0 &&
-                              ` · ${group.seance_count} séance${group.seance_count > 1 ? "s" : ""}`}
+                              ` · ${group.seance_count} cours`}
                             {group.evaluation_count > 0 &&
                               ` · ${group.evaluation_count} évaluation${group.evaluation_count > 1 ? "s" : ""}`}
                           </p>

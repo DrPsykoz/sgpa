@@ -161,7 +161,7 @@ fn load_seance(conn: &rusqlite::Connection, id: &str) -> Result<Seance, String> 
     let sql = format!("SELECT {SEANCE_COLUMNS} FROM seances WHERE id = ?1");
     conn.query_row(&sql, params![id], map_seance)
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => "Séance introuvable".to_string(),
+            rusqlite::Error::QueryReturnedNoRows => "Cours introuvable".to_string(),
             other => other.to_string(),
         })
 }
@@ -169,7 +169,7 @@ fn load_seance(conn: &rusqlite::Connection, id: &str) -> Result<Seance, String> 
 fn clean_title(title: &str) -> Result<String, String> {
     let trimmed = title.trim();
     if trimmed.is_empty() {
-        return Err("Le titre de la séance est obligatoire".to_string());
+        return Err("Le titre du cours est obligatoire".to_string());
     }
     Ok(trimmed.to_string())
 }
@@ -183,7 +183,7 @@ fn clean_title(title: &str) -> Result<String, String> {
 /// parse donc réellement, par la même fonction que l'emploi du temps — une seule
 /// implémentation de la règle.
 fn check_date(date: &str) -> Result<NaiveDate, String> {
-    timetable::parse_date(date, "La date de la séance")
+    timetable::parse_date(date, "La date du cours")
 }
 
 /// Refuse une date hors de l'**année scolaire de la classe**.
@@ -225,7 +225,7 @@ fn check_session_year(
     Err(format!(
         "La date {date} n'appartient pas à l'année scolaire {annee}-{}, celle de la \
          classe « {nom} », mais à {annee_date}-{}. Corrigez la date, ou créez cette \
-         séance dans une classe de l'année concernée.",
+         cours dans une classe de l'année concernée.",
         annee + 1,
         annee_date + 1
     ))
@@ -266,7 +266,7 @@ fn mark_attendance_taken(conn: &rusqlite::Connection, seance_id: &str) -> Result
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {
-        return Err("Séance introuvable".to_string());
+        return Err("Cours introuvable".to_string());
     }
     Ok(())
 }
@@ -291,8 +291,8 @@ type SlotForSeance = (
 fn slot_conflict_error(err: rusqlite::Error) -> String {
     if let rusqlite::Error::SqliteFailure(inner, _) = &err {
         if inner.code == rusqlite::ErrorCode::ConstraintViolation {
-            return "Une séance de ce créneau existe déjà à cette date. Changez la \
-                    date, ou ouvrez la séance existante depuis l'emploi du temps."
+            return "Un cours de ce créneau existe déjà à cette date. Changez la \
+                    date, ou ouvrez le cours existant depuis l'emploi du temps."
                 .to_string();
         }
     }
@@ -504,7 +504,7 @@ pub fn update_seance_meta(
             |row| row.get(0),
         )
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => "Séance introuvable".to_string(),
+            rusqlite::Error::QueryReturnedNoRows => "Cours introuvable".to_string(),
             other => other.to_string(),
         })?;
 
@@ -664,7 +664,7 @@ fn seance_from_slot(
     let sql = format!("SELECT {SEANCE_COLUMNS} FROM seances WHERE slot_id = ?1 AND date = ?2");
     conn.query_row(&sql, params![slot_id, date], map_seance)
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => "Séance introuvable".to_string(),
+            rusqlite::Error::QueryReturnedNoRows => "Cours introuvable".to_string(),
             other => other.to_string(),
         })
 }
@@ -686,7 +686,7 @@ pub fn update_seance_content(
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {
-        return Err("Séance introuvable".to_string());
+        return Err("Cours introuvable".to_string());
     }
     Ok(())
 }
@@ -723,7 +723,7 @@ pub fn set_seance_content_waived(
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {
-        return Err("Séance introuvable".to_string());
+        return Err("Cours introuvable".to_string());
     }
     Ok(())
 }
@@ -887,7 +887,7 @@ pub fn reset_attendance(
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {
-        return Err("Séance introuvable".to_string());
+        return Err("Cours introuvable".to_string());
     }
 
     tx.execute(
@@ -1149,10 +1149,10 @@ mod tests {
             .unwrap_err();
         let message = slot_conflict_error(erreur);
         assert!(
-            message.starts_with("Une séance de ce créneau existe déjà à cette date."),
+            message.starts_with("Un cours de ce créneau existe déjà à cette date."),
             "message : {message}"
         );
-        assert!(message.contains("ouvrez la séance existante"));
+        assert!(message.contains("ouvrez le cours existant"));
     }
 
     /// Le cœur du palier 023 : une séance de groupe n'appelle que son groupe,

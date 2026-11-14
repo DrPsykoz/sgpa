@@ -185,7 +185,7 @@ export function TrimesterBoundsDialog({
             Bornes des trimestres — {schoolYearLabel(yearStart)}
           </DialogTitle>
           <DialogDescription>
-            Ces dates déterminent le trimestre des séances et des évaluations
+            Ces dates déterminent le trimestre des cours et des évaluations
             dont le trimestre n'a pas été forcé à la main.
           </DialogDescription>
         </DialogHeader>
@@ -244,8 +244,8 @@ export function TrimesterBoundsDialog({
               <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 <p className="font-medium">
                   {changing === 0
-                    ? "Aucune séance ni évaluation ne changerait de trimestre."
-                    : `${count(preview.seances_changing, "séance", "séances")} et ${count(
+                    ? "Aucun cours ni évaluation ne changerait de trimestre."
+                    : `${count(preview.seances_changing, "cours", "cours")} et ${count(
                         preview.evaluations_changing,
                         "évaluation",
                         "évaluations",
@@ -272,7 +272,7 @@ export function TrimesterBoundsDialog({
             ) : (
               <p className="text-sm text-muted-foreground">
                 Lancez d'abord un aperçu : modifier ces dates peut déplacer des
-                séances et des évaluations déjà saisies.
+                cours et des évaluations déjà saisies.
               </p>
             )}
           </div>

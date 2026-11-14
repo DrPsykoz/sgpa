@@ -1,10 +1,21 @@
 import { useMemo, useState, type ReactElement } from "react";
-import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FileText,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { ActiviteDialog } from "@/pages/SessionDetail/progression/ActiviteDialog";
 import { EtapeDialog } from "@/pages/SessionDetail/progression/EtapeDialog";
+import { FicheSeanceDialog } from "@/pages/SessionDetail/progression/FicheSeanceDialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { styleTeinteActivite } from "@/lib/teintes";
@@ -23,6 +34,9 @@ export interface EtapesEditorProps {
   semainesParActivite: ReadonlyMap<string, number>;
   /** Le parent recharge la progression entière après chaque écriture. */
   onChanged: () => Promise<void>;
+  /** Pour le sous-titre et l'en-tête de la fiche imprimée d'une séance. */
+  classe: string;
+  schoolName: string;
 }
 
 function messageOf(err: unknown): string {
@@ -135,6 +149,8 @@ export function EtapesEditor({
   progression,
   semainesParActivite,
   onChanged,
+  classe,
+  schoolName,
 }: EtapesEditorProps): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -148,11 +164,25 @@ export function EtapesEditor({
   const [activiteDialogOpen, setActiviteDialogOpen] = useState(false);
   const [activiteEnCours, setActiviteEnCours] = useState<string | null>(null);
   const [etapeDAccueil, setEtapeDAccueil] = useState("");
+  const [ficheEnCours, setFicheEnCours] = useState<string | null>(null);
   const [activiteASupprimer, setActiviteASupprimer] = useState<string | null>(
     null,
   );
 
   const etapes = progression.etapes;
+
+  // Séquences réduites à une ligne. Pure préférence d'affichage : rien n'est
+  // écrit, et une séquence nouvelle naît dépliée.
+  const [reduites, setReduites] = useState<ReadonlySet<string>>(new Set());
+  const basculer = (id: string) =>
+    setReduites((avant) => {
+      const apres = new Set(avant);
+      if (apres.has(id)) apres.delete(id);
+      else apres.add(id);
+      return apres;
+    });
+  const toutesReduites =
+    etapes.length > 0 && etapes.every((e) => reduites.has(e.id));
   const idsDEtapes = useMemo(() => etapes.map((e) => e.id), [etapes]);
 
   const toutesLesActivites = useMemo(() => {
@@ -169,6 +199,11 @@ export function EtapesEditor({
     etapes.find((e) => e.id === etapeASupprimer) ?? null;
   const activiteEditee: ProgressionActivite | null =
     (activiteEnCours ? toutesLesActivites.get(activiteEnCours) : null) ?? null;
+  const ficheActivite: ProgressionActivite | null =
+    (ficheEnCours ? toutesLesActivites.get(ficheEnCours) : null) ?? null;
+  const ficheSequence =
+    etapes.find((e) => e.activites.some((a) => a.id === ficheEnCours))
+      ?.libelle ?? "";
   const activiteSupprimee: ProgressionActivite | null =
     (activiteASupprimer ? toutesLesActivites.get(activiteASupprimer) : null) ??
     null;
@@ -220,6 +255,8 @@ export function EtapesEditor({
     priorites: string;
     objectifs: string;
     metierCap: string;
+    careerId: string | null;
+    capId: string | null;
     competencyIds: string[];
   }) => {
     const id =
@@ -235,6 +272,14 @@ export function EtapesEditor({
       champs.metierCap,
       champs.competencyIds,
     );
+    // Le métier et le CAP ont leur propre commande (règle 3) : on ne l'appelle
+    // que si l'un des deux a bougé.
+    if (
+      champs.careerId !== (etapeEditee?.career_id ?? null) ||
+      champs.capId !== (etapeEditee?.cap_id ?? null)
+    ) {
+      await api.setEtapeMetierCap(id, champs.careerId, champs.capId);
+    }
     await onChanged();
   };
 
@@ -289,18 +334,50 @@ export function EtapesEditor({
         </p>
       ) : (
         <ul className="space-y-3">
-          {etapes.map((etape, index) => (
+          {etapes.map((etape, index) => {
+            const reduite = reduites.has(etape.id);
+            return (
             <li key={etape.id} className="rounded-lg border bg-card">
-              <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">{etape.libelle}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Étape {index + 1} sur {etapes.length} ·{" "}
-                    {etape.activites.length > 1
-                      ? `${etape.activites.length} activités`
-                      : `${etape.activites.length} activité`}
-                  </p>
-                </div>
+              <div
+                className={cn(
+                  "flex justify-between gap-3 px-4",
+                  reduite ? "items-center py-2" : "items-start border-b py-3",
+                )}
+              >
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-start gap-2 text-left text-sm leading-5"
+                  aria-expanded={!reduite}
+                  title={reduite ? "Déplier la séquence" : "Réduire la séquence"}
+                  onClick={() => basculer(etape.id)}
+                >
+                  {reduite ? (
+                    <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <ChevronDown className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span className="min-w-0">
+                    <span
+                      className={cn(
+                        "text-sm font-semibold",
+                        reduite && "truncate",
+                      )}
+                    >
+                      {etape.libelle}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-xs text-muted-foreground",
+                        reduite ? "ml-2" : "block",
+                      )}
+                    >
+                      Séquence {index + 1} sur {etapes.length} ·{" "}
+                      {etape.activites.length > 1
+                        ? `${etape.activites.length} séances`
+                        : `${etape.activites.length} séance`}
+                    </span>
+                  </span>
+                </button>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button
                     size="icon"
@@ -329,7 +406,7 @@ export function EtapesEditor({
                     variant="ghost"
                     className="h-8 w-8"
                     aria-label={`Modifier l'étape « ${etape.libelle} »`}
-                    title="Modifier l'étape"
+                    title="Modifier la séquence"
                     disabled={pending}
                     onClick={() => {
                       setEtapeEnCours(etape.id);
@@ -343,7 +420,7 @@ export function EtapesEditor({
                     variant="ghost"
                     className="h-8 w-8 text-destructive hover:text-destructive"
                     aria-label={`Supprimer l'étape « ${etape.libelle} »`}
-                    title="Supprimer l'étape"
+                    title="Supprimer la séquence"
                     disabled={pending}
                     onClick={() => setEtapeASupprimer(etape.id)}
                   >
@@ -352,6 +429,7 @@ export function EtapesEditor({
                 </div>
               </div>
 
+              {!reduite && (
               <div className="space-y-4 px-4 py-3">
                 <CompetencesCochees competences={etape.competences_ref} />
                 {/* Le texte d'avant le palier 021, nommé pour ce qu'il est :
@@ -373,8 +451,8 @@ export function EtapesEditor({
                 <div className="space-y-2">
                   {etape.activites.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      Aucune activité : rien ne peut encore se poser sur la
-                      frise pour cette étape.
+                      Aucune séance : rien ne peut encore se poser sur la
+                      frise pour cette séquence.
                     </p>
                   ) : (
                     <ul className="space-y-2">
@@ -420,7 +498,7 @@ export function EtapesEditor({
                                 size="icon"
                                 variant="ghost"
                                 className="h-7 w-7"
-                                aria-label={`Monter l'activité « ${activite.libelle} »`}
+                                aria-label={`Monter la séance « ${activite.libelle} »`}
                                 title="Monter — recolorie la frise"
                                 disabled={pending || rangLocal === 0}
                                 onClick={() =>
@@ -433,7 +511,7 @@ export function EtapesEditor({
                                 size="icon"
                                 variant="ghost"
                                 className="h-7 w-7"
-                                aria-label={`Descendre l'activité « ${activite.libelle} »`}
+                                aria-label={`Descendre la séance « ${activite.libelle} »`}
                                 title="Descendre — recolorie la frise"
                                 disabled={
                                   pending ||
@@ -449,8 +527,19 @@ export function EtapesEditor({
                                 size="icon"
                                 variant="ghost"
                                 className="h-7 w-7"
-                                aria-label={`Modifier l'activité « ${activite.libelle} »`}
-                                title="Modifier l'activité"
+                                aria-label={`Fiche de la séance « ${activite.libelle} »`}
+                                title="Fiche remise à l'élève"
+                                disabled={pending}
+                                onClick={() => setFicheEnCours(activite.id)}
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                aria-label={`Modifier la séance « ${activite.libelle} »`}
+                                title="Modifier la séance"
                                 disabled={pending}
                                 onClick={() => {
                                   setActiviteEnCours(activite.id);
@@ -464,8 +553,8 @@ export function EtapesEditor({
                                 size="icon"
                                 variant="ghost"
                                 className="h-7 w-7 text-destructive hover:text-destructive"
-                                aria-label={`Supprimer l'activité « ${activite.libelle} »`}
-                                title="Supprimer l'activité"
+                                aria-label={`Supprimer la séance « ${activite.libelle} »`}
+                                title="Supprimer la séance"
                                 disabled={pending}
                                 onClick={() =>
                                   setActiviteASupprimer(activite.id)
@@ -491,26 +580,47 @@ export function EtapesEditor({
                     }}
                   >
                     <Plus className="h-4 w-4" />
-                    Ajouter une activité
+                    Ajouter une séance
                   </Button>
                 </div>
               </div>
+              )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
-      <Button
-        variant="outline"
-        disabled={pending}
-        onClick={() => {
-          setEtapeEnCours(null);
-          setEtapeDialogOpen(true);
-        }}
-      >
-        <Plus className="h-4 w-4" />
-        Nouvelle étape
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          disabled={pending}
+          onClick={() => {
+            setEtapeEnCours(null);
+            setEtapeDialogOpen(true);
+          }}
+        >
+          <Plus className="h-4 w-4" />
+          Nouvelle séquence
+        </Button>
+        {etapes.length > 1 && (
+          <Button
+            variant="ghost"
+            onClick={() =>
+              setReduites(
+                toutesReduites ? new Set() : new Set(etapes.map((e) => e.id)),
+              )
+            }
+          >
+            {toutesReduites ? (
+              <ChevronsUpDown className="h-4 w-4" />
+            ) : (
+              <ChevronsDownUp className="h-4 w-4" />
+            )}
+            {toutesReduites ? "Tout déplier" : "Tout réduire"}
+          </Button>
+        )}
+      </div>
 
       <EtapeDialog
         // Le dialogue tient un brouillon : sans cette clé, passer d'une étape à
@@ -534,25 +644,39 @@ export function EtapesEditor({
         onSubmit={soumettreActivite}
       />
 
+      {ficheActivite !== null && (
+        <FicheSeanceDialog
+          key={ficheActivite.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setFicheEnCours(null);
+          }}
+          activite={ficheActivite}
+          sequence={ficheSequence}
+          classe={classe}
+          schoolName={schoolName}
+        />
+      )}
+
       <ConfirmDialog
         open={etapeSupprimee !== null}
         onOpenChange={(open) => {
           if (!open) setEtapeASupprimer(null);
         }}
-        title="Supprimer cette étape ?"
+        title="Supprimer cette séquence ?"
         description={
           etapeSupprimee && (
             <>
               <p>« {etapeSupprimee.libelle} »</p>
               <p>
                 {etapeSupprimee.activites.length === 0
-                  ? "Elle ne porte aucune activité."
+                  ? "Elle ne porte aucune séance."
                   : etapeSupprimee.activites.length > 1
-                    ? `Ses ${etapeSupprimee.activites.length} activités partent avec elle, et les semaines où elles sont posées se vident.`
-                    : "Son activité part avec elle, et les semaines où elle est posée se vident."}
+                    ? `Ses ${etapeSupprimee.activites.length} séances partent avec elle, et les semaines où elles sont posées se vident.`
+                    : "Sa séance part avec elle, et les semaines où elle est posée se vident."}
               </p>
               <p>
-                Aucune séance, aucun appel et aucun bilan n'est touché : la
+                Aucun cours, aucun appel et aucun bilan n'est touché : la
                 progression est un plan, pas un enregistrement.
               </p>
             </>
@@ -570,7 +694,7 @@ export function EtapesEditor({
         onOpenChange={(open) => {
           if (!open) setActiviteASupprimer(null);
         }}
-        title="Supprimer cette activité ?"
+        title="Supprimer cette séance ?"
         description={
           activiteSupprimee && (
             <>
@@ -581,7 +705,7 @@ export function EtapesEditor({
                   : `Les ${semainesParActivite.get(activiteSupprimee.id)} semaines où elle est posée se videront.`}
               </p>
               <p>
-                Les activités suivantes changeront de couleur : la couleur vient
+                Les séances suivantes changeront de couleur : la couleur vient
                 du rang dans l'année, et ce rang se resserre.
               </p>
             </>

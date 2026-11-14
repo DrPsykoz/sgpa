@@ -276,7 +276,7 @@ export function FriseProgression({
     if (lundis.length === 0) return;
     if (mode === "poser" && pinceau === "") {
       setError(
-        "Choisissez d'abord une activité : la frise place ce qui a été défini " +
+        "Choisissez d'abord une séance : la frise place ce qui a été défini " +
           "au-dessus, elle ne l'invente pas.",
       );
       return;
@@ -366,17 +366,17 @@ export function FriseProgression({
     <div className="space-y-4">
       {premiereActivite === "" ? (
         <p className="text-sm text-muted-foreground">
-          Aucune activité à poser. Créez-en une dans « Étapes et activités »,
+          Aucune séance à poser. Créez-en une dans « Séquences et séances »,
           juste au-dessus : la frise place ce qui y est défini, elle ne l'invente
           pas.
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Activité</span>
+            <span className="text-sm font-medium">Séance</span>
             <Select value={pinceau} onValueChange={setPinceau}>
               <SelectTrigger className="w-72">
-                <SelectValue placeholder="Choisissez une activité" />
+                <SelectValue placeholder="Choisissez une séance" />
               </SelectTrigger>
               <SelectContent>
                 {etapesPeignables.map((etape) => (
@@ -408,7 +408,7 @@ export function FriseProgression({
               bouton ajouté. */}
           <p className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Clic gauche</span> pose
-            cette activité,{" "}
+            cette séance,{" "}
             <span className="font-medium text-foreground">clic droit</span>{" "}
             efface. Glissez pour couvrir plusieurs semaines d'un coup. Au
             clavier : <span className="font-medium text-foreground">Entrée</span>{" "}
@@ -490,7 +490,7 @@ export function FriseProgression({
                           `Semaine ${week.iso_week} — lundi ${formatDateDeFrise(week.monday)}`,
                           activite === null
                             ? "Libre"
-                            : `Activité : ${activite.libelle} — clic droit pour l'effacer`,
+                            : `Séance : ${activite.libelle} — clic droit pour l'effacer`,
                           ...raisons,
                         ].join("\n")}
                         className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

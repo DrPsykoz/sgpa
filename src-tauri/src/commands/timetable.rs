@@ -535,7 +535,7 @@ fn clean_label(label: &str) -> Result<String, String> {
     if label.is_empty() {
         return Err(
             "Donnez un libellé au créneau, par exemple « Atelier » ou « Coordination » : \
-             c'est lui qui titrera la séance créée depuis ce créneau."
+             c'est lui qui titrera le cours créé depuis ce créneau."
                 .to_string(),
         );
     }
@@ -1035,7 +1035,19 @@ fn assemble_day(date: NaiveDate, parts: DayParts) -> DaySchedule {
 /// précis où l'on prépare la rentrée. On interroge par plage de dates, point.
 const VACANCES_DE_LA_PERIODE: &str = "SELECT sh.start_date, sh.end_date, sh.label, sh.origin
   FROM school_holidays sh
- WHERE sh.academie = (SELECT academie FROM app_settings WHERE id = 1)
+ WHERE sh.academie = COALESCE(
+         -- 1. l'académie des classes de l'année scolaire de la plage, si elles
+         --    n'en ont qu'une (année = août à juillet, comme `year_start_for`)
+         (SELECT MIN(e.academie)
+            FROM sessions s JOIN establishments e ON e.id = s.establishment_id
+           WHERE e.academie <> ''
+             AND s.year_start = CAST(strftime('%Y', ?1) AS INTEGER)
+                                - (strftime('%m', ?1) < '08')
+          HAVING COUNT(DISTINCT e.academie) = 1),
+         -- 2. sinon (plusieurs académies, ou aucune) : l'établissement principal
+         (SELECT NULLIF(e.academie, '') FROM establishments e WHERE e.is_principal = 1),
+         -- 3. sinon : l'académie des Réglages d'avant le palier 028
+         (SELECT academie FROM app_settings WHERE id = 1))
    AND sh.end_date   >= ?1
    AND sh.start_date <= ?2
  ORDER BY sh.start_date, sh.label";

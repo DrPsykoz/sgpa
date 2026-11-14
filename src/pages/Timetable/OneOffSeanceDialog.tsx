@@ -185,7 +185,7 @@ export function OneOffSeanceDialog({
     if (pending) return;
     if (classeChoisie === AUCUNE_CLASSE) {
       setError(
-        "Choisissez la classe qui aura ce cours : une séance appartient à une " +
+        "Choisissez la classe qui aura ce cours : un cours appartient à une " +
           "classe, c'est elle qui en portera l'appel.",
       );
       return;
@@ -231,7 +231,7 @@ export function OneOffSeanceDialog({
           <DialogTitle>Ajouter un cours ponctuel</DialogTitle>
           <DialogDescription>
             Un cours qui n'aura lieu qu'une fois : le remplacement d'un collègue
-            absent, une séance exceptionnelle. Il crée une vraie séance, avec son
+            absent, un cours exceptionnel. Il crée un vrai cours, avec son
             appel et son cahier de texte, et elle comptera dans le taux de
             présence du bilan.
           </DialogDescription>
@@ -269,24 +269,24 @@ export function OneOffSeanceDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Obligatoire : l'appel de cette séance portera sur les élèves de
+                Obligatoire : l'appel de ce cours portera sur les élèves de
                 cette classe.
               </p>
             </div>
 
             {/* Le groupe, sous la classe dont il dépend, et absent tant qu'elle
                 n'en a aucun. Il est posé **à la création et seulement là** :
-                c'est un fait et non un réglage — la séance existe, son appel
+                c'est un fait et non un réglage — le cours existe, son appel
                 aussi —, et c'est pourquoi `seances.group_id` est en RESTRICT
                 quand celui du créneau est en SET NULL. Il reste modifiable
-                ensuite depuis la fiche de la séance, pas d'ici. */}
+                ensuite depuis la fiche du cours, pas d'ici. */}
             <SelecteurDeGroupe
               id="ponctuel-groupe"
               groups={groupes}
               value={groupId}
               onChange={setGroupId}
               disabled={pending}
-              aide="L'appel ne convoquera que ce groupe, et la séance sortira de l'assiduité des autres élèves de la classe."
+              aide="L'appel ne convoquera que ce groupe, et le cours sortira de l'assiduité des autres élèves de la classe."
             />
             {erreurGroupes && (
               <p className="text-xs text-destructive">
@@ -352,12 +352,12 @@ export function OneOffSeanceDialog({
                   <strong className="font-semibold">
                     Cette date est déjà passée.
                   </strong>{" "}
-                  Une séance qui existe compte au dénominateur d'assiduité. Tant
+                  Un cours qui existe compte au dénominateur d'assiduité. Tant
                   que son appel n'est pas fait,{" "}
                   {groupId
                     ? "chaque élève du groupe convoqué"
                     : "chaque élève de la classe"}{" "}
-                  perd une séance de présence sur le bilan remis à sa famille.
+                  perd un cours de présence sur le bilan remis à sa famille.
                   Si ce cours n'a pas eu lieu, ne le créez pas — et pensez à
                   faire l'appel dans la foulée s'il a eu lieu.
                 </span>
@@ -375,7 +375,7 @@ export function OneOffSeanceDialog({
                 autoFocus
               />
               <p className="text-xs text-muted-foreground">
-                Obligatoire : c'est le titre de la séance, celui qu'on relit
+                Obligatoire : c'est le titre du cours, celui qu'on relit
                 dans la liste et dans le cahier de texte.
               </p>
             </div>
@@ -400,7 +400,7 @@ export function OneOffSeanceDialog({
           {!sansClasse && (
             <Button onClick={() => void handleCreate()} disabled={pending}>
               <CalendarPlus className="h-4 w-4" />
-              {pending ? "Création…" : "Créer la séance"}
+              {pending ? "Création…" : "Créer le cours"}
             </Button>
           )}
         </DialogFooter>

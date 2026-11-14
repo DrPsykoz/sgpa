@@ -589,16 +589,16 @@ pub fn delete_node(
             NodeKind::Competency => format!(
                 "Cette compétence est utilisée par {evaluations} évaluation(s), \
                  porte {grades} note(s) et {declarees} case(s) « ne sera pas \
-                 évaluée », et figure dans {etapes} étape(s) et {activites} \
-                 activité(s) de progression. Archivez-la plutôt que de la \
+                 évaluée », et figure dans {etapes} séquence(s) et {activites} \
+                 séance(s) de progression. Archivez-la plutôt que de la \
                  supprimer."
             ),
             // Cycle, domaine et champ sont tous masculins : « de le supprimer ».
             _ => format!(
                 "{} contient des compétences utilisées par {evaluations} \
                  évaluation(s), portant {grades} note(s) et {declarees} case(s) \
-                 « ne sera pas évaluée », et citées dans {etapes} étape(s) et \
-                 {activites} activité(s) de progression. Archivez ces \
+                 « ne sera pas évaluée », et citées dans {etapes} séquence(s) et \
+                 {activites} séance(s) de progression. Archivez ces \
                  compétences, ou retirez-les des évaluations et des \
                  progressions, avant de le supprimer.",
                 kind.demonstrative()

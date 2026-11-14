@@ -6,6 +6,7 @@ import {
 	type Table,
 } from "jspdf-autotable";
 import { api } from "@/lib/api";
+import { grouperParDomaine } from "@/lib/bilan";
 import {
 	MOTS_DE_VOIE,
 	VOIES,
@@ -34,6 +35,7 @@ import {
 	type AttendanceStats,
 	type ContractRow,
 	type ContractSheetInput,
+	type FicheSeance,
 	type LevelCode,
 	type MasteryLevel,
 	type Progression,
@@ -100,23 +102,17 @@ function tableEndY(doc: jsPDF, fallback: number): number {
 function attendanceLines(attendance: AttendanceStats): string[] {
 	const suivies = attendance.present + attendance.retard;
 	const lines = [
-		`Présence : ${suivies}/${attendance.seances_applicables} séance${plural(
-			attendance.seances_applicables,
-		)} (présences et retards)`,
+		`Présence : ${suivies}/${attendance.seances_applicables} cours (présences et retards)`,
 		`Présent : ${attendance.present}   ·   Retard : ${attendance.retard}   ·   Absent : ${attendance.absent}   ·   Excusé : ${attendance.excuse}`,
 	];
 	if (attendance.non_renseigne > 0) {
 		lines.push(
-			`${attendance.non_renseigne} séance${plural(
-				attendance.non_renseigne,
-			)} non pointée${plural(attendance.non_renseigne)}`,
+			`${attendance.non_renseigne} cours non pointé${plural(attendance.non_renseigne)}`,
 		);
 	}
 	if (attendance.hors_inscription > 0) {
 		lines.push(
-			`${attendance.hors_inscription} séance${plural(
-				attendance.hors_inscription,
-			)} hors de sa période d'inscription, non comptabilisée${plural(
+			`${attendance.hors_inscription} cours hors de sa période d'inscription, non comptabilisé${plural(
 				attendance.hors_inscription,
 			)}`,
 		);
@@ -127,9 +123,7 @@ function attendanceLines(attendance: AttendanceStats): string[] {
 	// dénominateur, l'élève n'est pas « absent excusé » dessus.
 	if (attendance.seances_neutralisees > 0) {
 		lines.push(
-			`${attendance.seances_neutralisees} séance${plural(
-				attendance.seances_neutralisees,
-			)} pendant une absence justifiée, non comptabilisée${plural(
+			`${attendance.seances_neutralisees} cours pendant une absence justifiée, non comptabilisé${plural(
 				attendance.seances_neutralisees,
 			)}`,
 		);
@@ -139,11 +133,9 @@ function attendanceLines(attendance: AttendanceStats): string[] {
 	// lui, l'en-tête annonce 26 séances au trimestre et l'élève affiche 16/16.
 	if (attendance.seances_autre_groupe > 0) {
 		lines.push(
-			`${attendance.seances_autre_groupe} séance${plural(
+			`${attendance.seances_autre_groupe} cours tenu${plural(
 				attendance.seances_autre_groupe,
-			)} tenue${plural(
-				attendance.seances_autre_groupe,
-			)} avec un autre groupe, non comptabilisée${plural(
+			)} avec un autre groupe, non comptabilisé${plural(
 				attendance.seances_autre_groupe,
 			)}`,
 		);
@@ -245,14 +237,12 @@ export async function exportReportPDF(
 		doc.setTextColor(...GREY);
 		const cancelled =
 			report.cancelled_count > 0
-				? ` (dont ${report.cancelled_count} annulée${plural(
+				? ` (dont ${report.cancelled_count} annulé${plural(
 						report.cancelled_count,
 					)})`
 				: "";
 		doc.text(
-			`${report.seance_count} séance${plural(
-				report.seance_count,
-			)} au trimestre${cancelled}`,
+			`${report.seance_count} cours au trimestre${cancelled}`,
 			centerX,
 			y,
 			{ align: "center" },
@@ -288,22 +278,44 @@ export async function exportReportPDF(
 				},
 				head: [
 					[
-						"Domaine",
-						"Champ",
+						"Domaine / champ",
 						"Compétence",
 						"Niveau atteint",
 						"Moy.",
 						"Notes",
 					],
 				],
-				body: student.competency_averages.map((competency) => [
-					competency.domain_name,
-					competency.field_name,
-					competency.competency_name,
-					labelDeNote(competency.average_mark),
-					`${formatAverage(competency.average_mark)}/20`,
-					String(competency.grade_count),
-				]),
+				// Une ligne par domaine (moyenne de ses compétences), puis ses
+				// compétences : le domaine n'est plus répété à chaque ligne.
+				body: grouperParDomaine(student.competency_averages).flatMap(
+					(domaine) => {
+						const style = {
+							fontStyle: "bold" as const,
+							fillColor: [235, 235, 235] as [number, number, number],
+						};
+						return [
+							[
+								{ content: domaine.domain_name, colSpan: 2, styles: style },
+								{
+									content: labelDeNote(domaine.average_mark),
+									styles: style,
+								},
+								{
+									content: `${formatAverage(domaine.average_mark)}/20`,
+									styles: style,
+								},
+								{ content: String(domaine.grade_count), styles: style },
+							],
+							...domaine.competencies.map((competency) => [
+								competency.field_name,
+								competency.competency_name,
+								labelDeNote(competency.average_mark),
+								`${formatAverage(competency.average_mark)}/20`,
+								String(competency.grade_count),
+							]),
+						];
+					},
+				),
 				theme: "grid",
 				styles: {
 					fontSize: 8,
@@ -320,12 +332,11 @@ export async function exportReportPDF(
 					fontSize: 8,
 				},
 				columnStyles: {
-					0: { cellWidth: 30 },
-					1: { cellWidth: 30 },
-					2: { cellWidth: 56 },
-					3: { cellWidth: 38 },
-					4: { cellWidth: 14, halign: "center" },
-					5: { cellWidth: 12, halign: "center" },
+					0: { cellWidth: 40 },
+					1: { cellWidth: 76 },
+					2: { cellWidth: 38 },
+					3: { cellWidth: 14, halign: "center" },
+					4: { cellWidth: 12, halign: "center" },
 				},
 			});
 			y = tableEndY(doc, y) + 8;
@@ -521,6 +532,36 @@ function mergeSpans(
 		for (let covered = start + 1; covered < end; covered += 1) {
 			spans[covered] = 0;
 		}
+		start = end;
+	}
+	return spans;
+}
+
+/**
+ * Hauteur de fusion de la cellule « Domaine » : des blocs du socle consécutifs
+ * qui portent le même domaine n'impriment celui-ci qu'une fois.
+ *
+ * Elle se calcule **par bloc** (à partir de `socleSpan`) et non par ligne : une
+ * cellule de domaine couvre ainsi toujours des blocs entiers, jamais la moitié
+ * d'une compétence — même grille emboîtée que pour les activités de formation.
+ * Un domaine vide ne fusionne avec personne, comme dans `mergeSpans`.
+ * Même convention : `0` = couverte par la cellule du dessus.
+ */
+function domainSpans(rows: ContractRow[], socleSpan: number[]): number[] {
+	const spans = new Array<number>(rows.length).fill(0);
+	let start = 0;
+	while (start < rows.length) {
+		const label = rows[start].socle_domain_label.trim();
+		let end = start + socleSpan[start];
+		if (label !== "") {
+			while (
+				end < rows.length &&
+				rows[end].socle_domain_label.trim() === label
+			) {
+				end += socleSpan[end];
+			}
+		}
+		spans[start] = end - start;
 		start = end;
 	}
 	return spans;
@@ -828,6 +869,8 @@ function renderContractSheet(
 		}
 	}
 
+	const domainSpan = domainSpans(rows, socleSpan);
+
 	const body: RowInput[] = rows.map((row, index) => {
 		const cells: CellInput[] = [{ content: row.student_activity }];
 		if (trainingSpan[index] > 0) {
@@ -837,10 +880,16 @@ function renderContractSheet(
 			});
 		}
 		if (socleSpan[index] > 0) {
-			cells.push(
-				{ content: row.socle_domain_label, rowSpan: socleSpan[index] },
-				{ content: row.socle_competency_label, rowSpan: socleSpan[index] },
-			);
+			if (domainSpan[index] > 0) {
+				cells.push({
+					content: row.socle_domain_label,
+					rowSpan: domainSpan[index],
+				});
+			}
+			cells.push({
+				content: row.socle_competency_label,
+				rowSpan: socleSpan[index],
+			});
 		}
 		return cells;
 	});
@@ -1028,6 +1077,9 @@ export interface EvaluationSheetStudent {
 	 *  Une liste d'identifiants, donc toujours **aucune note par compétence**
 	 *  dans ce type : la règle du 2026-11-07 tient par sa forme. */
 	waived: string[];
+	/** Le commentaire du professeur (palier 027), tel qu'il est enregistré.
+	 *  Vide = aucun : le cadre s'imprime alors vierge, à remplir au stylo. */
+	comment: string;
 	/** `null` = aucune compétence notée. La case reste alors **vide**, pas à
 	 *  « — » : la fiche est un formulaire, et une case vide se remplit au stylo
 	 *  pendant la séquence. L'écran, lui, dit qui n'a pas encore de note. */
@@ -1351,6 +1403,7 @@ function renderEvaluationSheets(
 		// pour chacune des lignes de la grille referait le même travail.
 		const sansNote = new Set(student.waived);
 
+		const domainSpan = domainSpans(rows, socleSpan);
 		const body: RowInput[] = rows.map((row, index) => {
 			const cells: CellInput[] = [
 				{ content: row.student_activity },
@@ -1358,10 +1411,13 @@ function renderEvaluationSheets(
 			];
 			if (socleSpan[index] > 0) {
 				const span = socleSpan[index];
-				cells.push(
-					{ content: row.socle_domain_label, rowSpan: span },
-					{ content: row.socle_competency_label, rowSpan: span },
-				);
+				if (domainSpan[index] > 0) {
+					cells.push({
+						content: row.socle_domain_label,
+						rowSpan: domainSpan[index],
+					});
+				}
+				cells.push({ content: row.socle_competency_label, rowSpan: span });
 				// La croix vient du niveau de CETTE compétence. Sans identifiant
 				// de référentiel, la ligne ne porte qu'un libellé : aucune note
 				// ne lui est rattachable, et les cases restent toutes à cocher.
@@ -1407,6 +1463,38 @@ function renderEvaluationSheets(
 			headStyles,
 			columnStyles,
 		});
+
+		// ---- Le commentaire du professeur ----
+		// Un cadre sous la grille : le texte saisi, ou un cadre vide à remplir
+		// au stylo. S'il ne tient plus sur la page, il passe à la suivante, ce
+		// qui fait recommencer l'export un cran plus serré.
+		const pageHeight = doc.internal.pageSize.getHeight();
+		const hauteurCadre = 24;
+		let top = tableEndY(doc, y) + scale.gap;
+		if (top + hauteurCadre + 5 > pageHeight - MARGIN_BOTTOM) {
+			doc.addPage();
+			top = MARGIN_TOP;
+		}
+		doc.setFont("helvetica", "bold");
+		doc.setFontSize(scale.label);
+		doc.setTextColor(...GREY);
+		doc.text("COMMENTAIRE DU PROFESSEUR", MARGIN_X, top, { charSpace: 0.3 });
+		doc.setDrawColor(...RULE);
+		doc.setLineWidth(0.3);
+		doc.rect(MARGIN_X, top + 1.5, contentWidth, hauteurCadre);
+		const commentaire = student.comment.trim();
+		if (commentaire !== "") {
+			doc.setFont("helvetica", "normal");
+			doc.setFontSize(scale.value);
+			doc.setTextColor(0, 0, 0);
+			const lignes = doc.splitTextToSize(
+				commentaire,
+				contentWidth - 4,
+			) as string[];
+			const interligne = scale.value * 0.45;
+			const places = Math.max(1, Math.floor((hauteurCadre - 3) / interligne));
+			doc.text(lignes.slice(0, places), MARGIN_X + 2, top + 1.5 + 4.5);
+		}
 	});
 
 	return doc;
@@ -1967,6 +2055,10 @@ export async function exportProgressionPDF({
 			if (texte !== "") parts.push(`${titre} : ${texte}`);
 		};
 		ajouter("Objectifs", etape.objectifs);
+		// Le métier et le CAP choisis dans le référentiel (palier 027), puis le
+		// texte libre d'avant tant qu'il reste : le libellé figé, jamais la clé.
+		ajouter("Métier", etape.career_label);
+		ajouter("CAP", etape.cap_label);
 		ajouter("Métier et CAP", etape.metier_cap);
 		ajouter("Compétences", competencesDeEtape(etape));
 		ajouter("Connaissances", etape.connaissances);
@@ -1987,7 +2079,7 @@ export async function exportProgressionPDF({
 		doc.setFont("helvetica", "italic");
 		doc.setFontSize(10);
 		doc.setTextColor(...GREY);
-		doc.text("Aucune étape n'est encore définie pour cette année.", MARGIN_X, y);
+		doc.text("Aucune séquence n'est encore définie pour cette année.", MARGIN_X, y);
 	} else {
 		const body: RowInput[] = lignes.flatMap((ligne): RowInput[] => {
 			if (ligne.sorte === "etape") {
@@ -2114,6 +2206,380 @@ export async function exportProgressionPDF({
 	}
 
 	const fileName = `Progression-${slug(session.name)}-${yearLabel}.pdf`;
+	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
+	return await api.saveExport(fileName, bytes, openAfter);
+}
+
+// ---------------------------------------------------------------------------
+// La fiche d'une séance (palier 027)
+// ---------------------------------------------------------------------------
+
+export interface FicheSeancePdfInput {
+	/** L'intitulé de la séance : c'est lui qui sert de chantier quand la fiche
+	 *  n'en nomme pas. */
+	titre: string;
+	/** La séquence qui porte la séance, pour le sous-titre. */
+	sequence: string;
+	/** Le nom de la classe, en sous-titre. L'élève, lui, écrit son nom, sa
+	 *  classe et la date au stylo : la fiche est la même pour toute la classe. */
+	classe: string;
+	fiche: FicheSeance;
+	schoolName: string;
+	openAfter?: boolean;
+}
+
+/** Une ligne par élément ; les lignes vides sont écartées. */
+function lignesDeListe(texte: string): string[] {
+	return texte
+		.split(/\r?\n/)
+		.map((ligne) => ligne.trim())
+		.filter((ligne) => ligne !== "");
+}
+
+/**
+ * La fiche remise à l'élève pour une séance : la maquette du prototype de
+ * l'auteur, **sans** la colonne « Professeur » du tableau d'auto-évaluation ni
+ * le cadre « Observations du professeur ». L'élève coche Oui ou Non, et écrit
+ * son nom, sa classe et la date au stylo — la fiche est la même pour tous.
+ *
+ * Les cases se dessinent au `rect` : la police Helvetica de jsPDF n'a pas le
+ * glyphe « ☐ ». Un seul objet en paramètre, comme `exportProgressionPDF`.
+ */
+export async function exportFicheSeancePDF({
+	titre,
+	sequence,
+	classe,
+	fiche,
+	schoolName,
+	openAfter = false,
+}: FicheSeancePdfInput): Promise<string> {
+	const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+	const pageWidth = doc.internal.pageSize.getWidth();
+	const pageHeight = doc.internal.pageSize.getHeight();
+	const contentWidth = pageWidth - MARGIN_X * 2;
+	const bottom = pageHeight - MARGIN_BOTTOM;
+	const LINE = 4.6;
+
+	doc.setProperties({
+		title: `Fiche séance — ${titre}`,
+		subject: "Fiche séance",
+		creator: "SGPA",
+		author: schoolName || "SGPA",
+	});
+
+	let y = MARGIN_TOP;
+
+	/** Saute à la page suivante si `hauteur` ne tient plus. */
+	const reserver = (hauteur: number) => {
+		if (y + hauteur > bottom) {
+			doc.addPage();
+			y = MARGIN_TOP;
+		}
+	};
+
+	const texte = (
+		contenu: string,
+		largeur: number,
+		style: "normal" | "bold" | "italic" = "normal",
+		taille = 10,
+	): number => {
+		doc.setFont("helvetica", style);
+		doc.setFontSize(taille);
+		doc.setTextColor(...INK);
+		const lignes = doc.splitTextToSize(contenu, largeur) as string[];
+		return lignes.length;
+	};
+
+	const ecrireBloc = (
+		contenu: string,
+		x: number,
+		largeur: number,
+		style: "normal" | "bold" | "italic" = "normal",
+		taille = 10,
+	) => {
+		const n = texte(contenu, largeur, style, taille);
+		const lignes = doc.splitTextToSize(contenu, largeur) as string[];
+		for (let i = 0; i < n; i += 1) {
+			reserver(LINE);
+			doc.text(lignes[i], x, y);
+			y += LINE;
+		}
+	};
+
+	const rubrique = (intitule: string) => {
+		reserver(14);
+		y += 2;
+		doc.setFillColor(238, 238, 238);
+		doc.rect(MARGIN_X, y - 4.2, contentWidth, 6.4, "F");
+		doc.setFont("helvetica", "bold");
+		doc.setFontSize(10.5);
+		doc.setTextColor(...INK);
+		doc.text(intitule, MARGIN_X + 1.5, y);
+		y += 6;
+	};
+
+	const caseACocher = (x: number, baseline: number) => {
+		doc.setDrawColor(...INK);
+		doc.setLineWidth(0.25);
+		doc.rect(x, baseline - 2.8, 3, 3);
+	};
+
+	// ---- En-tête ----
+	if (schoolName) {
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(9);
+		doc.setTextColor(...GREY);
+		doc.text(schoolName, MARGIN_X, y);
+		y += 5;
+	}
+	doc.setFont("helvetica", "bold");
+	doc.setFontSize(15);
+	doc.setTextColor(...INK);
+	doc.text("FICHE SÉANCE", MARGIN_X, y + 1);
+	y += 7;
+	const sousTitre = [classe, sequence].filter((t) => t.trim() !== "").join(" — ");
+	if (sousTitre !== "") {
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(10);
+		doc.setTextColor(...GREY);
+		doc.text(sousTitre, MARGIN_X, y);
+		y += 6;
+	}
+
+	const domaine = fiche.domaine.trim();
+	const duree = fiche.duree.trim();
+	if (domaine !== "" || duree !== "") {
+		doc.setFontSize(10);
+		doc.setFont("helvetica", "bold");
+		doc.setTextColor(...INK);
+		if (domaine !== "") {
+			doc.text("Domaine : ", MARGIN_X, y);
+			const x = MARGIN_X + doc.getTextWidth("Domaine : ");
+			doc.setFont("helvetica", "normal");
+			doc.text(domaine, x, y, { maxWidth: contentWidth * 0.62 - 20 });
+		}
+		if (duree !== "") {
+			doc.setFont("helvetica", "bold");
+			const etiquette = "Durée prévue : ";
+			doc.text(etiquette, MARGIN_X + contentWidth * 0.64, y);
+			doc.setFont("helvetica", "normal");
+			doc.text(
+				duree,
+				MARGIN_X + contentWidth * 0.64 + doc.getTextWidth(etiquette),
+				y,
+				{ maxWidth: contentWidth * 0.36 - doc.getTextWidth(etiquette) },
+			);
+		}
+		y += 6;
+	}
+
+	const chantier = fiche.chantier.trim() !== "" ? fiche.chantier.trim() : titre;
+	ecrireBloc(`Intitulé du chantier : ${chantier}`, MARGIN_X, contentWidth, "bold", 10.5);
+	y += 2;
+
+	// L'identité de l'élève : à remplir au stylo.
+	reserver(14);
+	doc.setFont("helvetica", "normal");
+	doc.setFontSize(10);
+	doc.setTextColor(...INK);
+	doc.text("Nom et prénom de l'élève : ", MARGIN_X, y);
+	const xNom = MARGIN_X + doc.getTextWidth("Nom et prénom de l'élève : ");
+	doc.setDrawColor(...GRID);
+	doc.setLineWidth(0.2);
+	doc.line(xNom, y + 0.6, MARGIN_X + contentWidth * 0.6, y + 0.6);
+	doc.text("Classe : ", MARGIN_X + contentWidth * 0.63, y);
+	doc.line(
+		MARGIN_X + contentWidth * 0.63 + doc.getTextWidth("Classe : "),
+		y + 0.6,
+		pageWidth - MARGIN_X,
+		y + 0.6,
+	);
+	y += 7;
+	doc.text("Date : ", MARGIN_X, y);
+	doc.text(
+		"........ / ........ / ............",
+		MARGIN_X + doc.getTextWidth("Date : "),
+		y,
+	);
+	y += 4;
+
+	// ---- 1. Situation professionnelle ----
+	if (fiche.situation.trim() !== "") {
+		rubrique("1. Situation professionnelle (ce qu'on me demande)");
+		ecrireBloc(fiche.situation.trim(), MARGIN_X, contentWidth);
+	}
+
+	// ---- 2. Sécurité et EPI ----
+	const epi = lignesDeListe(fiche.epi);
+	const consigne = fiche.consigne_securite.trim();
+	if (epi.length > 0 || consigne !== "") {
+		rubrique("2. Sécurité et équipements de protection individuelle (EPI)");
+		if (epi.length > 0) {
+			ecrireBloc("Avant de commencer le travail, je vérifie que je porte :", MARGIN_X, contentWidth);
+			const colonne = contentWidth / 2;
+			for (let i = 0; i < epi.length; i += 2) {
+				const gauche = doc.splitTextToSize(epi[i], colonne - 6) as string[];
+				const droite =
+					i + 1 < epi.length
+						? (doc.splitTextToSize(epi[i + 1], colonne - 6) as string[])
+						: [];
+				const nb = Math.max(gauche.length, droite.length);
+				reserver(nb * LINE + 1);
+				caseACocher(MARGIN_X + 1, y);
+				doc.text(gauche, MARGIN_X + 6, y);
+				if (droite.length > 0) {
+					caseACocher(MARGIN_X + colonne + 1, y);
+					doc.text(droite, MARGIN_X + colonne + 6, y);
+				}
+				y += nb * LINE + 0.8;
+			}
+		}
+		if (consigne !== "") {
+			y += 1;
+			ecrireBloc(`Consigne de sécurité : ${consigne}`, MARGIN_X, contentWidth, "bold");
+		}
+	}
+
+	// ---- 3. Matériels et matériaux ----
+	const outillage = lignesDeListe(fiche.outillage);
+	const materiaux = lignesDeListe(fiche.materiaux);
+	if (outillage.length > 0 || materiaux.length > 0) {
+		rubrique("3. Matériels et matériaux à préparer");
+		const colonne = contentWidth / 2;
+		const mesurer = (items: string[]) =>
+			items.map((item) => doc.splitTextToSize(item, colonne - 8) as string[]);
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(10);
+		const gauche = mesurer(outillage);
+		const droite = mesurer(materiaux);
+		const hauteur = (blocs: string[][]) =>
+			blocs.reduce((total, b) => total + b.length * LINE + 0.6, 0);
+		reserver(Math.min(Math.max(hauteur(gauche), hauteur(droite)) + 8, bottom - MARGIN_TOP));
+		const debut = y;
+		const dessiner = (titreColonne: string, blocs: string[][], x: number) => {
+			let yy = debut;
+			doc.setFont("helvetica", "bold");
+			doc.text(titreColonne, x, yy);
+			yy += LINE + 0.6;
+			doc.setFont("helvetica", "normal");
+			for (const bloc of blocs) {
+				if (yy + bloc.length * LINE > bottom) break;
+				doc.text("•", x + 1, yy);
+				doc.text(bloc, x + 5, yy);
+				yy += bloc.length * LINE + 0.6;
+			}
+			return yy;
+		};
+		const finGauche = dessiner("Outillage à prendre à l'armoire", gauche, MARGIN_X);
+		const finDroite = dessiner("Matériaux et consommables", droite, MARGIN_X + colonne);
+		y = Math.max(finGauche, finDroite);
+	}
+
+	// ---- 4. Étapes de réalisation ----
+	const etapes = lignesDeListe(fiche.etapes);
+	if (etapes.length > 0) {
+		rubrique("4. Étapes de réalisation (modes opératoires)");
+		let numero = 0;
+		for (const ligne of etapes) {
+			const sousPuce = ligne.startsWith("-");
+			if (sousPuce) {
+				const contenu = ligne.replace(/^-+\s*/, "");
+				const lignes = doc.splitTextToSize(contenu, contentWidth - 14) as string[];
+				reserver(lignes.length * LINE);
+				doc.setFont("helvetica", "normal");
+				doc.setFontSize(10);
+				doc.setTextColor(...INK);
+				doc.text("-", MARGIN_X + 8, y);
+				doc.text(lignes, MARGIN_X + 12, y);
+				y += lignes.length * LINE;
+			} else {
+				numero += 1;
+				y += 0.8;
+				const lignes = doc.splitTextToSize(ligne, contentWidth - 8) as string[];
+				reserver(lignes.length * LINE);
+				doc.setFont("helvetica", "bold");
+				doc.setFontSize(10);
+				doc.setTextColor(...INK);
+				doc.text(`${numero}.`, MARGIN_X + 1, y);
+				doc.setFont("helvetica", "normal");
+				doc.text(lignes, MARGIN_X + 8, y);
+				y += lignes.length * LINE;
+			}
+		}
+	}
+
+	// ---- 5. Auto-évaluation ----
+	const criteres = lignesDeListe(fiche.criteres);
+	if (criteres.length > 0) {
+		reserver(40);
+		rubrique("5. Auto-évaluation");
+		ecrireBloc(
+			"Coche la case correspondant à ton travail avant d'appeler le professeur.",
+			MARGIN_X,
+			contentWidth,
+			"italic",
+		);
+		y += 1;
+		const largeurCriteres = contentWidth - 42;
+		const dessinerEntete = () => {
+			doc.setFillColor(238, 238, 238);
+			doc.setDrawColor(...GRID);
+			doc.setLineWidth(0.2);
+			doc.rect(MARGIN_X, y - 4.2, contentWidth, 6.4, "FD");
+			doc.setFont("helvetica", "bold");
+			doc.setFontSize(9.5);
+			doc.setTextColor(...INK);
+			doc.text("Critères de réussite", MARGIN_X + 1.5, y);
+			doc.text("Élève", MARGIN_X + contentWidth - 21, y, { align: "center" });
+			y += 6.4;
+		};
+		reserver(16);
+		y += 2;
+		dessinerEntete();
+		criteres.forEach((critere, index) => {
+			const lignes = doc.splitTextToSize(`${index + 1}. ${critere}`, largeurCriteres - 3) as string[];
+			const hauteur = Math.max(lignes.length * LINE + 2.4, 8);
+			if (y - 4.2 + hauteur > bottom) {
+				doc.addPage();
+				y = MARGIN_TOP + 4;
+				dessinerEntete();
+			}
+			doc.setDrawColor(...GRID);
+			doc.setLineWidth(0.2);
+			doc.rect(MARGIN_X, y - 4.2, contentWidth, hauteur);
+			doc.line(MARGIN_X + largeurCriteres, y - 4.2, MARGIN_X + largeurCriteres, y - 4.2 + hauteur);
+			doc.setFont("helvetica", "normal");
+			doc.setFontSize(10);
+			doc.setTextColor(...INK);
+			doc.text(lignes, MARGIN_X + 1.5, y);
+			const milieu = y - 4.2 + hauteur / 2 + 1.2;
+			const xOui = MARGIN_X + largeurCriteres + 4;
+			caseACocher(xOui, milieu);
+			doc.text("Oui", xOui + 4.5, milieu);
+			const xNon = MARGIN_X + largeurCriteres + 22;
+			caseACocher(xNon, milieu);
+			doc.text("Non", xNon + 4.5, milieu);
+			y += hauteur;
+		});
+	}
+
+	// ---- Pied de page ----
+	const pageCount = doc.getNumberOfPages();
+	const editedOn = new Date().toLocaleDateString("fr-FR");
+	for (let page = 1; page <= pageCount; page += 1) {
+		doc.setPage(page);
+		doc.setFont("helvetica", "normal");
+		doc.setFontSize(8);
+		doc.setTextColor(...GREY);
+		doc.text(
+			`Édité le ${editedOn} — page ${page}/${pageCount}`,
+			pageWidth / 2,
+			pageHeight - 8,
+			{ align: "center" },
+		);
+	}
+
+	const fileName = `Fiche-seance-${slug(titre)}.pdf`;
 	const bytes = Array.from(new Uint8Array(doc.output("arraybuffer")));
 	return await api.saveExport(fileName, bytes, openAfter);
 }

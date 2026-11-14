@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { Ban, Building2 } from "lucide-react";
+import { Ban, Building2, CalendarDays } from "lucide-react";
 
 import { ChampDAjout, LigneDArbre } from "@/components/ArbreReferentiel";
 import type { StyleDeNiveau } from "@/components/ArbreReferentiel";
 import { CompetencyPicker } from "@/components/CompetencyPicker";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DataState } from "@/components/DataState";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -57,7 +65,156 @@ function metaDeLEtablissement(etablissement: Establishment): string {
           "compétence écartée",
           "compétences écartées",
         );
-  return `${classes} · ${ecartees}`;
+  const academie =
+    etablissement.academie === ""
+      ? "académie non renseignée"
+      : `académie ${etablissement.academie}`;
+  return `${classes} · ${ecartees} · ${academie}${
+    etablissement.is_principal ? " · établissement principal" : ""
+  }`;
+}
+
+interface DialogueDuCalendrierProps {
+  etablissement: Establishment;
+  onOpenChange: (open: boolean) => void;
+  onChanged: () => Promise<void>;
+}
+
+/**
+ * L'académie d'un établissement, et s'il fixe le calendrier — palier 028.
+ *
+ * **Le calendrier de l'application est unique** : une colonne de jour fermée
+ * l'est pour toutes les classes, donc UN établissement — le principal — décide
+ * des vacances affichées. L'écran le dit en toutes lettres : sans cela, régler
+ * l'académie d'un second établissement semblerait ne rien faire.
+ *
+ * Les académies sont lues en base (`getAvailableAcademies`), jamais recopiées :
+ * une académie sans dates serait un réglage qui a l'air de marcher et ne fait
+ * rien. Brouillon local : `key={etablissement.id}` chez l'appelant.
+ */
+function DialogueDuCalendrier({
+  etablissement,
+  onOpenChange,
+  onChanged,
+}: DialogueDuCalendrierProps): ReactElement {
+  const [academie, setAcademie] = useState(etablissement.academie);
+  const [principal, setPrincipal] = useState(etablissement.is_principal);
+  const [academies, setAcademies] = useState<string[]>([]);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enregistrement, setEnregistrement] = useState(false);
+
+  useEffect(() => {
+    api
+      .getAvailableAcademies()
+      .then(setAcademies)
+      // Le calendrier est une couche d'affichage : son absence ne doit pas
+      // empêcher d'ouvrir la fenêtre. La valeur enregistrée reste affichée.
+      .catch(() => setAcademies([]));
+  }, []);
+
+  const enregistrer = async () => {
+    setEnregistrement(true);
+    setErreur(null);
+    try {
+      await api.updateEstablishmentCalendar(
+        etablissement.id,
+        academie,
+        principal,
+      );
+      await onChanged();
+      onOpenChange(false);
+    } catch (err) {
+      setErreur(messageOf(err));
+    } finally {
+      setEnregistrement(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Académie — {etablissement.name}</DialogTitle>
+          <DialogDescription>
+            L'académie détermine les dates de vacances scolaires affichées par
+            l'emploi du temps. Les jours fériés, eux, sont calculés et n'en
+            dépendent pas.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="academie-etablissement">Académie</Label>
+            <Select
+              value={academie === "" ? "aucune" : academie}
+              onValueChange={(valeur) =>
+                setAcademie(valeur === "aucune" ? "" : valeur)
+              }
+            >
+              <SelectTrigger id="academie-etablissement">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="aucune">Non renseignée</SelectItem>
+                {academies.map((nom) => (
+                  <SelectItem key={nom} value={nom}>
+                    {nom}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {academies.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {academies.length} académies disponibles dans le calendrier
+                embarqué.
+              </p>
+            )}
+          </div>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={principal}
+              onChange={(e) => setPrincipal(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">
+                Établissement principal
+              </span>
+              <span className="block text-muted-foreground">
+                Le calendrier de l'emploi du temps est unique. Il suit
+                l'académie des classes de l'année ; si elles relèvent de
+                plusieurs académies, c'est celle de l'établissement principal
+                qui décide. Cocher cette case le retire à l'établissement qui
+                l'était. Sans classe rattachée, SGPA reprend l'académie des
+                Réglages d'avant ce changement.
+              </span>
+            </span>
+          </label>
+
+          {erreur && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {erreur}
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={enregistrement}
+          >
+            Annuler
+          </Button>
+          <Button onClick={() => void enregistrer()} disabled={enregistrement}>
+            {enregistrement ? "Enregistrement…" : "Enregistrer"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 interface DialogueDesCompetencesProps {
@@ -230,6 +387,7 @@ export function EtablissementsCard(): ReactElement {
   // de la liste, donc un rechargement la rafraîchit (première règle
   // d'architecture). Un établissement figé aurait gardé ses compteurs d'avant.
   const [reglageId, setReglageId] = useState<string | null>(null);
+  const [calendrierId, setCalendrierId] = useState<string | null>(null);
   const [suppressionId, setSuppressionId] = useState<string | null>(null);
 
   const charger = useCallback(async () => {
@@ -249,6 +407,8 @@ export function EtablissementsCard(): ReactElement {
 
   const reglage =
     etablissements.find((etab) => etab.id === reglageId) ?? null;
+  const calendrier =
+    etablissements.find((etab) => etab.id === calendrierId) ?? null;
   const suppression =
     etablissements.find((etab) => etab.id === suppressionId) ?? null;
 
@@ -279,8 +439,8 @@ export function EtablissementsCard(): ReactElement {
           Établissements
         </CardTitle>
         <CardDescription>
-          Vos établissements, et pour chacun les compétences qu'on n'y emploie
-          pas. Vous rattachez ensuite une classe à l'un d'eux depuis l'écran
+          Vos établissements, pour chacun son académie — donc les vacances
+          affichées — et les compétences qu'on n'y emploie pas. Vous rattachez ensuite une classe à l'un d'eux depuis l'écran
           Classes, et la saisie d'une évaluation ou d'une étape de progression
           ne proposera plus, dans cette classe, les compétences écartées. SGPA
           n'en propose aucun d'avance : les noms justes sont ceux de vos
@@ -297,7 +457,7 @@ export function EtablissementsCard(): ReactElement {
           </span>
           . Et ce réglage ne touche ni les notes, ni les moyennes, ni les
           documents imprimés : le nom d'établissement en tête des bilans reste
-          celui de la carte « Identité », au-dessus.
+          celui de la carte « Identité » des Réglages.
         </p>
 
         <DataState
@@ -320,6 +480,7 @@ export function EtablissementsCard(): ReactElement {
                   name={etablissement.name}
                   depth={0}
                   meta={metaDeLEtablissement(etablissement)}
+                  metaSousLeNom
                   canMoveUp={index > 0}
                   canMoveDown={index < etablissements.length - 1}
                   onMove={(direction) => deplacer(etablissement.id, direction)}
@@ -333,6 +494,20 @@ export function EtablissementsCard(): ReactElement {
                     setSuppressionId(etablissement.id);
                   }}
                   actions={
+                    <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                      title={`Académie et calendrier de ${etablissement.name}`}
+                      onClick={() => {
+                        setErreurDAction(null);
+                        setCalendrierId(etablissement.id);
+                      }}
+                    >
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      Académie
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -346,6 +521,7 @@ export function EtablissementsCard(): ReactElement {
                       <Ban className="h-3.5 w-3.5" />
                       Compétences
                     </Button>
+                    </>
                   }
                 />
               ))}
@@ -368,6 +544,17 @@ export function EtablissementsCard(): ReactElement {
           </p>
         )}
       </CardContent>
+
+      {calendrier && (
+        <DialogueDuCalendrier
+          key={calendrier.id}
+          etablissement={calendrier}
+          onOpenChange={(open) => {
+            if (!open) setCalendrierId(null);
+          }}
+          onChanged={charger}
+        />
+      )}
 
       {reglage && (
         <DialogueDesCompetences

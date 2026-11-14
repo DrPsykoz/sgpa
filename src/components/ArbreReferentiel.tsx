@@ -203,6 +203,9 @@ interface LigneDArbreProps {
    *  « citée par 2 fiches ». Du texte, donc pas un bouton : l'action est dans
    *  la barre d'outils. */
   meta?: string;
+  /** Écrit `meta` sous le nom au lieu de l'en-ligne : pour un `meta` long,
+   *  qui sinon écrase le nom jusqu'à le faire disparaître. */
+  metaSousLeNom?: boolean;
   collapsible?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
@@ -233,6 +236,7 @@ export function LigneDArbre({
   depth,
   archived = false,
   meta,
+  metaSousLeNom = false,
   collapsible = false,
   expanded = true,
   onToggle,
@@ -321,15 +325,22 @@ export function LigneDArbre({
           </div>
         ) : (
           <>
-            <span
-              className={cn(
-                "flex-1 truncate",
-                style.text,
-                archived && "text-muted-foreground line-through",
+            <div className="min-w-0 flex-1">
+              <span
+                className={cn(
+                  "block truncate",
+                  style.text,
+                  archived && "text-muted-foreground line-through",
+                )}
+              >
+                {name}
+              </span>
+              {meta && metaSousLeNom && (
+                <span className="block text-xs text-muted-foreground">
+                  {meta}
+                </span>
               )}
-            >
-              {name}
-            </span>
+            </div>
 
             {archived && (
               <Badge
@@ -340,7 +351,7 @@ export function LigneDArbre({
               </Badge>
             )}
 
-            {meta && (
+            {meta && !metaSousLeNom && (
               <span className="shrink-0 text-xs text-muted-foreground">
                 {meta}
               </span>

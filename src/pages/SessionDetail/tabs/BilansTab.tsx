@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useDraftGuard } from "@/hooks/useDrafts";
 import { api } from "@/lib/api";
+import { grouperParDomaine } from "@/lib/bilan";
 import { exportReportPDF } from "@/lib/pdf";
 import { cn } from "@/lib/utils";
 import {
@@ -295,14 +296,14 @@ function ReportHeader({
       </CardHeader>
       <CardContent className="flex flex-wrap gap-x-4 gap-y-1 pt-0 text-xs text-muted-foreground">
         <span>
-          {plural(report.seance_count, "séance", "séances")} au trimestre
+          {plural(report.seance_count, "cours", "cours")} au trimestre
         </span>
         {report.cancelled_count > 0 && (
           <span>
             {plural(
               report.cancelled_count,
-              "séance annulée",
-              "séances annulées",
+              "cours annulé",
+              "cours annulés",
             )}
             , hors bilan
           </span>
@@ -416,39 +417,68 @@ function StudentReportCard({
               Aucune note sur ce trimestre.
             </p>
           ) : (
-            report.competency_averages.map((competency) => (
-              <div
-                key={competency.competency_id}
-                className="flex items-center gap-3"
-              >
-                <div className="min-w-0 flex-1 text-xs">
-                  <span className="text-muted-foreground">
-                    {competency.domain_name} › {competency.field_name} ›{" "}
+            grouperParDomaine(report.competency_averages).map((domaine) => (
+              <div key={domaine.domain_name} className="space-y-1 pb-2">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1 text-sm font-semibold">
+                    {domaine.domain_name}
+                  </div>
+                  <span className="hidden w-44 shrink-0 text-right text-xs text-muted-foreground sm:inline">
+                    {MASTERY_LABELS[niveauDeNote(domaine.average_mark)]}
                   </span>
-                  <span className="font-medium">
-                    {competency.competency_name}
+                  <div className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        MASTERY_BARS[niveauDeNote(domaine.average_mark)],
+                      )}
+                      style={{
+                        width: `${(domaine.average_mark / 20) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="w-16 shrink-0 text-right text-xs font-semibold">
+                    {domaine.average_mark.toFixed(1).replace(".", ",")}
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      ({domaine.grade_count})
+                    </span>
                   </span>
                 </div>
-                <span className="hidden w-44 shrink-0 text-right text-xs text-muted-foreground sm:inline">
-                  {MASTERY_LABELS[niveauDeNote(competency.average_mark)]}
-                </span>
-                <div className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+                {domaine.competencies.map((competency) => (
                   <div
-                    className={cn(
-                      "h-full rounded-full",
-                      MASTERY_BARS[niveauDeNote(competency.average_mark)],
-                    )}
-                    style={{
-                      width: `${(competency.average_mark / 20) * 100}%`,
-                    }}
-                  />
-                </div>
-                <span className="w-16 shrink-0 text-right text-xs font-medium">
-                  {competency.average_mark.toFixed(1).replace(".", ",")}
-                  <span className="ml-1 font-normal text-muted-foreground">
-                    ({competency.grade_count})
-                  </span>
-                </span>
+                    key={competency.competency_id}
+                    className="flex items-center gap-3 pl-4"
+                  >
+                    <div className="min-w-0 flex-1 text-xs">
+                      <span className="text-muted-foreground">
+                        {competency.field_name} ›{" "}
+                      </span>
+                      <span className="font-medium">
+                        {competency.competency_name}
+                      </span>
+                    </div>
+                    <span className="hidden w-44 shrink-0 text-right text-xs text-muted-foreground sm:inline">
+                      {MASTERY_LABELS[niveauDeNote(competency.average_mark)]}
+                    </span>
+                    <div className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          MASTERY_BARS[niveauDeNote(competency.average_mark)],
+                        )}
+                        style={{
+                          width: `${(competency.average_mark / 20) * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="w-16 shrink-0 text-right text-xs font-medium">
+                      {competency.average_mark.toFixed(1).replace(".", ",")}
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        ({competency.grade_count})
+                      </span>
+                    </span>
+                  </div>
+                ))}
               </div>
             ))
           )}
@@ -460,7 +490,7 @@ function StudentReportCard({
           <p className="text-sm">
             <span className="font-medium">Assiduité : </span>
             {attended} /{" "}
-            {plural(attendance.seances_applicables, "séance", "séances")}
+            {plural(attendance.seances_applicables, "cours", "cours")}
             {rate !== null && (
               <span className="text-muted-foreground"> ({rate} %)</span>
             )}
@@ -479,8 +509,8 @@ function StudentReportCard({
             <p className="text-amber-700">
               {plural(
                 attendance.non_renseigne,
-                "séance non pointée",
-                "séances non pointées",
+                "cours non pointé",
+                "cours non pointés",
               )}
             </p>
           )}
@@ -491,36 +521,36 @@ function StudentReportCard({
                 : "Hors période d'inscription : "}
               {plural(
                 attendance.hors_inscription,
-                "séance antérieure non concernée",
-                "séances antérieures non concernées",
+                "cours antérieur non concerné",
+                "cours antérieures non concernées",
               )}
             </p>
           )}
           {/* Sans cette ligne, la page ne s'additionne plus : l'en-tête annonce
-              26 séances au trimestre et l'élève affiche 20/20. Elle vient après
+              26 cours au trimestre et l'élève affiche 20/20. Elle vient après
               l'inscription parce que les compteurs se retranchent dans cet
-              ordre — séances du trimestre, moins les séances hors inscription,
+              ordre — cours du trimestre, moins les cours hors inscription,
               moins celles-ci — et les trois sont disjoints côté backend. */}
           {attendance.seances_neutralisees > 0 && (
             <p className="text-muted-foreground">
               {plural(
                 attendance.seances_neutralisees,
-                "séance pendant une absence justifiée, non comptabilisée",
-                "séances pendant une absence justifiée, non comptabilisées",
+                "cours pendant une absence justifiée, non comptabilisé",
+                "cours pendant une absence justifiée, non comptabilisés",
               )}
             </p>
           )}
           {/* Quatrième et dernier terme de la partition, né au palier 023 : une
-              séance de l'autre groupe n'est ni hors inscription ni une absence
+              cours de l'autre groupe n'est ni hors inscription ni une absence
               justifiée, et sans cette ligne une classe dédoublée annonce 26
-              séances au trimestre pour afficher 16/16. Nul tant qu'aucun
+              cours au trimestre pour afficher 16/16. Nul tant qu'aucun
               groupe n'existe, donc invisible sur toute base migrée. */}
           {attendance.seances_autre_groupe > 0 && (
             <p className="text-muted-foreground">
               {plural(
                 attendance.seances_autre_groupe,
-                "séance tenue avec un autre groupe, non comptabilisée",
-                "séances tenues avec un autre groupe, non comptabilisées",
+                "cours tenu avec un autre groupe, non comptabilisé",
+                "cours tenus avec un autre groupe, non comptabilisés",
               )}
             </p>
           )}

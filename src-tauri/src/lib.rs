@@ -9,7 +9,7 @@ mod sql_smoke;
 mod state;
 
 use commands::{
-    absences, activities, attachments, contracts, diagnostics, establishments, evaluations, groups,
+    absences, activities, attachments, commentaires, contracts, diagnostics, establishments, evaluations, groups,
     home, lock, maintenance, needs, progressions, referential, reports, seances, sessions, students,
     timetable, trimesters,
 };
@@ -168,6 +168,7 @@ pub fn run() {
             establishments::get_establishments,
             establishments::create_establishments_bulk,
             establishments::rename_establishment,
+            establishments::update_establishment_calendar,
             establishments::delete_establishment,
             establishments::reorder_establishments,
             establishments::get_establishment_disabled_competencies,
@@ -216,6 +217,8 @@ pub fn run() {
             evaluations::get_grade_waivers,
             evaluations::set_grade_waiver,
             evaluations::delete_grade_waiver,
+            commentaires::get_evaluation_comments,
+            commentaires::set_evaluation_comment,
             // Accueil
             home::get_upcoming_days,
             home::get_home_overview,
@@ -264,6 +267,10 @@ pub fn run() {
             progressions::set_progression_activite_etape,
             progressions::set_progression_plages,
             progressions::clear_progression_plages,
+            progressions::get_metiers_et_caps,
+            progressions::set_etape_metier_cap,
+            progressions::get_fiche_seance,
+            progressions::save_fiche_seance,
             // Fiches contrat
             contracts::get_contract_sheet,
             contracts::suggest_contract_sheet,

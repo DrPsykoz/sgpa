@@ -64,6 +64,7 @@ export default function SessionDetail(): ReactElement {
   const [cible] = useState(() => ({
     onglet: ongletValide(searchParams.get("onglet")),
     ouvrir: searchParams.get("ouvrir"),
+    modifier: searchParams.get("modifier") === "1",
   }));
   const [onglet, setOnglet] = useState<Onglet>(cible.onglet ?? "eleves");
 
@@ -180,7 +181,7 @@ export default function SessionDetail(): ReactElement {
               <TabsList>
                 <TabsTrigger value="eleves">Élèves</TabsTrigger>
                 <TabsTrigger value="evaluations">Évaluations</TabsTrigger>
-                <TabsTrigger value="seances">Séances</TabsTrigger>
+                <TabsTrigger value="seances">Cours</TabsTrigger>
                 {/* Un onglet nommé, entre les séances qu'il écarte et les bilans
                     qu'il corrige : c'est le seul endroit qui se retrouve sans
                     chercher quand les dates de stage arrivent, des mois plus tard. */}
@@ -222,6 +223,7 @@ export default function SessionDetail(): ReactElement {
                   students={students}
                   groups={groups}
                   openId={cible.onglet === "seances" ? cible.ouvrir : null}
+                  modifierDEmblee={cible.modifier}
                 />
               </TabsContent>
 

@@ -82,7 +82,7 @@ const UNE_SEULE_FOIS: Choix[] = [
   {
     type: "ponctuel",
     titre: "Cours ponctuel",
-    detail: "remplacement, séance exceptionnelle",
+    detail: "remplacement, cours exceptionnel",
   },
 ];
 
@@ -293,7 +293,7 @@ export function NewPlanningDialog({
                 Chaque semaine
               </p>
               <p className="text-xs text-muted-foreground">
-                Entre dans la grille, ne crée aucune séance.
+                Entre dans la grille, ne crée aucun cours.
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {CHAQUE_SEMAINE.map((choix) => bouton(choix, yearStart === null))}

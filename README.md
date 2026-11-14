@@ -27,7 +27,7 @@ La base est **chiffrée** — une clé USB perdue ne livre aucun nom d'élève.
 | **Verrou & réglages** | Un seul mot de passe, qui **chiffre la base** : il n'ouvre pas un écran, il déballe la clé maître (voir [Chiffrement](#chiffrement)). Phrase de récupération, indice, nom de l'enseignant, nom de l'établissement (en-tête des PDF), règles de calcul. |
 | **Classes**           | Une classe = un niveau (`6eme`, `5eme`, `4eme`, `3eme`, `3eme_prepa`) pour une année scolaire. Le niveau et l'année ne sont stockés nulle part ailleurs.                                                     |
 | **Groupes**           | Une classe se dédouble en autant de groupes que voulu, librement nommés (atelier cuisine, atelier bois, groupe de besoin). Un élève n'appartient qu'à un seul. Un créneau, une séance, une évaluation et une période d'absence peuvent viser un groupe ; **« groupe 1 semaine A, groupe 2 semaine B » se pose avec deux créneaux de parité complémentaire**, le mécanisme existait déjà. Un élève qu'aucun groupe ne réclame reste convoqué partout : un oubli de répartition se voit à l'appel au lieu de disparaître des calculs. |
-| **Établissements**    | Une classe peut nommer l'établissement où elle se tient. La liste est **vide à la livraison** — c'est le vocabulaire de l'enseignant —, et un établissement porte un premier réglage : les **compétences qu'il n'emploie pas**, retirées des menus de saisie de ses classes. C'est un filtre de saisie et jamais un masque : une note déjà posée reste visible, comptée et imprimée, et aucun document imprimé ne change. |
+| **Établissements**    | Une classe peut nommer l'établissement où elle se tient. La liste est **vide à la livraison** — c'est le vocabulaire de l'enseignant —, et un établissement porte deux réglages — son **académie** (c'est elle qui fixe les vacances de l'emploi du temps ; page « Établissements » du menu, palier 028) et les **compétences qu'il n'emploie pas**, retirées des menus de saisie de ses classes. C'est un filtre de saisie et jamais un masque : une note déjà posée reste visible, comptée et imprimée, et aucun document imprimé ne change. |
 | **Élèves**            | Ajout unitaire ou collage multi-lignes depuis un tableur. `enrolled_on` / `left_on` bornent l'assiduité : un élève arrivé en janvier n'est pas compté absent de septembre à décembre.                        |
 | **Séances**           | Titre, date, trimestre déduit de la date et corrigeable à la main, indicateur « annulée » (sortie, jour férié) qui garde la séance au cahier de texte mais la sort des statistiques. Cahier de texte TipTap, **pièces jointes** (image, PDF, audio, docx — 10 Mo par fichier, images redimensionnées à 1600 px, stockées **dans la base chiffrée**), et un « rien à écrire » daté pour les séances qui n'ont pas de compte rendu à produire. |
 | **Emploi du temps**  | La grille hebdomadaire : créneaux récurrents, toutes les semaines ou **une semaine sur deux** (parité du numéro ISO), **plusieurs cours sur la même case** quand ils alternent, cours ponctuels et rendez-vous datés. Elle **définit** et ne contient aucun écran de séance : l'appel et le cahier de texte vivent à l'accueil et dans la fiche de classe. Vue « Semaine » par défaut, vue « Année » pour comparer les progressions de toutes les classes. |
@@ -286,7 +286,7 @@ La variable d'environnement `SGPA_DATA_DIR` impose un autre emplacement pour `da
 
 ```powershell
 pnpm exec tsc --noEmit            # typecheck du front
-cd src-tauri ; cargo test --lib   # 222 tests
+cd src-tauri ; cargo test --lib   # 235 tests
 cd src-tauri ; cargo clippy       # doit rester à zéro avertissement
 ```
 
@@ -595,6 +595,7 @@ liste ordonnée des paliers, chacun étant un fichier de `db/sql/` :
 | 24     | `024_referentiel_ra16.sql`     | `activity_domains`, `reference_activities`, `careers`, et six colonnes sur `contract_sheets` : l'en-tête de la fiche puise dans le référentiel RA16 au lieu de se taper à la main. Trois couples (clé, libellé figé) sur le modèle de `professional_field_id` / `_label` — `SET NULL` vers le référentiel, le libellé survit. Semé pour le **seul champ Habitat** : les quatre autres n'ont pas de référentiel, et l'écran y garde ses champs de saisie libre. Les trois colonnes de texte libre du palier 001 ne sont **ni vidées ni supprimées** — mêmes précautions qu'au palier 021, elles s'affichent en lecture seule sous le menu, s'impriment encore, et un bouton les efface |
 | 25     | `025_etablissements.sql`       | `establishments`, `sessions.establishment_id` et `establishment_disabled_competencies` : une classe nomme l'établissement où elle se tient, et un établissement dit quelles compétences il n'emploie pas. Le lien vit sur la **classe** et non sur l'année — il n'existe aucune entité « année » dans ce schéma, et le plus général des deux se replie sur l'autre, pas l'inverse. Nullable, `SET NULL`, et `NULL` veut dire « comme avant » partout : aucune compétence retirée d'un menu, aucun document imprimé qui change. La désactivation est un **filtre de saisie** — les lectures qui portent des faits ne la consultent pas, et une compétence déjà notée reste visible et comptée |
 | 26     | `026_progression_des_documents.sql` | `progression_etapes.objectifs` et `.metier_cap`, `progression_activites.nature` et `.objectif`, et `progression_activite_competences` : la progression prend la forme de ses propres documents. **Purement additif** — quatre `DEFAULT` qui reproduisent le comportement de la veille (`nature` naît à `'activite'`), une table qui naît vide, et l'étape garde ses compétences : l'activité **gagne** les siennes, elle ne les lui prend pas. `nature` est la seule liste close du palier, et son CHECK ne fait que redire ce que `verifier_nature` refuse en français — ces trois valeurs sont la forme du document, et c'est du code qui les lit pour composer le mot imprimé. Rien n'est migré : aucun rattachement d'activité ne peut être deviné des compétences de son étape |
+| 28     | `028_academie_par_etablissement.sql` | `establishments.academie` et `establishments.is_principal` : l'académie se règle par établissement. Le calendrier reste **unique** : il suit l'académie des classes de l'année, l'établissement principal (un seul, index partiel) départageant plusieurs académies, et `app_settings.academie` — ni vidée ni supprimée — reste la valeur de repli. Une recopie unique : si Réglages avait une académie et que des établissements existent, le premier la reçoit et devient principal, donc les vacances affichées ne bougent pas |
 
 Le palier 3 vide la base de tout ce qui touchait au verrou. Le condensat bcrypt n'a plus de
 vérificateur — le mot de passe se prouve en déballant la clé maître — et un condensat resté là
@@ -1390,7 +1391,7 @@ touche la base.
 
 ## Tests
 
-`cargo test --lib`, depuis `src-tauri/` — **222 tests** :
+`cargo test --lib`, depuis `src-tauri/` — **235 tests** :
 
 | Fichier                       | Tests | Ce qui est vérifié                                                                                                            |
 | ----------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -1566,3 +1567,9 @@ compte par `MASTERY_SCALE.length`, jamais en écrivant « 5 ».
 ## Licence
 
 Projet personnel — tous droits réservés.
+
+### Palier 027 (2026-11-14) : cours, séances, fiche séance, métier et CAP
+
+- **Cours / Séance.** À l'écran, un « Cours » est ce qu'on appelait « Séance » (appel, cahier de texte) ; une « Séance » est une unité de la progression (ancienne « activité »). Aucun identifiant du code n'a changé.
+- **Palier 027**, additif : `evaluation_comments`, `caps` (22 CAP Habitat), colonnes `career_id/career_label/cap_id/cap_label` sur `progression_etapes`, `progression_fiches_seance`. Les commandes : `get/set_evaluation_comment(s)`, `get_metiers_et_caps`, `set_etape_metier_cap`, `get/save_fiche_seance`.
+- **Fiche séance** : un PDF par séance, sans colonne « Professeur » ni observations. **Commentaire du professeur** sur chaque fiche d'évaluation. **Bilan** regroupé par domaine du socle. **Appel et élèves** découpés par groupe. Case « professeur absent pour les autres classes » à la création d'une période d'absence.

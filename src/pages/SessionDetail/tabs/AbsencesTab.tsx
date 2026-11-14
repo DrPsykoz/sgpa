@@ -94,18 +94,18 @@ function formatSeances(period: AbsencePeriod): string {
   const count = period.seance_count;
   if (period.attendance_expected) {
     return count > 1
-      ? `${count} séances concernées`
-      : `${count} séance concernée`;
+      ? `${count} cours concernés`
+      : `${count} cours concerné`;
   }
-  return count > 1 ? `${count} séances écartées` : `${count} séance écartée`;
+  return count > 1 ? `${count} cours écartés` : `${count} cours écarté`;
 }
 
 /** L'infobulle du compte, qui dit l'effet sur le bilan en toutes lettres. */
 function titreSeances(period: AbsencePeriod): string {
   if (period.attendance_expected) {
-    return `Ces séances restent comptées pour ${formatCiblePhrase(period)} : la période ne retire rien du dénominateur du bilan, et l'appel est à faire comme d'habitude.`;
+    return `Ces cours restent comptés pour ${formatCiblePhrase(period)} : la période ne retire rien du dénominateur du bilan, et l'appel est à faire comme d'habitude.`;
   }
-  return `Ces séances ne comptent ni comme présence ni comme absence pour ${formatCiblePhrase(period)} : elles sortent du dénominateur du bilan.`;
+  return `Ces cours ne comptent ni comme présence ni comme absence pour ${formatCiblePhrase(period)} : elles sortent du dénominateur du bilan.`;
 }
 
 /** Ce que la suppression change vraiment, dit avant de confirmer : les séances
@@ -119,11 +119,11 @@ function phraseSuppression(period: AbsencePeriod): string {
   }
   const count = period.seance_count;
   if (count === 0) {
-    return "Aucune séance n'était écartée par cette période : aucun bilan ne change.";
+    return "Aucun cours n'était écarté par cette période : aucun bilan ne change.";
   }
   return count > 1
-    ? `Les ${count} séances qu'elle écartait redeviendront comptées dans l'assiduité.`
-    : "La séance qu'elle écartait redeviendra comptée dans l'assiduité.";
+    ? `Les ${count} cours qu'elle écartait redeviendront comptés dans l'assiduité.`
+    : "Le cours qu'elle écartait redeviendra compté dans l'assiduité.";
 }
 
 /**
@@ -195,11 +195,14 @@ export function AbsencesTab({
   // Les erreurs d'écriture s'affichent dans le dialogue qui les a provoquées :
   // c'est là que se trouve le geste à corriger (dates qui se recouvrent, élève
   // d'une autre classe), et le backend les explique en français.
-  const handleSubmit = async (input: AbsencePeriodInput) => {
+  const handleSubmit = async (
+    input: AbsencePeriodInput,
+    profAbsentAilleurs: boolean,
+  ) => {
     if (editing) {
       await api.updateAbsencePeriod(editing.id, input);
     } else {
-      await api.createAbsencePeriod(session.id, input);
+      await api.createAbsencePeriod(session.id, input, profAbsentAilleurs);
     }
     await load();
   };
@@ -230,10 +233,10 @@ export function AbsencesTab({
               </span>
             </CardTitle>
             <CardDescription>
-              Une période retire les séances qu'elle couvre du calcul
+              Une période retire les cours qu'elle couvre du calcul
               d'assiduité de qui elle vise : un élève parti trois semaines en
               stage n'apparaît plus à 20/26 sur son bilan, mais à 20/20. Aucune
-              séance n'est créée ni supprimée, et le cours compte toujours pour
+              cours n'est créée ni supprimée, et le cours compte toujours pour
               le reste de la classe. Une sortie scolaire se note de la même
               façon, en cochant « l'appel se fait quand même » : elle nomme
               alors ces journées sans rien retirer du calcul.
@@ -263,7 +266,7 @@ export function AbsencesTab({
             loading={loading}
             error={loadError}
             empty={periods.length === 0}
-            emptyLabel="Aucune période pour cette classe. Ajoutez-en une dès que les dates d'un stage sont connues : les séances qu'elle couvre sortiront du calcul d'assiduité. Les sorties scolaires et vos propres absences se notent au même endroit."
+            emptyLabel="Aucune période pour cette classe. Ajoutez-en une dès que les dates d'un stage sont connues : les cours qu'elle couvre sortiront du calcul d'assiduité. Les sorties scolaires et vos propres absences se notent au même endroit."
             onRetry={() => {
               void load();
             }}
@@ -322,13 +325,13 @@ export function AbsencesTab({
 
                     <div className="flex shrink-0 items-center gap-2">
                       {/* L'appel est la seule chose que le compte de séances ne
-                          dit pas : « 6 séances concernées » ne distingue pas
+                          dit pas : « 6 cours concernés » ne distingue pas
                           une sortie d'un stage. Le mot, lui, le dit. */}
                       {period.attendance_expected && (
                         <Badge
                           variant="outline"
                           className="font-normal"
-                          title="L'appel de ces séances est à faire comme d'habitude : la classe était ailleurs, mais avec vous."
+                          title="L'appel de ces cours est à faire comme d'habitude : la classe était ailleurs, mais avec vous."
                         >
                           Avec appel
                         </Badge>
@@ -337,9 +340,9 @@ export function AbsencesTab({
                         <Badge
                           variant="outline"
                           className="border-amber-200 bg-amber-50 font-normal text-amber-800"
-                          title="Aucune séance de la classe n'est inscrite sur ces dates : cette période ne change encore aucun bilan. Elle écartera les séances qui y seront créées."
+                          title="Aucun cours de la classe n'est inscrit sur ces dates : cette période ne change encore aucun bilan. Elle écartera les cours qui y seront créés."
                         >
-                          Aucune séance sur ces dates
+                          Aucun cours sur ces dates
                         </Badge>
                       ) : (
                         <Badge
@@ -410,7 +413,7 @@ export function AbsencesTab({
               </p>
               <p>{phraseSuppression(toDelete)}</p>
               <p>
-                Aucune séance, aucun appel et aucun cahier de texte n'est touché.
+                Aucun cours, aucun appel et aucun cahier de texte n'est touché.
               </p>
             </>
           )

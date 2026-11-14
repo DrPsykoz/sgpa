@@ -305,7 +305,7 @@ fn check_student_in_session(
         Some((classe, prenom, nom)) if classe != session_id => Err(format!(
             "{prenom} {nom} n'est pas inscrit dans cette classe. Une période ne peut \
              viser qu'un élève de la classe qu'elle concerne — sinon elle n'écarterait \
-             aucune séance."
+             aucun cours."
         )),
         Some(_) => Ok(()),
     }
@@ -361,7 +361,7 @@ fn check_no_overlap(
     Err(format!(
         "{cible} déjà la période « {reason} », du {} au {}, qui recouvre ces dates. \
          Modifiez-la plutôt que d'en saisir une seconde : deux périodes qui se \
-         recouvrent afficheraient chacune leur compte de séances, alors qu'une séance \
+         recouvrent afficheraient chacune leur compte de cours, alors qu'un cours \
          n'est écartée qu'une fois.",
         en_clair(&debut),
         en_clair(&fin)
@@ -542,25 +542,92 @@ fn create_teacher_absence(
 
     let mut creees = Vec::with_capacity(classes.len());
     for session_id in classes {
-        let nom = nom_de_classe(conn, session_id)?;
-        // `None` pour le groupe, comme pour l'élève, et pour la même raison :
-        // le professeur n'est pas absent pour une moitié de classe.
-        check_no_overlap(conn, session_id, "", None, &start_date, &end_date, None)
-            .map_err(|e| format!("{nom} : {e}"))?;
-
-        let id = Uuid::new_v4().to_string();
-        conn.execute(
-            "INSERT INTO absence_periods
-                 (id, session_id, student_id, reason, start_date, end_date,
-                  attendance_expected, teacher_absent)
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 0, 1)",
-            params![id, session_id, reason, start_date, end_date],
-        )
-        .map_err(|e| e.to_string())?;
-        creees.push(load_period(conn, &id)?);
+        creees.push(poser_absence_professeur(
+            conn, session_id, &reason, &start_date, &end_date,
+        )?);
     }
 
     Ok(creees)
+}
+
+/// Écrit la ligne « professeur absent » d'**une** classe — le seul endroit qui
+/// pose `teacher_absent = 1`, partagé par la saisie multi-classes et par la
+/// case « absent aussi pour les autres classes » d'une période ordinaire.
+///
+/// Les valeurs sont déjà passées par `validated_window`. Le refus de
+/// chevauchement nomme la classe.
+fn poser_absence_professeur(
+    conn: &Connection,
+    session_id: &str,
+    reason: &str,
+    start_date: &str,
+    end_date: &str,
+) -> Result<AbsencePeriod, String> {
+    let nom = nom_de_classe(conn, session_id)?;
+    // `None` pour le groupe, comme pour l'élève, et pour la même raison :
+    // le professeur n'est pas absent pour une moitié de classe.
+    check_no_overlap(conn, session_id, "", None, start_date, end_date, None)
+        .map_err(|e| format!("{nom} : {e}"))?;
+
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO absence_periods
+             (id, session_id, student_id, reason, start_date, end_date,
+              attendance_expected, teacher_absent)
+         VALUES (?1, ?2, NULL, ?3, ?4, ?5, 0, 1)",
+        params![id, session_id, reason, start_date, end_date],
+    )
+    .map_err(|e| e.to_string())?;
+    load_period(conn, &id)
+}
+
+/// Une période ordinaire, **et** le professeur absent pour les autres classes
+/// de la même année scolaire (case « absent aussi pour les autres classes »).
+///
+/// À appeler dans une transaction : tout ou rien. Le motif et les dates sont
+/// ceux de la période créée, normalisés. Une classe qui porte déjà une absence
+/// du professeur **identique** (mêmes dates, même motif, toute la classe) est
+/// sautée plutôt que doublée ; toute autre période qui la recouvre refuse le
+/// geste entier, en nommant la classe.
+fn create_period_and_teacher_elsewhere(
+    conn: &Connection,
+    session_id: &str,
+    input: &AbsencePeriodInput,
+) -> Result<AbsencePeriod, String> {
+    let creee = create_period(conn, session_id, input)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.id FROM sessions s
+              WHERE s.id <> ?1
+                AND s.year_start = (SELECT y.year_start FROM sessions y WHERE y.id = ?1)
+              ORDER BY s.level_code, s.name, s.id",
+        )
+        .map_err(|e| e.to_string())?;
+    let autres = stmt
+        .query_map(params![session_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for autre in autres {
+        let deja: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM absence_periods
+                                WHERE session_id = ?1 AND teacher_absent = 1
+                                  AND student_id IS NULL AND group_id IS NULL
+                                  AND reason = ?2 AND start_date = ?3 AND end_date = ?4)",
+                params![autre, creee.reason, creee.start_date, creee.end_date],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if deja {
+            continue;
+        }
+        poser_absence_professeur(conn, &autre, &creee.reason, &creee.start_date, &creee.end_date)?;
+    }
+
+    Ok(creee)
 }
 
 /// La classe d'une période n'est pas modifiable : elle est relue sur la ligne
@@ -649,10 +716,16 @@ pub fn create_absence_period(
     state: tauri::State<'_, AppState>,
     session_id: String,
     period: AbsencePeriodInput,
+    teacher_absent_elsewhere: Option<bool>,
 ) -> Result<AbsencePeriod, String> {
     let mut conn = state.conn()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let created = create_period(&tx, &session_id, &period)?;
+    // Absent ou `false` = exactement le comportement d'avant la case.
+    let created = if teacher_absent_elsewhere.unwrap_or(false) {
+        create_period_and_teacher_elsewhere(&tx, &session_id, &period)?
+    } else {
+        create_period(&tx, &session_id, &period)?
+    };
     tx.commit().map_err(|e| e.to_string())?;
     Ok(created)
 }
@@ -1062,6 +1135,93 @@ mod tests {
         }
         assert_eq!(list_periods(&conn, "s1").unwrap().len(), 1);
         assert_eq!(list_periods(&conn, "s2").unwrap().len(), 1);
+    }
+
+    /// Trois classes de 2026 (s1, s2, s3) et une de 2025 (s0).
+    fn peupler_plusieurs_classes(conn: &Connection) {
+        peupler(conn);
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s3', '5ème C', '5eme', 2026),
+                         ('s0', '3ème Z', '3eme', 2025)",
+        )
+        .unwrap();
+    }
+
+    fn en_stage() -> AbsencePeriodInput {
+        saisie(None, "Stage en entreprise", "2027-01-18", "2027-01-22")
+    }
+
+    #[test]
+    fn la_case_pose_l_absence_du_professeur_sur_les_autres_classes_de_l_annee() {
+        let conn = migrated_db("prof-ailleurs");
+        peupler_plusieurs_classes(&conn);
+        let creee = create_period_and_teacher_elsewhere(&conn, "s1", &en_stage()).unwrap();
+
+        // La période demandée n'a pas changé de nature.
+        assert!(!creee.teacher_absent);
+        assert_eq!(list_periods(&conn, "s1").unwrap().len(), 1);
+        for autre in ["s2", "s3"] {
+            let l = list_periods(&conn, autre).unwrap();
+            assert_eq!(l.len(), 1, "{autre}");
+            assert!(l[0].teacher_absent && !l[0].attendance_expected);
+            assert_eq!(l[0].student_id, None);
+            assert_eq!(l[0].group_id, None);
+            assert_eq!(l[0].reason, "Stage en entreprise");
+            assert_eq!(l[0].start_date, "2027-01-18");
+        }
+        // Une autre année scolaire n'est pas touchée.
+        assert!(list_periods(&conn, "s0").unwrap().is_empty());
+    }
+
+    #[test]
+    fn case_decochee_le_comportement_est_inchange() {
+        let conn = migrated_db("prof-ailleurs-decoche");
+        peupler_plusieurs_classes(&conn);
+        create_period(&conn, "s1", &en_stage()).unwrap();
+        for autre in ["s0", "s2", "s3"] {
+            assert!(list_periods(&conn, autre).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn la_case_ne_double_pas_une_absence_identique_du_professeur() {
+        let conn = migrated_db("prof-ailleurs-doublon");
+        peupler_plusieurs_classes(&conn);
+        create_teacher_absence(
+            &conn,
+            &TeacherAbsenceInput {
+                session_ids: vec!["s2".into()],
+                reason: "Stage en entreprise".into(),
+                start_date: "2027-01-18".into(),
+                end_date: "2027-01-22".into(),
+            },
+        )
+        .unwrap();
+        create_period_and_teacher_elsewhere(&conn, "s1", &en_stage()).unwrap();
+        assert_eq!(list_periods(&conn, "s2").unwrap().len(), 1);
+        assert_eq!(list_periods(&conn, "s3").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn la_case_est_annulee_en_bloc_si_une_classe_refuse() {
+        let mut conn = migrated_db("prof-ailleurs-refus");
+        peupler_plusieurs_classes(&conn);
+        // s3 (dernière classe traitée) a déjà un stage qui recouvre les dates.
+        create_period(
+            &conn,
+            "s3",
+            &saisie(None, "Sortie", "2027-01-20", "2027-01-21"),
+        )
+        .unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let erreur = create_period_and_teacher_elsewhere(&tx, "s1", &en_stage()).unwrap_err();
+        drop(tx); // rollback, comme la commande qui n'atteint pas `commit`
+        assert!(erreur.starts_with("5ème C : "), "{erreur}");
+        assert!(list_periods(&conn, "s1").unwrap().is_empty());
+        assert!(list_periods(&conn, "s2").unwrap().is_empty());
+        assert_eq!(list_periods(&conn, "s3").unwrap().len(), 1);
     }
 
     #[test]

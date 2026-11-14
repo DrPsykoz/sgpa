@@ -60,6 +60,51 @@ export function concerneLeGroupe(
   return porteur === null || eleve === null || porteur === eleve;
 }
 
+/** Une tranche de liste : les éléments d'un groupe, ou `group === null` pour
+ *  ceux qui ne sont rangés nulle part. */
+export interface SectionDeGroupe<T> {
+  group: StudentGroup | null;
+  items: T[];
+}
+
+/**
+ * Découpe une liste d'élèves (ou de lignes d'élèves) par groupe.
+ *
+ * **Une seule règle de découpage pour tous les écrans** : appel, onglet Élèves,
+ * grille de notation. Les sections suivent l'ordre des groupes, celles qui sont
+ * vides sont omises, et les non-rangés viennent à la fin sous `group: null`.
+ *
+ * **Une classe sans aucun groupe rend `[]`** et non une section unique : c'est
+ * le cas normal, et l'appelant retombe alors sur sa liste plate d'avant, sans
+ * en-tête. Un `group_id` qui ne désigne aucun groupe connu (supprimé entre-temps,
+ * ou liste pas encore arrivée) range l'élève avec les non-rangés : il ne
+ * disparaît jamais d'une liste. L'ordre interne de chaque section est celui de
+ * `items`.
+ */
+export function sectionsParGroupe<T>(
+  items: T[],
+  groups: StudentGroup[],
+  groupIdOf: (item: T) => string | null,
+): SectionDeGroupe<T>[] {
+  if (groups.length === 0) return [];
+  const connus = new Set(groups.map((group) => group.id));
+  const sections: SectionDeGroupe<T>[] = groups.map((group) => ({
+    group,
+    items: items.filter((item) => groupIdOf(item) === group.id),
+  }));
+  const sansGroupe = items.filter((item) => {
+    const id = groupIdOf(item);
+    return id === null || !connus.has(id);
+  });
+  if (sansGroupe.length > 0) sections.push({ group: null, items: sansGroupe });
+  return sections.filter((section) => section.items.length > 0);
+}
+
+/** Le titre d'une section : le nom du groupe, ou « Sans groupe ». */
+export function titreDeSection(section: SectionDeGroupe<unknown>): string {
+  return section.group?.name ?? "Sans groupe";
+}
+
 /**
  * Le nom du groupe en pastille, sur une carte de calendrier ou dans une liste.
  *

@@ -310,7 +310,7 @@ function LigneDeClasse({
                 title={[
                   `${session.name} — ${MOTS_DE_VOIE[voie]}`,
                   `Semaine ${week.iso_week} — lundi ${formatDateDeFrise(week.monday)}`,
-                  activite === null ? "Libre" : `Activité : ${activite.libelle}`,
+                  activite === null ? "Libre" : `Séance : ${activite.libelle}`,
                   motif === "" ? null : motif,
                   stage === null ? null : `${stage} — toute la classe`,
                 ]

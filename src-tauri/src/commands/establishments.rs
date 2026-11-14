@@ -75,6 +75,10 @@ pub struct Establishment {
     pub session_count: i64,
     /// Combien de compétences cet établissement n'emploie pas.
     pub disabled_count: i64,
+    /// L'académie de l'établissement, `""` si non renseignée (palier 028).
+    pub academie: String,
+    /// Vrai pour l'établissement dont l'académie fixe le calendrier global.
+    pub is_principal: bool,
 }
 
 /// Combien d'établissements désactivent une compétence donnée.
@@ -99,7 +103,8 @@ const ETABLISSEMENTS: &str = "SELECT e.id, e.name, e.position,
        (SELECT COUNT(*) FROM sessions s
          WHERE s.establishment_id = e.id),
        (SELECT COUNT(*) FROM establishment_disabled_competencies d
-         WHERE d.establishment_id = e.id)
+         WHERE d.establishment_id = e.id),
+       e.academie, e.is_principal
   FROM establishments e
  ORDER BY e.position, e.name COLLATE NOCASE";
 
@@ -110,6 +115,15 @@ const PROCHAINE_POSITION: &str = "SELECT COALESCE(MAX(position), 0) + 1 FROM est
 const INSERER: &str = "INSERT INTO establishments (id, name, position) VALUES (?1, ?2, ?3)";
 
 const RENOMMER: &str = "UPDATE establishments SET name = ?2 WHERE id = ?1";
+
+const ACADEMIE_CONNUE: &str =
+    "SELECT EXISTS (SELECT 1 FROM school_holidays WHERE academie = ?1)
+         OR EXISTS (SELECT 1 FROM establishments WHERE id = ?2 AND academie = ?1)";
+
+const RETIRER_PRINCIPAL: &str = "UPDATE establishments SET is_principal = 0 WHERE is_principal = 1";
+
+const REGLER_CALENDRIER: &str =
+    "UPDATE establishments SET academie = ?2, is_principal = ?3 WHERE id = ?1";
 
 const SUPPRIMER: &str = "DELETE FROM establishments WHERE id = ?1";
 
@@ -199,6 +213,8 @@ pub fn get_establishments(
             position: row.get(2)?,
             session_count: row.get(3)?,
             disabled_count: row.get(4)?,
+            academie: row.get(5)?,
+            is_principal: row.get::<_, i64>(6)? == 1,
         })
     })
 }
@@ -313,6 +329,62 @@ fn renommer(conn: &mut rusqlite::Connection, id: &str, name: &str) -> Result<(),
     if affected == 0 {
         return Err("Établissement introuvable.".to_string());
     }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Règle l'académie d'un établissement, et s'il fixe le calendrier global.
+///
+/// Palier 028. **Deux colonnes, une commande** : elles ne se lisent que
+/// ensemble (« l'académie de l'établissement principal »), et ne concernent pas
+/// le nom (`rename_establishment`) — règle 3 du projet.
+///
+/// L'académie est validée contre **les données** (`school_holidays`), jamais
+/// contre une liste recopiée, ou contre la valeur déjà enregistrée : le jour où
+/// une académie cesse d'être publiée, l'enseignant doit encore pouvoir
+/// enregistrer l'établissement. Passer `is_principal` à vrai le retire à
+/// l'ancien, dans la même transaction (l'index partiel n'en tolère qu'un).
+#[tauri::command]
+pub fn update_establishment_calendar(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    academie: String,
+    is_principal: bool,
+) -> Result<(), String> {
+    let mut conn = state.conn()?;
+    regler_calendrier(&mut conn, &id, &academie, is_principal)
+}
+
+fn regler_calendrier(
+    conn: &mut rusqlite::Connection,
+    id: &str,
+    academie: &str,
+    is_principal: bool,
+) -> Result<(), String> {
+    let academie = academie.trim();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let existe: i64 = tx
+        .query_row(EXISTE, params![id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if existe == 0 {
+        return Err("Établissement introuvable.".to_string());
+    }
+    if !academie.is_empty() {
+        let connue: bool = tx
+            .query_row(ACADEMIE_CONNUE, params![academie, id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if !connue {
+            return Err(format!(
+                "Académie inconnue : « {academie} ». Choisissez-en une dans la liste — elle vient du calendrier officiel embarqué."
+            ));
+        }
+    }
+    if is_principal {
+        tx.execute(RETIRER_PRINCIPAL, [])
+            .map_err(|e| e.to_string())?;
+    }
+    tx.execute(REGLER_CALENDRIER, params![id, academie, is_principal as i64])
+        .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }

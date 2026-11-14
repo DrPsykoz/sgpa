@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import {
   BookOpen,
+  Building2,
   CalendarDays,
   GraduationCap,
   Home,
@@ -61,6 +62,7 @@ const NAV_ITEMS: NavItemDef[] = [
   { to: "/classes", label: "Classes", icon: Users },
   { to: "/emploi-du-temps", label: "Emploi du temps", icon: CalendarDays },
   { to: "/referentiel", label: "Référentiel", icon: BookOpen },
+  { to: "/etablissements", label: "Établissements", icon: Building2 },
   { to: "/parametres", label: "Réglages", icon: Settings },
 ];
 

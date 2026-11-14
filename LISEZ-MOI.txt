@@ -598,17 +598,27 @@ vide, la fiche contrat y garde ses zones de texte libre, exactement comme avant.
 LES ÉTABLISSEMENTS — ET LES COMPÉTENCES QU'ON N'EMPLOIE PAS
 -----------------------------------------------------------
 
-Réglages, carte « Établissements ». Elle est VIDE À LA LIVRAISON : SGPA ne sait
-pas dans quel collège vous enseignez, et n'invente rien.
+Menu de gauche, page « Établissements » (elle était une carte de Réglages
+avant). Elle est VIDE À LA LIVRAISON : SGPA ne sait pas dans quel collège vous
+enseignez, et n'invente rien.
 
-ATTENTION, IL Y A DEUX CHOSES QUI S'APPELLENT « ÉTABLISSEMENT » DANS RÉGLAGES,
-et elles ne font pas la même chose :
+ATTENTION, IL Y A DEUX CHOSES QUI S'APPELLENT « ÉTABLISSEMENT », et elles ne
+font pas la même chose :
 
   • la case « Établissement » de la carte « Identité », tout en haut : c'est le
     NOM IMPRIMÉ en tête de vos bilans et de vos fiches contrat ;
 
-  • la carte « Établissements », juste en dessous : c'est une LISTE à laquelle
-    vous rattachez vos classes. RIEN DE CE QU'ELLE RÈGLE NE S'IMPRIME.
+  • la page « Établissements » : c'est une LISTE à laquelle vous rattachez vos
+    classes. RIEN DE CE QU'ELLE RÈGLE NE S'IMPRIME.
+
+L'ACADÉMIE SE RÈGLE ICI, PAR ÉTABLISSEMENT (bouton « Académie »), et non plus
+dans Réglages. Elle décide des dates de vacances de l'emploi du temps, qui est
+UN SEUL pour toutes vos classes. SGPA prend l'académie des établissements de
+vos classes de l'année. Si ces classes relèvent de PLUSIEURS académies, c'est
+celle de l'« établissement principal » (case à cocher, un seul à la fois) qui
+décide. Sans classe rattachée, SGPA garde l'académie que vous aviez choisie
+dans Réglages : à la mise à jour, votre premier établissement la reprend et
+devient principal, donc rien ne change dans vos vacances affichées.
 
 À QUOI ÇA SERT. Un établissement porte un réglage : LES COMPÉTENCES QU'IL
 N'EMPLOIE PAS. Cochez-les dans « Compétences », et elles ne vous seront plus
@@ -735,6 +745,28 @@ ces deux règles change donc aussi les bilans DÉJÀ ÉTABLIS, trimestres passé
 compris. Un bulletin imprimé avant le changement ne correspondra plus à ce que
 l'écran affiche après.
 
+
+COURS, SEANCES ET FICHES (MISE A JOUR DU 14 NOVEMBRE)
+-----------------------------------------------------
+
+- Ce qui s'appelait "Seance" (l'appel et le cahier de texte) s'appelle
+  maintenant "Cours". Une "Seance" est une etape de la progression : un
+  ensemble de cours. Rien n'a ete perdu : vos anciennes lignes de progression
+  apparaissent simplement comme des seances.
+- Dans la progression, chaque seance a un bouton "Fiche" : on y remplit la
+  fiche de seance (domaine, duree, chantier, situation, EPI, outillage,
+  etapes, criteres d'auto-evaluation) et on l'exporte en PDF, une feuille
+  par seance, que l'eleve complete (Oui / Non).
+- Une sequence peut maintenant nommer un metier et un CAP. Choisir "Aucun" est
+  permis. Le texte saisi a la main auparavant reste affiche et imprime.
+- Les fiches d'evaluation ont une case "Commentaire du professeur", imprimee
+  sur la fiche remise a l'eleve.
+- Quand vous declarez un stage ou une absence pour une classe, une case permet
+  d'indiquer que vous etes aussi absent pour toutes les autres classes.
+- Dans le bilan, un meme domaine n'est plus repete : une ligne par domaine,
+  avec la moyenne de ses competences, puis le detail dessous.
+- Dans l'appel et dans la liste des eleves, une classe divisee en groupes
+  s'affiche groupe par groupe.
 
 OÙ SONT MES DONNÉES
 -------------------

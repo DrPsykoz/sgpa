@@ -161,9 +161,9 @@ export function TeacherAbsenceDialog({
         <DialogHeader>
           <DialogTitle>Noter une absence de votre part</DialogTitle>
           <DialogDescription>
-            Une journée de formation, un arrêt, une réunion : les séances de ces
+            Une journée de formation, un arrêt, une réunion : les cours de ces
             dates sortent du dénominateur d'assiduité de toute la classe. Aucune
-            séance n'est créée ni supprimée, et l'appel n'est pas à faire — vous
+            cours n'est créée ni supprimée, et l'appel n'est pas à faire — vous
             n'étiez pas là pour le faire.
           </DialogDescription>
         </DialogHeader>

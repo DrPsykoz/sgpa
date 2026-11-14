@@ -237,7 +237,7 @@ pub fn delete_student_group(
         .map_err(|e| e.to_string())?;
     if seances > 0 {
         return Err(format!(
-            "Ce groupe a tenu {seances} séance(s) : elles resteraient sans nom de groupe \
+            "Ce groupe a tenu {seances} cours : ils resteraient sans nom de groupe \
              dans les bilans déjà établis. Renommez-le plutôt."
         ));
     }

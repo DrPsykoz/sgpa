@@ -22,6 +22,7 @@ import type {
 	Evaluation,
 	Grade,
 	GradeWaiver,
+	EvaluationComment,
 	HomeOverview,
 	LevelCode,
 	LockStatus,
@@ -33,6 +34,8 @@ import type {
 	Ra16Kind,
 	Progression,
 	ProgressionDomaine,
+	FicheSeance,
+	MetiersEtCaps,
 	NatureDActivite,
 	ProgressionEtape,
 	RecomputePreview,
@@ -217,6 +220,14 @@ export const api = {
 
 	renameEstablishment: (id: string, name: string) =>
 		call<void>("rename_establishment", { id, name }),
+
+	/** Règle l'académie d'un établissement et s'il fixe le calendrier global
+	 *  (palier 028). Les deux vont ensemble : une seule commande. */
+	updateEstablishmentCalendar: (
+		id: string,
+		academie: string,
+		isPrincipal: boolean,
+	) => call<void>("update_establishment_calendar", { id, academie, isPrincipal }),
 
 	/** Supprime un établissement, et **réussit toujours**. Les classes
 	 *  rattachées reviennent à « aucun établissement », ce qui est leur état
@@ -759,9 +770,21 @@ export const api = {
 		call<AbsencePeriod[]>("get_absence_periods", { sessionId }),
 
 	/** `period.student_id` à `null` vise toute la classe ; renseigné, il vise un
-	 *  élève, qui doit appartenir à cette classe — sinon rien ne serait écarté. */
-	createAbsencePeriod: (sessionId: string, period: AbsencePeriodInput) =>
-		call<AbsencePeriod>("create_absence_period", { sessionId, period }),
+	 *  élève, qui doit appartenir à cette classe — sinon rien ne serait écarté.
+	 *
+	 *  `teacherAbsentElsewhere` à `true` pose en plus, dans la même transaction,
+	 *  une absence du professeur sur chaque autre classe de la même année
+	 *  scolaire (tout ou rien). Absent ou `false` : comportement d'avant. */
+	createAbsencePeriod: (
+		sessionId: string,
+		period: AbsencePeriodInput,
+		teacherAbsentElsewhere?: boolean,
+	) =>
+		call<AbsencePeriod>("create_absence_period", {
+			sessionId,
+			period,
+			teacherAbsentElsewhere: teacherAbsentElsewhere ?? false,
+		}),
 
 	/** La classe n'est pas modifiable : elle est relue sur la ligne existante.
 	 *  L'élève visé, lui, se corrige — c'est la saisie qu'on rate le plus. */
@@ -871,6 +894,25 @@ export const api = {
 			evaluationId,
 			studentId,
 			competencyId,
+		}),
+
+	// ---- Le commentaire du professeur sur la fiche d'évaluation ----
+
+	/** Les commentaires enregistrés pour cette évaluation (un par élève au plus). */
+	getEvaluationComments: (evaluationId: string) =>
+		call<EvaluationComment[]>("get_evaluation_comments", { evaluationId }),
+
+	/** Écrit le commentaire d'un élève ; un texte vide supprime la ligne.
+	 *  Refus en français au-delà de 2000 caractères. */
+	setEvaluationComment: (
+		evaluationId: string,
+		studentId: string,
+		comment: string,
+	) =>
+		call<void>("set_evaluation_comment", {
+			evaluationId,
+			studentId,
+			comment,
 		}),
 
 	// ---- Les cases qui ne seront pas notées ----
@@ -1216,6 +1258,25 @@ export const api = {
 			weekMondays,
 			voie,
 		}),
+
+	/** Les métiers et les CAP du référentiel, pour le formulaire d'une séquence. */
+	getMetiersEtCaps: () => call<MetiersEtCaps>("get_metiers_et_caps"),
+
+	/** Le métier et le CAP d'une séquence, facultatifs (`null` = aucun). Commande
+	 *  à part de `updateProgressionEtape`, qui n'y touche pas. */
+	setEtapeMetierCap: (
+		etapeId: string,
+		careerId: string | null,
+		capId: string | null,
+	) => call<void>("set_etape_metier_cap", { etapeId, careerId, capId }),
+
+	/** La fiche d'une séance, `null` tant qu'aucune n'a été saisie. */
+	getFicheSeance: (activiteId: string) =>
+		call<FicheSeance | null>("get_fiche_seance", { activiteId }),
+
+	/** Une fiche entièrement vide supprime la ligne côté base. */
+	saveFicheSeance: (activiteId: string, fiche: FicheSeance) =>
+		call<void>("save_fiche_seance", { activiteId, fiche }),
 
 	// ---- Maintenance ----
 	createBackup: () => call<BackupInfo>("create_backup"),

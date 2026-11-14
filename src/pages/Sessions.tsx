@@ -527,7 +527,7 @@ export default function Sessions() {
             <>
               Tout le contenu de la classe part avec elle : les{" "}
               {pendingDelete.student_count} élève
-              {pendingDelete.student_count === 1 ? "" : "s"}, les séances et
+              {pendingDelete.student_count === 1 ? "" : "s"}, les cours et
               leurs appels, les cahiers de texte, les évaluations et leurs notes,
               ainsi que les bilans. Cette suppression est définitive.
             </>

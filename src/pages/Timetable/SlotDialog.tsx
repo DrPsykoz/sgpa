@@ -343,7 +343,7 @@ export function SlotDialog({
     if (intitule === "") {
       setError(
         "Donnez un libellé au créneau, par exemple « Atelier » ou " +
-          "« Coordination » : c'est lui qui titrera la séance créée depuis ce créneau.",
+          "« Coordination » : c'est lui qui titrera le cours créé depuis ce créneau.",
       );
       return;
     }
@@ -434,13 +434,13 @@ export function SlotDialog({
 
           <div className="space-y-3 text-sm text-muted-foreground">
             <p>
-              Les séances déjà tenues sur ce créneau sont conservées, avec leur
+              Les cours déjà tenues sur ce créneau sont conservées, avec leur
               appel et leur cahier de texte ; elles ne seront simplement plus
               rattachées à un cours de l'emploi du temps.
             </p>
             <p>
               Aucun pourcentage d'assiduité ne change : cette suppression
-              n'efface ni séance, ni appel, ni cahier de texte. Seul le modèle
+              n'efface ni cours, ni appel, ni cahier de texte. Seul le modèle
               hebdomadaire disparaît de la grille.
             </p>
             {messageErreur}
@@ -479,7 +479,7 @@ export function SlotDialog({
           </DialogTitle>
           <DialogDescription>
             Un créneau est un modèle hebdomadaire de l'année{" "}
-            {schoolYearLabel(yearStart)} : il n'engendre aucune séance, et
+            {schoolYearLabel(yearStart)} : il n'engendre aucun cours, et
             n'entre dans aucun calcul d'assiduité.
           </DialogDescription>
         </DialogHeader>
@@ -539,7 +539,7 @@ export function SlotDialog({
 
               Le créneau porte un **réglage** et non un fait : il ne convoque
               personne par lui-même, il décide seulement du groupe que portera
-              chaque séance créée depuis lui. C'est pour cela que la clé
+              chaque cours créé depuis lui. C'est pour cela que la clé
               étrangère est en SET NULL de ce côté-ci et en RESTRICT sur
               `seances`. */}
           <SelecteurDeGroupe
@@ -549,7 +549,7 @@ export function SlotDialog({
             onChange={setGroupId}
             disabled={pending}
             nomDeSecours={slot?.group_name ?? null}
-            aide="Les séances créées depuis ce créneau ne convoqueront que ce groupe, et sortiront de l'assiduité des autres élèves. Pour une semaine A / semaine B, posez deux créneaux au même horaire, de périodicités complémentaires, et donnez un groupe à chacun."
+            aide="Les cours créés depuis ce créneau ne convoqueront que ce groupe, et sortiront de l'assiduité des autres élèves. Pour une semaine A / semaine B, posez deux créneaux au même horaire, de périodicités complémentaires, et donnez un groupe à chacun."
           />
           {erreurGroupes && (
             <p className="text-xs text-destructive">
@@ -688,7 +688,7 @@ export function SlotDialog({
               autoFocus
             />
             <p className="text-xs text-muted-foreground">
-              Obligatoire : c'est lui qui titrera la séance créée depuis ce
+              Obligatoire : c'est lui qui titrera le cours créé depuis ce
               créneau.
             </p>
           </div>

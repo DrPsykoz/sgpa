@@ -35,7 +35,6 @@ import {
   SETTINGS_UPDATED_EVENT,
 } from "@/components/layout/AppLayout";
 import { DataState } from "@/components/DataState";
-import { EtablissementsCard } from "@/components/EtablissementsCard";
 import { NeedTagsCard } from "@/components/NeedTagsCard";
 import { PinInput } from "@/components/PinInput";
 import { RecoveryPhrase } from "@/components/RecoveryPhrase";
@@ -209,31 +208,11 @@ export default function Settings() {
     }
   }, []);
 
-  // Les académies que le calendrier embarqué couvre réellement. Lues en base,
-  // jamais recopiées d'une liste administrative : mesuré, le jeu du ministère
-  // porte 36 valeurs distinctes mais seules 34 ont des dates — Caen et Rouen
-  // sont fusionnées dans Normandie depuis 2020. Une liste recopiée proposerait
-  // donc des académies sans dates, c'est-à-dire un réglage qui a l'air de
-  // marcher et ne fait rien.
-  const [academies, setAcademies] = useState<string[]>([]);
-
-  const loadAcademies = useCallback(async () => {
-    try {
-      setAcademies(await api.getAvailableAcademies());
-    } catch {
-      // Le calendrier est une couche d'affichage : son absence ne doit pas
-      // empêcher de régler le délai de verrouillage. Le champ se contentera
-      // d'afficher la valeur enregistrée.
-      setAcademies([]);
-    }
-  }, []);
-
   useEffect(() => {
     void load();
     void loadBackups();
-    void loadAcademies();
     void loadJournal();
-  }, [load, loadBackups, loadAcademies, loadJournal]);
+  }, [load, loadBackups, loadJournal]);
 
   useEffect(() => {
     void loadBounds(boundsYear);
@@ -502,7 +481,8 @@ export default function Settings() {
                 </CardTitle>
                 <CardDescription>
                   Le nom de l'établissement est imprimé en tête des bilans
-                  exportés.
+                  exportés. Les établissements auxquels on rattache des classes,
+                  et leur académie, se règlent dans la page « Établissements ».
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -528,52 +508,8 @@ export default function Settings() {
                     />
                   </div>
                 </div>
-
-                {/* L'académie décide des dates de vacances affichées par
-                    l'emploi du temps. Elle vit ici et non sur une classe : une
-                    clé USB, une base, un enseignant. */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="academie">Académie</Label>
-                  <Select
-                    value={form.academie === "" ? "aucune" : form.academie}
-                    onValueChange={(valeur) =>
-                      setField({ academie: valeur === "aucune" ? "" : valeur })
-                    }
-                  >
-                    <SelectTrigger id="academie">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="aucune">
-                        Non renseignée — aucune vacance affichée
-                      </SelectItem>
-                      {academies.map((nom) => (
-                        <SelectItem key={nom} value={nom}>
-                          {nom}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Elle détermine les dates de vacances scolaires affichées par
-                    l'emploi du temps, qui cesse alors d'y proposer des cours.
-                    Tant qu'elle n'est pas renseignée, aucune vacance n'est
-                    affichée — des dates fausses seraient pires que pas de
-                    dates. Les jours fériés, eux, sont calculés et ne dépendent
-                    pas de ce réglage.
-                    {academies.length > 0 &&
-                      ` ${academies.length} académies disponibles dans le calendrier embarqué.`}
-                  </p>
-                </div>
               </CardContent>
             </Card>
-
-            {/* Juste sous Identite : les deux parlent d'etablissement et ne
-                disent pas la meme chose, donc elles doivent se lire a la
-                suite. Celle du dessus porte le nom imprime en tete des
-                bilans ; celle-ci porte les entites auxquelles on rattache
-                des classes. */}
-            <EtablissementsCard />
 
             <Card>
               <CardHeader>
@@ -944,7 +880,7 @@ export default function Settings() {
               <CardHeader>
                 <CardTitle>Trimestres</CardTitle>
                 <CardDescription>
-                  Les bornes servent à classer automatiquement les séances et les
+                  Les bornes servent à classer automatiquement les cours et les
                   évaluations dont le trimestre n'a pas été forcé à la main.
                 </CardDescription>
               </CardHeader>

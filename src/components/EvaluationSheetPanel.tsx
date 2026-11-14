@@ -59,6 +59,9 @@ export interface EvaluationSheetCandidate {
    *  l'auteur — l'élève ne voit pas sa note par compétence — tient toujours
    *  par la forme du type. */
   waived: string[];
+  /** Le commentaire du professeur enregistré pour cet élève (palier 027),
+   *  `""` s'il n'y en a pas. Dérivé par le parent, qui détient la liste. */
+  comment: string;
   /** La moyenne sur l'évaluation — la seule note du document. */
   mark20: number | null;
 }
@@ -76,6 +79,59 @@ export interface EvaluationSheetPanelProps {
   /** Ouvre l'onglet « Fiche contrat ». Le tableau imprimé vient de là, et sans
    *  ce chemin l'enseignant devant une grille vide n'a pas d'issue. */
   onOpenContractSheet: () => void;
+  /** Enregistre le commentaire d'un élève. Le parent écrit puis rafraîchit
+   *  sa liste : ce panneau ne détient jamais le commentaire figé. */
+  onSaveComment: (studentId: string, comment: string) => Promise<void>;
+}
+
+/** Un champ commentaire qui écrit au `blur` et non à chaque frappe. Monté avec
+ *  `key={id}` et la valeur enregistrée : le brouillon repart de la base. */
+function CommentField({
+  saved,
+  disabled,
+  onSave,
+}: {
+  saved: string;
+  disabled: boolean;
+  onSave: (comment: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(saved);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(saved);
+  }, [saved]);
+
+  const commit = async () => {
+    if (draft.trim() === saved.trim()) return;
+    setError(null);
+    try {
+      await onSave(draft);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+
+  return (
+    <div className="space-y-1 px-3 pb-2">
+      <textarea
+        className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+        rows={2}
+        maxLength={2000}
+        placeholder="Commentaire du professeur (imprimé sur la fiche)"
+        aria-label="Commentaire du professeur"
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => void commit()}
+      />
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function errorMessage(err: unknown): string {
@@ -100,6 +156,7 @@ export function EvaluationSheetPanel({
   candidates,
   competencies,
   onOpenContractSheet,
+  onSaveComment,
 }: EvaluationSheetPanelProps) {
   const [sheet, setSheet] = useState<EvaluationSheetInput | null>(null);
   const [sheetExists, setSheetExists] = useState(false);
@@ -291,6 +348,7 @@ export function EvaluationSheetPanel({
           full_name: who.full_name,
           levels: who.levels,
           waived: who.waived,
+          comment: who.comment,
           mark20: who.mark20,
         })),
         schoolName,
@@ -465,6 +523,12 @@ export function EvaluationSheetPanel({
                         {formatMark20(who.mark20)}
                       </span>
                     </label>
+                    <CommentField
+                      key={who.id}
+                      saved={who.comment}
+                      disabled={exporting}
+                      onSave={(text) => onSaveComment(who.id, text)}
+                    />
                   </li>
                 ))}
               </ul>

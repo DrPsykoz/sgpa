@@ -5,7 +5,7 @@ use rusqlite::{Connection, Transaction};
 use super::{at, DbError};
 
 /// Version du schéma que cette version de l'application sait lire et écrire.
-pub const SCHEMA_VERSION: i32 = 26;
+pub const SCHEMA_VERSION: i32 = 28;
 
 /// Les paliers, dans l'ordre. **Un palier livré n'est jamais modifié** : on en
 /// ajoute un nouveau. C'est ce qui manquait entièrement à la v0.1.1, où faire
@@ -136,6 +136,16 @@ const STEPS: &[(i32, &str, &str)] = &[
         26,
         "la progression telle que ses documents la portent",
         include_str!("sql/026_progression_des_documents.sql"),
+    ),
+    (
+        27,
+        "le commentaire d'une fiche d'évaluation, les CAP, et la fiche d'une séance",
+        include_str!("sql/027_commentaire_cap_fiche_seance.sql"),
+    ),
+    (
+        28,
+        "l'académie se règle par établissement",
+        include_str!("sql/028_academie_par_etablissement.sql"),
     ),
 ];
 
@@ -480,9 +490,10 @@ mod tests {
     /// (palier 022), et les trois du référentiel professionnel —
     /// `activity_domains`, `reference_activities`, `careers` (palier 024),
     /// enfin `establishments` et `establishment_disabled_competencies`
-    /// (palier 025) et `progression_activite_competences` (palier 026).
+    /// (palier 025), `progression_activite_competences` (palier 026), enfin
+    /// `evaluation_comments`, `caps` et `progression_fiches_seance` (palier 027).
     /// Un palier qui ajoute une table change cette ligne, et une seule.
-    const TABLES_ATTENDUES: i64 = 45;
+    const TABLES_ATTENDUES: i64 = 48;
 
     /// Applique les paliers un par un **sans** passer par `run`, pour fabriquer
     /// une base telle qu'elle existe chez l'enseignant *avant* la mise à jour :
@@ -3222,6 +3233,121 @@ SELECT st.id,
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Palier 027 : le commentaire d'une fiche d'évaluation, les CAP, et la
+    /// fiche d'une séance. Purement additif : trois tables, quatre colonnes.
+    ///
+    /// - Une progression déjà saisie en sort **mot pour mot**, et les quatre
+    ///   colonnes neuves naissent vides (aucun métier ni CAP deviné à partir du
+    ///   texte libre `metier_cap`).
+    /// - Les trois tables naissent vides, sauf `caps`, semée (22, Habitat).
+    /// - Les deux sorts : `SET NULL` vers le référentiel (le libellé reste),
+    ///   `CASCADE` pour le commentaire (élève) et la fiche (séance).
+    #[test]
+    fn une_base_v26_peuplee_traverse_le_palier_027_intacte() {
+        let dir = temp_dir("v26-fiches");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 26);
+
+        conn.execute_batch(
+            "INSERT INTO sessions (id, name, level_code, year_start)
+                  VALUES ('s1', '3ème A', '3eme', 2026);
+             INSERT INTO students (id, session_id, first_name, last_name, enrolled_on)
+                  VALUES ('e1', 's1', 'Léa', 'Martin', '2026-09-01');
+             INSERT INTO progressions (id, session_id, titre)
+                  VALUES ('p1', 's1', 'Progression 3ème');
+             INSERT INTO progression_etapes
+                      (id, progression_id, position, libelle, metier_cap)
+                  VALUES ('et1', 'p1', 1, 'SEQUENCE 1', 'Peintre et CAP peintre');
+             INSERT INTO progression_activites (id, etape_id, position, libelle)
+                  VALUES ('a1', 'et1', 1, 'Peindre une plinthe');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let compte = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+
+        let (metier, career, career_label, cap, cap_label): (
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT metier_cap, career_id, career_label, cap_id, cap_label
+                   FROM progression_etapes WHERE id = 'et1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(metier, "Peintre et CAP peintre", "le texte libre n'est pas touché");
+        assert_eq!(career, None);
+        assert_eq!(career_label, "");
+        assert_eq!(cap, None);
+        assert_eq!(cap_label, "");
+
+        assert_eq!(compte("SELECT COUNT(*) FROM evaluation_comments"), 0);
+        assert_eq!(compte("SELECT COUNT(*) FROM progression_fiches_seance"), 0);
+        assert_eq!(
+            compte("SELECT COUNT(*) FROM caps WHERE professional_field_id = 'seed-pf-habitat'"),
+            22
+        );
+        assert_eq!(compte("SELECT COUNT(*) FROM caps"), 22, "seul Habitat est semé");
+
+        // L'enseignant se sert du palier : un CAP, un métier, une fiche.
+        let career_id: String = conn
+            .query_row("SELECT id FROM careers ORDER BY position LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "UPDATE progression_etapes
+                SET career_id = ?1, career_label = 'Peintre',
+                    cap_id = 'seed-cap-hab-21', cap_label = 'Peintre'
+              WHERE id = 'et1'",
+            rusqlite::params![career_id],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO progression_fiches_seance (activite_id, domaine, etapes)
+                  VALUES ('a1', 'Peinture', 'Protéger le sol
+- Poser le adhésif');",
+        )
+        .unwrap();
+
+        // SET NULL vers le référentiel : les libellés restent.
+        conn.execute("DELETE FROM caps WHERE id = 'seed-cap-hab-21'", []).unwrap();
+        conn.execute("DELETE FROM careers WHERE id = ?1", rusqlite::params![career_id])
+            .unwrap();
+        let (c, cl, k, kl): (Option<String>, String, Option<String>, String) = conn
+            .query_row(
+                "SELECT career_id, career_label, cap_id, cap_label
+                   FROM progression_etapes WHERE id = 'et1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!((c, k), (None, None));
+        assert_eq!((cl.as_str(), kl.as_str()), ("Peintre", "Peintre"));
+
+        // CASCADE : la fiche part avec sa séance.
+        conn.execute("DELETE FROM progression_activites WHERE id = 'a1'", [])
+            .unwrap();
+        assert_eq!(compte("SELECT COUNT(*) FROM progression_fiches_seance"), 0);
+
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
+        assert!(!orphan, "aucun orphelin");
+        drop(stmt);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Une base neuve naît avec la règle arrêtée, pas avec l'emplacement tenu.
     ///
     /// Le palier 015 est un UPDATE conditionnel : sur une base neuve il suit
@@ -3243,6 +3369,71 @@ SELECT st.id,
             .unwrap();
         assert_eq!(moyenne, "unweighted_mean");
         assert_eq!(retirees, "ignore");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Palier 028 : l'académie se règle par établissement. Purement additif :
+    /// deux colonnes et un index partiel.
+    ///
+    /// - Avec une académie choisie dans Réglages ET des établissements, le
+    ///   premier reçoit l'académie et devient principal : le calendrier affiché
+    ///   ne bouge pas. Les autres naissent vides, non principaux.
+    /// - `app_settings.academie` n'est pas touchée (valeur de repli).
+    /// - Un seul principal à la fois (index partiel).
+    #[test]
+    fn une_base_v27_peuplee_traverse_le_palier_028_intacte() {
+        let dir = temp_dir("v27-academie");
+        let mut conn = Connection::open(dir.join("sgpa.db")).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrer_jusqua(&mut conn, 27);
+
+        conn.execute_batch(
+            "UPDATE app_settings SET academie = 'Besançon' WHERE id = 1;
+             INSERT INTO establishments (id, name, position) VALUES
+                  ('e1', 'Collège A', 1), ('e2', 'Collège B', 2);
+             INSERT INTO sessions (id, name, level_code, year_start, establishment_id)
+                  VALUES ('s1', '3ème A', '3eme', 2026, 'e2');",
+        )
+        .unwrap();
+
+        run(&mut conn, &dir).unwrap();
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        let lire = |id: &str| -> (String, i64) {
+            conn.query_row(
+                "SELECT academie, is_principal FROM establishments WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(lire("e1"), ("Besançon".to_string(), 1));
+        assert_eq!(lire("e2"), (String::new(), 0));
+
+        let academie: String = conn
+            .query_row("SELECT academie FROM app_settings WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(academie, "Besançon", "la valeur de repli n'est pas effacée");
+        let rattache: Option<String> = conn
+            .query_row("SELECT establishment_id FROM sessions WHERE id = 's1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rattache.as_deref(), Some("e2"), "le rattachement n'a pas bougé");
+
+        // Un seul principal à la fois.
+        assert!(conn
+            .execute("UPDATE establishments SET is_principal = 1 WHERE id = 'e2'", [])
+            .is_err());
+
+        let orphelins: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphelins, 0);
+
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }

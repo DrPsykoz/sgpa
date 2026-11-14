@@ -637,7 +637,7 @@ export default function Timetable(): ReactElement {
             <p className="max-w-3xl text-sm text-muted-foreground">
               Cet écran sert à <strong>définir</strong> l'emploi du temps : une
               carte de cours est l'emploi du temps type, et la modifier vaut pour
-              toutes les semaines — un fond plus soutenu signale qu'une séance
+              toutes les semaines — un fond plus soutenu signale qu'un cours
               existe déjà à cette date.{" "}
               <strong>Le clic ouvre une carte, le glissé ajoute à côté</strong> :
               c'est ainsi qu'on pose deux cours au même horaire, l'un en semaines
@@ -747,7 +747,7 @@ export default function Timetable(): ReactElement {
           `AgendaEntryDialog` ou `OneOffSeanceDialog`, entiers, selon la forme
           choisie.
 
-          Cinq de ses six formes n'engendrent aucune séance ; la sixième, « Cours
+          Cinq de ses six formes n'engendrent aucun cours ; la sixième, « Cours
           ponctuel », en engendre une — et une seule — qui compte au dénominateur
           d'assiduité du bilan. */}
       <NewPlanningDialog

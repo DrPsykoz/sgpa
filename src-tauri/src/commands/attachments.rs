@@ -107,7 +107,7 @@ const SEANCE: Requetes = Requetes {
              FROM seance_attachments \
              WHERE seance_id = ?1 ORDER BY created_at, file_name",
     porteur_existe: "SELECT 1 FROM seances WHERE id = ?1",
-    porteur_absent: "Séance introuvable",
+    porteur_absent: "Cours introuvable",
     inserer: "INSERT INTO seance_attachments \
                   (id, seance_id, file_name, mime_type, size_bytes, content) \
               VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

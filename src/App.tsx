@@ -7,6 +7,7 @@ import { interdireNavigationParDepot } from "@/lib/depot";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import Cycles from "@/pages/Cycles";
+import Etablissements from "@/pages/Etablissements";
 import FirstRun from "@/pages/FirstRun";
 import Home from "@/pages/Home";
 import Recover from "@/pages/Recover";
@@ -93,6 +94,7 @@ function LockGate() {
           <Route path="/classes/:sessionId" element={<SessionDetail />} />
           <Route path="/emploi-du-temps" element={<Timetable />} />
           <Route path="/referentiel" element={<Cycles />} />
+          <Route path="/etablissements" element={<Etablissements />} />
           <Route path="/parametres" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

@@ -254,7 +254,7 @@ const REMINDERS: Record<ReminderKind, ReminderMeta> = {
     verified: "cahiers de texte",
     icon: BookOpen,
     tab: "seances",
-    note: "Une séance qui n'a rien à consigner — évaluation surveillée, sortie, heure de vie de classe — se déclare « rien à écrire » depuis son cahier de texte, et quitte cette liste. Une pièce jointe suffit aussi : la photo du tableau est un compte rendu.",
+    note: "Un cours qui n'a rien à consigner — évaluation surveillée, sortie, heure de vie de classe — se déclare « rien à écrire » depuis son cahier de texte, et quitte cette liste. Une pièce jointe suffit aussi : la photo du tableau est un compte rendu.",
   },
   annulee_sans_motif: {
     title: "Annulations sans motif",
@@ -483,7 +483,7 @@ function ReminderCard({
                 {item.title}
                 {/* L'élève passe devant la classe, parce qu'il la contient :
                     un élève n'appartient qu'à une classe. Les rappels de
-                    séance et d'évaluation n'ont jamais d'élève, ils montrent
+                    cours et d'évaluation n'ont jamais d'élève, ils montrent
                     donc toujours leur classe. */}
                 {item.student_name ? (
                   <span className="text-muted-foreground">
@@ -976,7 +976,7 @@ export default function Home(): ReactElement {
             )}
 
             <p className="text-xs text-muted-foreground">
-              Seul le passé est relevé : une séance d'aujourd'hui dont l'appel
+              Seul le passé est relevé : un cours d'aujourd'hui dont l'appel
               n'est pas fait n'est pas un oubli.
             </p>
           </section>

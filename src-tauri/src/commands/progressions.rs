@@ -170,6 +170,15 @@ pub struct ProgressionEtape {
     /// cite sa SEQUENCE2 n'en est pas. Le lien au référentiel a sa place, c'est
     /// la fiche contrat.
     pub metier_cap: String,
+    /// Le métier du référentiel choisi pour la séquence (palier 027), et son
+    /// libellé **figé** à l'écriture : `None` = aucun, et c'est le cas normal.
+    /// Si le métier quitte le référentiel, la clé tombe (`SET NULL`) et le
+    /// libellé reste.
+    pub career_id: Option<String>,
+    pub career_label: String,
+    /// Le CAP du référentiel, sur le même modèle.
+    pub cap_id: Option<String>,
+    pub cap_label: String,
     /// Les deux textes libres restants, une ligne par puce. Jamais `null` : une
     /// valeur qui a deux façons de dire « vide » finit par n'être testée que
     /// d'une des deux.
@@ -223,7 +232,7 @@ const PROGRESSION_DE_LA_CLASSE: &str =
       WHERE session_id = ?1";
 
 const ETAPES: &str = "SELECT id, position, libelle, competences, connaissances, priorites,
-            objectifs, metier_cap
+            objectifs, metier_cap, career_id, career_label, cap_id, cap_label
      FROM progression_etapes
     WHERE progression_id = ?1
     ORDER BY position, created_at, id";
@@ -493,7 +502,7 @@ pub fn delete_progression_domaine(
         .map_err(|e| e.to_string())?;
     if employe > 0 {
         return Err(format!(
-            "Ce domaine est employé par {employe} activité(s) : détachez-les d'abord."
+            "Ce domaine est employé par {employe} séance(s) : détachez-les d'abord."
         ));
     }
 
@@ -550,6 +559,10 @@ pub fn get_progression(
             priorites: row.get(5)?,
             objectifs: row.get(6)?,
             metier_cap: row.get(7)?,
+            career_id: row.get(8)?,
+            career_label: row.get(9)?,
+            cap_id: row.get(10)?,
+            cap_label: row.get(11)?,
             activites: Vec::new(),
         })
     })?;
@@ -745,6 +758,10 @@ pub fn create_progression_etape(
         priorites: String::new(),
         objectifs: String::new(),
         metier_cap: String::new(),
+        career_id: None,
+        career_label: String::new(),
+        cap_id: None,
+        cap_label: String::new(),
         activites: Vec::new(),
     })
 }
@@ -915,10 +932,10 @@ pub fn reorder_progression_etapes(
 /// modification demande de les compléter.
 fn verifier_activite_complete(objectif: &str, competency_ids: &[String]) -> Result<(), String> {
     if objectif.is_empty() {
-        return Err("L'objectif de l'activité est obligatoire.".to_string());
+        return Err("L'objectif de la séance est obligatoire.".to_string());
     }
     if competency_ids.is_empty() {
-        return Err("Choisissez au moins une compétence évaluée par l'activité.".to_string());
+        return Err("Choisissez au moins une compétence évaluée par la séance.".to_string());
     }
     Ok(())
 }
@@ -948,7 +965,7 @@ pub fn create_progression_activite(
 ) -> Result<(), String> {
     let libelle = libelle.trim();
     if libelle.is_empty() {
-        return Err("Le nom de l'activité est obligatoire.".to_string());
+        return Err("Le nom de la séance est obligatoire.".to_string());
     }
     verifier_nature(&nature)?;
     let competency_ids = unique_ids(competency_ids);
@@ -1013,7 +1030,7 @@ pub fn update_progression_activite(
 ) -> Result<(), String> {
     let libelle = libelle.trim();
     if libelle.is_empty() {
-        return Err("Le nom de l'activité est obligatoire.".to_string());
+        return Err("Le nom de la séance est obligatoire.".to_string());
     }
     verifier_nature(&nature)?;
     let competency_ids = unique_ids(competency_ids);
@@ -1032,7 +1049,7 @@ pub fn update_progression_activite(
         )
         .map_err(|e| e.to_string())?;
     if touched == 0 {
-        return Err("Activité introuvable.".to_string());
+        return Err("Séance introuvable.".to_string());
     }
 
     ecrire_competences(
@@ -1057,7 +1074,7 @@ pub fn delete_progression_activite(
         .execute("DELETE FROM progression_activites WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     if touched == 0 {
-        return Err("Activité introuvable.".to_string());
+        return Err("Séance introuvable.".to_string());
     }
     Ok(())
 }
@@ -1082,7 +1099,7 @@ pub fn reorder_progression_activites(
         .map_err(|e| e.to_string())?;
     if total != ordered_ids.len() as i64 {
         return Err(format!(
-            "La réorganisation porte sur {} activité(s) alors que l'étape en \
+            "La réorganisation porte sur {} séance(s) alors que la séquence en \
              contient {total} : rechargez l'écran.",
             ordered_ids.len()
         ));
@@ -1131,7 +1148,7 @@ pub fn set_progression_activite_etape(
 
     let depart: String = tx
         .query_row(PROGRESSION_DE_L_ACTIVITE, params![id], |row| row.get(0))
-        .map_err(|_| "Activité introuvable.".to_string())?;
+        .map_err(|_| "Séance introuvable.".to_string())?;
     let arrivee: String = tx
         .query_row(PROGRESSION_DE_L_ETAPE, params![etape_id], |row| row.get(0))
         .map_err(|_| "Étape introuvable.".to_string())?;
@@ -1199,7 +1216,7 @@ pub fn set_progression_plages(
         .query_row(PROGRESSION_DE_L_ACTIVITE, params![activite_id], |row| {
             row.get(0)
         })
-        .map_err(|_| "Activité introuvable.".to_string())?;
+        .map_err(|_| "Séance introuvable.".to_string())?;
     if proprietaire != progression_id {
         return Err(
             "Cette activité appartient à la progression d'une autre classe : \
@@ -1259,6 +1276,360 @@ pub fn clear_progression_plages(
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Le métier et le CAP d'une séquence (palier 027)
+// ---------------------------------------------------------------------------
+
+/// Un métier de la roue du référentiel, pour le menu de la séquence.
+#[derive(Debug, Clone, Serialize)]
+pub struct MetierChoix {
+    pub id: String,
+    pub name: String,
+    /// Le domaine d'activité qui le porte, en clair : plusieurs domaines ont
+    /// des métiers, et le menu les range par groupe.
+    pub domain_name: String,
+}
+
+/// Un CAP du champ professionnel.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapChoix {
+    pub id: String,
+    pub name: String,
+}
+
+/// Les deux listes, d'un seul appel. Vides pour un référentiel qui n'en a pas :
+/// l'écran ne montre alors pas les menus.
+#[derive(Debug, Clone, Serialize)]
+pub struct MetiersEtCaps {
+    pub metiers: Vec<MetierChoix>,
+    pub caps: Vec<CapChoix>,
+}
+
+const METIERS_DU_REFERENTIEL: &str = "SELECT c.id, c.name, d.name
+     FROM careers c
+     JOIN activity_domains d ON d.id = c.activity_domain_id
+     JOIN professional_fields f ON f.id = d.professional_field_id
+    ORDER BY f.position, d.position, c.position, c.name COLLATE NOCASE";
+
+const CAPS_DU_REFERENTIEL: &str = "SELECT c.id, c.name
+     FROM caps c
+     JOIN professional_fields f ON f.id = c.professional_field_id
+    ORDER BY f.position, c.position, c.name COLLATE NOCASE";
+
+const METIER_PAR_ID: &str = "SELECT name FROM careers WHERE id = ?1";
+const CAP_PAR_ID: &str = "SELECT name FROM caps WHERE id = ?1";
+
+const METIER_ET_CAP_DE_L_ETAPE: &str =
+    "SELECT career_id, career_label, cap_id, cap_label FROM progression_etapes WHERE id = ?1";
+
+const ECRIRE_METIER_ET_CAP: &str = "UPDATE progression_etapes
+        SET career_id = ?2, career_label = ?3, cap_id = ?4, cap_label = ?5,
+            updated_at = datetime('now')
+      WHERE id = ?1";
+
+pub(crate) fn lire_metiers_et_caps(conn: &rusqlite::Connection) -> Result<MetiersEtCaps, String> {
+    let metiers = collect(conn, METIERS_DU_REFERENTIEL, params![], |row| {
+        Ok(MetierChoix {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            domain_name: row.get(2)?,
+        })
+    })?;
+    let caps = collect(conn, CAPS_DU_REFERENTIEL, params![], |row| {
+        Ok(CapChoix {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+    Ok(MetiersEtCaps { metiers, caps })
+}
+
+/// Résout un choix du menu en `(clé, libellé figé)`.
+///
+/// Trois cas. `None` : « Aucun », clé nulle et libellé vide. Une clé que
+/// l'étape porte **déjà** : on garde son libellé figé tel quel, même si
+/// l'entrée a été renommée — rouvrir la séquence et l'enregistrer ne doit rien
+/// perdre. Toute autre clé doit exister dans le référentiel, sinon refus en
+/// français.
+fn resoudre_choix(
+    conn: &rusqlite::Connection,
+    requete: &'static str,
+    deja: (Option<String>, String),
+    demande: Option<String>,
+    quoi: &str,
+) -> Result<(Option<String>, String), String> {
+    let Some(cle) = demande else {
+        return Ok((None, String::new()));
+    };
+    if deja.0.as_deref() == Some(cle.as_str()) && !deja.1.is_empty() {
+        return Ok((Some(cle), deja.1));
+    }
+    match conn.query_row(requete, params![cle], |row| row.get::<_, String>(0)) {
+        Ok(nom) => Ok((Some(cle), nom)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(format!(
+            "Ce {quoi} n'existe plus dans le référentiel : rouvrez la liste et \
+             choisissez-en un autre."
+        )),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub(crate) fn ecrire_metier_et_cap(
+    conn: &mut rusqlite::Connection,
+    etape_id: &str,
+    career_id: Option<String>,
+    cap_id: Option<String>,
+) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let actuel: (Option<String>, String, Option<String>, String) = tx
+        .query_row(METIER_ET_CAP_DE_L_ETAPE, params![etape_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .map_err(|_| "Séquence introuvable.".to_string())?;
+
+    let (career_id, career_label) = resoudre_choix(
+        &tx,
+        METIER_PAR_ID,
+        (actuel.0, actuel.1),
+        career_id.filter(|c| !c.is_empty()),
+        "métier",
+    )?;
+    let (cap_id, cap_label) = resoudre_choix(
+        &tx,
+        CAP_PAR_ID,
+        (actuel.2, actuel.3),
+        cap_id.filter(|c| !c.is_empty()),
+        "CAP",
+    )?;
+
+    tx.execute(
+        ECRIRE_METIER_ET_CAP,
+        params![etape_id, career_id, career_label, cap_id, cap_label],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Les métiers et les CAP proposés dans le formulaire d'une séquence.
+#[tauri::command]
+pub fn get_metiers_et_caps(state: tauri::State<'_, AppState>) -> Result<MetiersEtCaps, String> {
+    let conn = state.conn()?;
+    lire_metiers_et_caps(&conn)
+}
+
+/// Le métier et le CAP d'une séquence, facultatifs.
+///
+/// **Une commande à part**, règle 3 : `update_progression_etape` n'écrit pas
+/// ces colonnes et l'écran ne les lui fait pas transiter ; deux appelants qui
+/// ne rafraîchissent pas les mêmes champs ne s'écrasent donc pas. Le libellé
+/// est figé à l'écriture (modèle de `professional_field_label`, palier 001).
+#[tauri::command]
+pub fn set_etape_metier_cap(
+    state: tauri::State<'_, AppState>,
+    etape_id: String,
+    career_id: Option<String>,
+    cap_id: Option<String>,
+) -> Result<(), String> {
+    let mut conn = state.conn()?;
+    ecrire_metier_et_cap(&mut conn, &etape_id, career_id, cap_id)
+}
+
+// ---------------------------------------------------------------------------
+// La fiche d'une séance (palier 027)
+// ---------------------------------------------------------------------------
+
+/// Les rubriques de la fiche remise à l'élève. Les listes (EPI, outillage,
+/// matériaux, étapes, critères) sont **une ligne par élément** ; une ligne
+/// d'étape qui commence par « - » est une sous-puce de l'étape qui précède.
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize, PartialEq)]
+pub struct FicheSeance {
+    pub domaine: String,
+    pub duree: String,
+    pub chantier: String,
+    pub situation: String,
+    pub epi: String,
+    pub consigne_securite: String,
+    pub outillage: String,
+    pub materiaux: String,
+    pub etapes: String,
+    pub criteres: String,
+}
+
+/// Bornes des champs, en caractères : une ligne, puis un texte long.
+const MAX_FICHE_COURT: usize = 200;
+const MAX_FICHE_LONG: usize = 5000;
+
+const FICHE_DE_LA_SEANCE: &str = "SELECT domaine, duree, chantier, situation, epi,
+            consigne_securite, outillage, materiaux, etapes, criteres
+     FROM progression_fiches_seance WHERE activite_id = ?1";
+
+const ECRIRE_FICHE: &str = "INSERT INTO progression_fiches_seance
+        (activite_id, domaine, duree, chantier, situation, epi,
+         consigne_securite, outillage, materiaux, etapes, criteres)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+     ON CONFLICT(activite_id) DO UPDATE SET
+         domaine = excluded.domaine, duree = excluded.duree,
+         chantier = excluded.chantier, situation = excluded.situation,
+         epi = excluded.epi, consigne_securite = excluded.consigne_securite,
+         outillage = excluded.outillage, materiaux = excluded.materiaux,
+         etapes = excluded.etapes, criteres = excluded.criteres";
+
+const EFFACER_FICHE: &str = "DELETE FROM progression_fiches_seance WHERE activite_id = ?1";
+
+const SEANCE_EXISTE: &str = "SELECT 1 FROM progression_activites WHERE id = ?1";
+
+impl FicheSeance {
+    fn nettoyee(self) -> Self {
+        // Espaces de fin rognés, lignes vides de tête et de queue retirées.
+        fn lignes(t: &str) -> String {
+            t.lines()
+                .map(|l| l.trim_end())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string()
+        }
+        FicheSeance {
+            domaine: self.domaine.trim().to_string(),
+            duree: self.duree.trim().to_string(),
+            chantier: self.chantier.trim().to_string(),
+            situation: self.situation.trim().to_string(),
+            epi: lignes(&self.epi),
+            consigne_securite: self.consigne_securite.trim().to_string(),
+            outillage: lignes(&self.outillage),
+            materiaux: lignes(&self.materiaux),
+            etapes: lignes(&self.etapes),
+            criteres: lignes(&self.criteres),
+        }
+    }
+
+    fn est_vide(&self) -> bool {
+        [
+            &self.domaine,
+            &self.duree,
+            &self.chantier,
+            &self.situation,
+            &self.epi,
+            &self.consigne_securite,
+            &self.outillage,
+            &self.materiaux,
+            &self.etapes,
+            &self.criteres,
+        ]
+        .iter()
+        .all(|t| t.is_empty())
+    }
+
+    fn verifier(&self) -> Result<(), String> {
+        let champs: [(&str, &String, usize); 10] = [
+            ("Le domaine", &self.domaine, MAX_FICHE_COURT),
+            ("La durée", &self.duree, MAX_FICHE_COURT),
+            ("L'intitulé du chantier", &self.chantier, MAX_FICHE_COURT),
+            ("La situation professionnelle", &self.situation, MAX_FICHE_LONG),
+            ("La liste des EPI", &self.epi, MAX_FICHE_LONG),
+            ("La consigne de sécurité", &self.consigne_securite, MAX_FICHE_LONG),
+            ("La liste de l'outillage", &self.outillage, MAX_FICHE_LONG),
+            ("La liste des matériaux", &self.materiaux, MAX_FICHE_LONG),
+            ("Les étapes de réalisation", &self.etapes, MAX_FICHE_LONG),
+            ("Les critères d'auto-évaluation", &self.criteres, MAX_FICHE_LONG),
+        ];
+        for (nom, texte, max) in champs {
+            if texte.chars().count() > max {
+                return Err(format!("{nom} est trop long : {max} caractères au plus."));
+            }
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn lire_fiche(
+    conn: &rusqlite::Connection,
+    activite_id: &str,
+) -> Result<Option<FicheSeance>, String> {
+    match conn.query_row(FICHE_DE_LA_SEANCE, params![activite_id], |row| {
+        Ok(FicheSeance {
+            domaine: row.get(0)?,
+            duree: row.get(1)?,
+            chantier: row.get(2)?,
+            situation: row.get(3)?,
+            epi: row.get(4)?,
+            consigne_securite: row.get(5)?,
+            outillage: row.get(6)?,
+            materiaux: row.get(7)?,
+            etapes: row.get(8)?,
+            criteres: row.get(9)?,
+        })
+    }) {
+        Ok(f) => Ok(Some(f)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Enregistre la fiche ; une fiche entièrement vide supprime la ligne, de sorte
+/// que l'absence de ligne est « pas de fiche » et jamais « fiche vide ».
+pub(crate) fn ecrire_fiche(
+    conn: &mut rusqlite::Connection,
+    activite_id: &str,
+    fiche: FicheSeance,
+) -> Result<(), String> {
+    let fiche = fiche.nettoyee();
+    fiche.verifier()?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.query_row(SEANCE_EXISTE, params![activite_id], |_| Ok(()))
+        .map_err(|_| "Séance introuvable.".to_string())?;
+
+    if fiche.est_vide() {
+        tx.execute(EFFACER_FICHE, params![activite_id])
+            .map_err(|e| e.to_string())?;
+    } else {
+        tx.execute(
+            ECRIRE_FICHE,
+            params![
+                activite_id,
+                fiche.domaine,
+                fiche.duree,
+                fiche.chantier,
+                fiche.situation,
+                fiche.epi,
+                fiche.consigne_securite,
+                fiche.outillage,
+                fiche.materiaux,
+                fiche.etapes,
+                fiche.criteres
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// La fiche d'une séance, `None` tant qu'aucune n'a été saisie.
+#[tauri::command]
+pub fn get_fiche_seance(
+    state: tauri::State<'_, AppState>,
+    activite_id: String,
+) -> Result<Option<FicheSeance>, String> {
+    let conn = state.conn()?;
+    lire_fiche(&conn, &activite_id)
+}
+
+/// Écrit la fiche d'une séance. Disjointe de `update_progression_activite`
+/// (règle 3) : le formulaire de la séance ne la fait pas transiter.
+#[tauri::command]
+pub fn save_fiche_seance(
+    state: tauri::State<'_, AppState>,
+    activite_id: String,
+    fiche: FicheSeance,
+) -> Result<(), String> {
+    let mut conn = state.conn()?;
+    ecrire_fiche(&mut conn, &activite_id, fiche)
 }
 
 // ---------------------------------------------------------------------------
@@ -1710,5 +2081,176 @@ mod tests {
         let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
         let orphan = stmt.query([]).unwrap().next().unwrap().is_some();
         assert!(!orphan);
+    }
+
+    #[test]
+    fn le_metier_et_le_cap_s_ecrivent_et_le_libelle_se_fige() {
+        let mut conn = base("metier-cap");
+        let listes = lire_metiers_et_caps(&conn).unwrap();
+        assert_eq!(listes.metiers.len(), 21);
+        assert_eq!(listes.caps.len(), 22);
+
+        let metier = listes.metiers[0].clone();
+        let cap = listes.caps[0].clone();
+        ecrire_metier_et_cap(
+            &mut conn,
+            "et1",
+            Some(metier.id.clone()),
+            Some(cap.id.clone()),
+        )
+        .unwrap();
+
+        let lu = |conn: &Connection| -> (Option<String>, String, Option<String>, String) {
+            conn.query_row(METIER_ET_CAP_DE_L_ETAPE, params!["et1"], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap()
+        };
+        let (c, cl, p, pl) = lu(&conn);
+        assert_eq!(c.as_deref(), Some(metier.id.as_str()));
+        assert_eq!(cl, metier.name);
+        assert_eq!(p.as_deref(), Some(cap.id.as_str()));
+        assert_eq!(pl, cap.name);
+
+        // Le référentiel renomme : garder la même clé ne perd rien et ne
+        // retouche pas le libellé figé.
+        conn.execute("UPDATE careers SET name = 'Renommé' WHERE id = ?1", params![metier.id])
+            .unwrap();
+        ecrire_metier_et_cap(&mut conn, "et1", Some(metier.id.clone()), None).unwrap();
+        let (_, cl, p, pl) = lu(&conn);
+        assert_eq!(cl, metier.name, "libellé figé conservé");
+        assert_eq!((p, pl.as_str()), (None, ""), "« Aucun » efface le CAP");
+
+        // Le métier quitte le référentiel : la clé tombe, le libellé reste.
+        conn.execute("DELETE FROM careers WHERE id = ?1", params![metier.id])
+            .unwrap();
+        let (c, cl, _, _) = lu(&conn);
+        assert_eq!(c, None);
+        assert_eq!(cl, metier.name);
+
+        // Aucun, des deux côtés.
+        ecrire_metier_et_cap(&mut conn, "et1", None, None).unwrap();
+        let (c, cl, p, pl) = lu(&conn);
+        assert_eq!((c, cl.as_str(), p, pl.as_str()), (None, "", None, ""));
+    }
+
+    #[test]
+    fn un_metier_ou_un_cap_inconnu_est_refuse_en_francais_sans_rien_ecrire() {
+        let mut conn = base("metier-inconnu");
+        let cap = lire_metiers_et_caps(&conn).unwrap().caps[0].id.clone();
+        let err = ecrire_metier_et_cap(&mut conn, "et1", Some("fantome".into()), Some(cap))
+            .unwrap_err();
+        assert!(err.contains("métier") && err.contains("référentiel"), "{err}");
+        let err = ecrire_metier_et_cap(&mut conn, "et1", None, Some("fantome".into())).unwrap_err();
+        assert!(err.contains("CAP"), "{err}");
+        let err = ecrire_metier_et_cap(&mut conn, "nulle-part", None, None).unwrap_err();
+        assert!(err.contains("introuvable"), "{err}");
+
+        let cap_ecrit: Option<String> = conn
+            .query_row("SELECT cap_id FROM progression_etapes WHERE id = 'et1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(cap_ecrit, None, "le refus annule tout le geste");
+    }
+
+    /// `update_progression_etape` ne cite ni le métier ni le CAP : elle ne peut
+    /// donc pas les effacer. Le test relit la commande, faute de pouvoir
+    /// l'appeler sans `AppState`.
+    #[test]
+    fn update_progression_etape_ne_touche_pas_au_metier_ni_au_cap() {
+        let source = include_str!("progressions.rs");
+        let debut = source.find("pub fn update_progression_etape").unwrap();
+        let fin = source[debut..].find("ecrire_competences(").unwrap();
+        let corps = &source[debut..debut + fin];
+        assert!(
+            !corps.contains("career_") && !corps.contains("cap_"),
+            "update_progression_etape ne doit pas écrire le métier ni le CAP"
+        );
+
+        // Et la ligne qu'elle réécrit laisse bien les colonnes en place.
+        let mut conn = base("metier-transit");
+        let metier = lire_metiers_et_caps(&conn).unwrap().metiers[0].clone();
+        ecrire_metier_et_cap(&mut conn, "et1", Some(metier.id.clone()), None).unwrap();
+        conn.execute(
+            "UPDATE progression_etapes
+                SET libelle = 'Renommée', competences = '', connaissances = '',
+                    priorites = '', objectifs = '', metier_cap = '',
+                    updated_at = datetime('now')
+              WHERE id = 'et1'",
+            [],
+        )
+        .unwrap();
+        let cl: String = conn
+            .query_row(
+                "SELECT career_label FROM progression_etapes WHERE id = 'et1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cl, metier.name);
+    }
+
+    #[test]
+    fn la_fiche_d_une_seance_s_enregistre_se_relit_et_vide_disparait() {
+        let mut conn = base("fiche");
+        assert_eq!(lire_fiche(&conn, "a1").unwrap(), None);
+
+        let fiche = FicheSeance {
+            domaine: "  Peinture ".into(),
+            duree: "3 heures".into(),
+            chantier: "Une plinthe".into(),
+            situation: "Une chambre".into(),
+            epi: "Gants\nBlouse".into(),
+            consigne_securite: "Cutter rétracté".into(),
+            outillage: "Mètre\nNiveau".into(),
+            materiaux: "Peinture".into(),
+            etapes: "Préparer\n- Protéger le sol\nPeindre".into(),
+            criteres: "Sécurité\nRangement".into(),
+        };
+        ecrire_fiche(&mut conn, "a1", fiche).unwrap();
+        let lue = lire_fiche(&conn, "a1").unwrap().unwrap();
+        assert_eq!(lue.domaine, "Peinture", "rogné");
+        assert_eq!(lue.etapes, "Préparer\n- Protéger le sol\nPeindre");
+
+        // Réécrire met à jour la même ligne.
+        let mut autre = lue.clone();
+        autre.duree = "2 heures".into();
+        ecrire_fiche(&mut conn, "a1", autre).unwrap();
+        assert_eq!(lire_fiche(&conn, "a1").unwrap().unwrap().duree, "2 heures");
+
+        // Une fiche entièrement vide supprime la ligne.
+        ecrire_fiche(&mut conn, "a1", FicheSeance::default()).unwrap();
+        assert_eq!(lire_fiche(&conn, "a1").unwrap(), None);
+        let lignes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM progression_fiches_seance", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(lignes, 0);
+    }
+
+    #[test]
+    fn la_fiche_refuse_une_seance_inconnue_et_un_texte_trop_long() {
+        let mut conn = base("fiche-refus");
+        let err = ecrire_fiche(
+            &mut conn,
+            "fantome",
+            FicheSeance {
+                domaine: "x".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("Séance introuvable"), "{err}");
+
+        let err = ecrire_fiche(
+            &mut conn,
+            "a1",
+            FicheSeance {
+                chantier: "x".repeat(MAX_FICHE_COURT + 1),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("trop long"), "{err}");
     }
 }

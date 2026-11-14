@@ -76,7 +76,7 @@ export function CancelReasonDialog({
           <DialogDescription>
             {cible && (
               <>
-                {cible.slotLabel} — {jourLong(cible.date)}. La séance sera créée
+                {cible.slotLabel} — {jourLong(cible.date)}. Le cours sera créée
                 annulée : elle garde sa place au cahier de texte et sort de
                 l'assiduité de toute la classe.
               </>
@@ -114,7 +114,7 @@ export function CancelReasonDialog({
           <p className="text-xs text-muted-foreground">
             Ce motif ne figure sur aucun bilan : il est là pour vous rappeler ce
             qui s'est passé, pas pour être remis aux familles. Il reste
-            modifiable depuis la séance.
+            modifiable depuis le cours.
           </p>
         </div>
 

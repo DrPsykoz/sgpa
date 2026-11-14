@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -45,7 +46,10 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   OptionsDeGroupe,
   groupeDeValeur,
+  sectionsParGroupe,
+  titreDeSection,
   valeurDeGroupe,
+  type SectionDeGroupe,
 } from "@/components/Groupes";
 import {
   Select,
@@ -601,6 +605,14 @@ export function StudentsTab({
 
   const deletionParts = impact ? impactParts(impact) : [];
 
+  // Sections par groupe ; `[]` sans groupe = une seule tranche plate, sans
+  // en-tête, exactement comme avant.
+  const sections = sectionsParGroupe(students, groups, (s) => s.group_id);
+  const decoupee = sections.length > 0;
+  const blocs: SectionDeGroupe<Student>[] = decoupee
+    ? sections
+    : [{ group: null, items: students }];
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -688,7 +700,24 @@ export function StudentsTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {students.map((student) => (
+              {blocs.map((bloc) => (
+                <Fragment key={bloc.group?.id ?? "sans-groupe"}>
+                  {/* En-tête de section : seulement quand la classe a des
+                      groupes. Sans groupe, la liste est plate comme avant. */}
+                  {decoupee && (
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableCell
+                        colSpan={groups.length > 0 ? 7 : 6}
+                        className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {titreDeSection(bloc)}
+                        <span className="ml-2 font-normal normal-case">
+                          {bloc.items.length}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {bloc.items.map((student) => (
                 <TableRow
                   key={student.id}
                   className={cn(
@@ -796,6 +825,8 @@ export function StudentsTab({
                     </div>
                   </TableCell>
                 </TableRow>
+                  ))}
+                </Fragment>
               ))}
             </TableBody>
           </Table>

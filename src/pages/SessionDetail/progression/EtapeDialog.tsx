@@ -11,8 +11,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { ProgressionEtape } from "@/types";
+import { api } from "@/lib/api";
+import type { MetiersEtCaps, ProgressionEtape } from "@/types";
+
+/** Sentinelle « Aucun » : Radix refuse `""`, et elle ne quitte jamais le front. */
+const AUCUN = "aucun";
 
 export interface EtapeDialogProps {
   open: boolean;
@@ -30,6 +41,9 @@ export interface EtapeDialogProps {
     objectifs: string;
     /** Le métier et le CAP découverts (palier 026). */
     metierCap: string;
+    /** Le métier et le CAP choisis dans le référentiel (palier 027). */
+    careerId: string | null;
+    capId: string | null;
     competencyIds: string[];
   }) => Promise<void>;
 }
@@ -73,6 +87,9 @@ export function EtapeDialog({
   const [priorites, setPriorites] = useState("");
   const [objectifs, setObjectifs] = useState("");
   const [metierCap, setMetierCap] = useState("");
+  const [careerId, setCareerId] = useState<string | null>(null);
+  const [capId, setCapId] = useState<string | null>(null);
+  const [choix, setChoix] = useState<MetiersEtCaps>({ metiers: [], caps: [] });
   const [competencyIds, setCompetencyIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,10 +105,29 @@ export function EtapeDialog({
     setPriorites(etape?.priorites ?? "");
     setObjectifs(etape?.objectifs ?? "");
     setMetierCap(etape?.metier_cap ?? "");
+    setCareerId(etape?.career_id ?? null);
+    setCapId(etape?.cap_id ?? null);
     setCompetencyIds((etape?.competences_ref ?? []).map((c) => c.id));
     setError(null);
     setPending(false);
   }, [open, etape]);
+
+  // Les listes du référentiel : si elles sont vides, les menus ne paraissent pas.
+  useEffect(() => {
+    if (!open) return;
+    let annule = false;
+    api
+      .getMetiersEtCaps()
+      .then((liste) => {
+        if (!annule) setChoix(liste);
+      })
+      .catch((err: unknown) => {
+        if (!annule) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      annule = true;
+    };
+  }, [open]);
 
   const handleSubmit = async () => {
     if (libelle.trim() === "") {
@@ -111,6 +147,8 @@ export function EtapeDialog({
         priorites,
         objectifs,
         metierCap,
+        careerId,
+        capId,
         competencyIds,
       });
       onOpenChange(false);
@@ -126,12 +164,12 @@ export function EtapeDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {etape === null ? "Nouvelle étape" : "Modifier l'étape"}
+            {etape === null ? "Nouvelle séquence" : "Modifier la séquence"}
           </DialogTitle>
           <DialogDescription>
-            Une étape regroupe les activités d'une même avancée de l'année. Elle
-            ne tient pas de semaines : la frise s'en charge, et une activité peut
-            revenir en janvier sans que l'étape se dédouble.
+            Une séquence regroupe les séances d'une même avancée de l'année. Elle
+            ne tient pas de semaines : la frise s'en charge, et une séance peut
+            revenir en janvier sans que la séquence se dédouble.
           </DialogDescription>
         </DialogHeader>
 
@@ -162,23 +200,89 @@ export function EtapeDialog({
             </p>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="etape-metier">Métier et CAP découverts</Label>
-            <Input
-              id="etape-metier"
-              value={metierCap}
-              placeholder="Découvrir le métier et le CAP de menuisier"
-              disabled={pending}
-              onChange={(event) => setMetierCap(event.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              Du texte libre, et non une entrée du référentiel : la découverte
-              d'un métier en séquence n'est pas le projet d'un élève. Le
-              référentiel, lui, se cite dans la fiche contrat.
-            </p>
-          </div>
+          {choix.metiers.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="etape-metier-ref">Métier découvert</Label>
+              <Select
+                value={careerId ?? AUCUN}
+                onValueChange={(v) => setCareerId(v === AUCUN ? null : v)}
+                disabled={pending}
+              >
+                <SelectTrigger id="etape-metier-ref">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUCUN}>Aucun</SelectItem>
+                  {choix.metiers.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name} ({m.domain_name})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {careerId === null && (etape?.career_label ?? "") !== "" && (
+                <p className="text-xs text-muted-foreground">
+                  Métier enregistré : {etape?.career_label}. Il ne figure plus
+                  au référentiel ; il reste imprimé tant que vous ne le
+                  remplacez pas.
+                </p>
+              )}
+            </div>
+          )}
 
-          {/* Les compétences se choisissent désormais dans chaque activité.
+          {choix.caps.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="etape-cap-ref">CAP découvert</Label>
+              <Select
+                value={capId ?? AUCUN}
+                onValueChange={(v) => setCapId(v === AUCUN ? null : v)}
+                disabled={pending}
+              >
+                <SelectTrigger id="etape-cap-ref">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AUCUN}>Aucun</SelectItem>
+                  {choix.caps.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {capId === null && (etape?.cap_label ?? "") !== "" && (
+                <p className="text-xs text-muted-foreground">
+                  CAP enregistré : {etape?.cap_label}. Il ne figure plus au
+                  référentiel ; il reste imprimé tant que vous ne le remplacez
+                  pas.
+                </p>
+              )}
+            </div>
+          )}
+
+          {metierCap.trim() !== "" && (
+            <div className="space-y-2 rounded-lg border border-dashed px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Métier et CAP saisis à la main
+              </p>
+              <p className="whitespace-pre-line text-sm">{metierCap}</p>
+              <p className="text-xs text-muted-foreground">
+                Ce texte a été écrit avant les menus du référentiel. Il reste
+                affiché et imprimé tant que vous ne l'effacez pas.
+                L'effacement s'enregistre avec le reste du formulaire.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setMetierCap("")}
+              >
+                Effacer ce texte
+              </Button>
+            </div>
+          )}
+
+          {/* Les compétences se choisissent désormais dans chaque séance.
               Celles que l'étape portait déjà ne sont ni perdues ni
               modifiables ici : elles restent lisibles, et imprimées, jusqu'à
               ce que l'enseignant les retire d'un bouton. */}
@@ -195,7 +299,7 @@ export function EtapeDialog({
                   ))}
               </ul>
               <p className="text-xs text-muted-foreground">
-                Les compétences se choisissent maintenant dans chaque activité.
+                Les compétences se choisissent maintenant dans chaque séance.
                 Celles-ci ont été rattachées à la séquence avant ce changement :
                 elles restent affichées et imprimées tant que vous ne les retirez
                 pas. Le retrait s'enregistre avec le reste du formulaire.

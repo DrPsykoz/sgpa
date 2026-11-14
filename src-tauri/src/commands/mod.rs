@@ -1,6 +1,7 @@
 pub mod absences;
 pub mod activities;
 pub mod attachments;
+pub mod commentaires;
 pub mod contracts;
 pub mod diagnostics;
 pub mod establishments;

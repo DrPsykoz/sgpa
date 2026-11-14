@@ -95,6 +95,9 @@ interface SeancesTabProps {
    *  l'instance (`key`) quand la cible change, donc une prop figée suffit et
    *  rien ne vient réouvrir ce que l'enseignant a refermé. */
   openId?: string | null;
+  /** Ouvre la fiche de `openId` avec « Modifier le cours » déjà déplié
+   *  (arrivée depuis la carte d'un cours ponctuel de l'emploi du temps). */
+  modifierDEmblee?: boolean;
 }
 
 type TrimesterChoice = "auto" | "1" | "2" | "3";
@@ -121,7 +124,7 @@ function formatLongDate(iso: string): string {
 }
 
 function defaultTitle(iso: string): string {
-  return `Séance du ${formatDate(iso)}`;
+  return `Cours du ${formatDate(iso)}`;
 }
 
 function messageOf(err: unknown): string {
@@ -135,7 +138,13 @@ export function SeancesTab({
   students,
   groups,
   openId,
+  modifierDEmblee = false,
 }: SeancesTabProps) {
+  // Valable pour l'ouverture d'emblée seulement : revenir à la liste puis
+  // rouvrir un cours ne doit pas redéplier le formulaire.
+  const [modifierPour, setModifierPour] = useState<string | null>(
+    modifierDEmblee ? (openId ?? null) : null,
+  );
   const [seances, setSeances] = useState<Seance[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -200,7 +209,7 @@ export function SeancesTab({
   const handleCreate = async () => {
     const title = newTitle.trim() || defaultTitle(newDate);
     if (!newDate) {
-      setCreateError("La date de la séance est obligatoire.");
+      setCreateError("La date du cours est obligatoire.");
       return;
     }
     setCreating(true);
@@ -246,7 +255,11 @@ export function SeancesTab({
         seance={selected}
         students={students}
         groups={groups}
-        onBack={() => setSelectedId(null)}
+        modifierDEmblee={modifierPour === selected.id}
+        onBack={() => {
+          setModifierPour(null);
+          setSelectedId(null);
+        }}
         onChanged={load}
       />
     );
@@ -264,17 +277,17 @@ export function SeancesTab({
       {students.length === 0 && (
         <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          Cette classe n'a encore aucun élève : l'appel des séances restera
+          Cette classe n'a encore aucun élève : l'appel des cours restera
           vide. Ajoutez-les depuis l'onglet Élèves.
         </p>
       )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Séances</CardTitle>
+          <CardTitle>Cours</CardTitle>
           <Button size="sm" onClick={openCreate}>
             <Plus className="h-4 w-4" />
-            Nouvelle séance
+            Nouveau cours
           </Button>
         </CardHeader>
         <CardContent>
@@ -282,7 +295,7 @@ export function SeancesTab({
             loading={loading}
             error={loadError}
             empty={seances.length === 0}
-            emptyLabel="Aucune séance pour cette classe. Créez-en une pour faire l'appel et tenir le cahier de texte."
+            emptyLabel="Aucun cours pour cette classe. Créez-en un pour faire l'appel et tenir le cahier de texte."
             onRetry={() => {
               void load();
             }}
@@ -361,7 +374,7 @@ export function SeancesTab({
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive hover:text-destructive"
-                      title="Supprimer la séance"
+                      title="Supprimer le cours"
                       onClick={(e) => {
                         e.stopPropagation();
                         setToDelete(seance);
@@ -380,7 +393,7 @@ export function SeancesTab({
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Nouvelle séance</DialogTitle>
+            <DialogTitle>Nouveau cours</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -442,7 +455,7 @@ export function SeancesTab({
               value={newGroupId}
               onChange={setNewGroupId}
               disabled={creating}
-              aide="L'appel ne convoquera que ce groupe, et la séance sortira de l'assiduité des autres élèves."
+              aide="L'appel ne convoquera que ce groupe, et le cours sortira de l'assiduité des autres élèves."
             />
 
             {createError && (
@@ -462,7 +475,7 @@ export function SeancesTab({
             </Button>
             <Button onClick={handleCreate} disabled={creating}>
               <Calendar className="h-4 w-4" />
-              {creating ? "Création…" : "Créer la séance"}
+              {creating ? "Création…" : "Créer le cours"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -473,7 +486,7 @@ export function SeancesTab({
         onOpenChange={(open) => {
           if (!open) setToDelete(null);
         }}
-        title="Supprimer cette séance ?"
+        title="Supprimer ce cours ?"
         description={
           toDelete
             ? `« ${toDelete.title} » du ${formatDate(toDelete.date)} sera supprimée, ainsi que son appel et son cahier de texte. Cette action est définitive.`

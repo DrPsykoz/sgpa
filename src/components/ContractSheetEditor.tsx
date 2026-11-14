@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Download,
   Loader2,
@@ -172,6 +173,35 @@ const RIEN_DU_REFERENTIEL = {
 
 let localKeyCounter = 0;
 const nextKey = () => `l-${++localKeyCounter}`;
+
+/** Le chevron qui réduit un bloc de la fiche à son titre. Préférence
+ *  d'affichage seulement : rien n'est écrit, et les blocs naissent dépliés. */
+function BasculeDeBloc({
+  reduit,
+  onClick,
+  nom,
+}: {
+  reduit: boolean;
+  onClick: () => void;
+  nom: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+      aria-expanded={!reduit}
+      aria-label={`${reduit ? "Déplier" : "Réduire"} le bloc « ${nom} »`}
+      title={reduit ? "Déplier le bloc" : "Réduire le bloc"}
+      onClick={onClick}
+    >
+      {reduit ? (
+        <ChevronRight className="h-4 w-4" />
+      ) : (
+        <ChevronDown className="h-4 w-4" />
+      )}
+    </button>
+  );
+}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -410,6 +440,16 @@ export function ContractSheetEditor({
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [openAfterExport, setOpenAfterExport] = useState(false);
 
+  const [blocsReduits, setBlocsReduits] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const basculerBloc = (cle: string) =>
+    setBlocsReduits((avant) => {
+      const apres = new Set(avant);
+      if (apres.has(cle)) apres.delete(cle);
+      else apres.add(cle);
+      return apres;
+    });
   const [newFieldName, setNewFieldName] = useState("");
   const [creatingField, setCreatingField] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -1080,9 +1120,17 @@ export function ContractSheetEditor({
           )}
 
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Informations générales</CardTitle>
+            <CardHeader className={blocsReduits.has("infos") ? "py-3" : "pb-3"}>
+              <CardTitle className="flex items-center gap-1.5 text-base">
+                <BasculeDeBloc
+                  reduit={blocsReduits.has("infos")}
+                  onClick={() => basculerBloc("infos")}
+                  nom="Informations générales"
+                />
+                Informations générales
+              </CardTitle>
             </CardHeader>
+            {!blocsReduits.has("infos") && (
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
@@ -1221,12 +1269,18 @@ export function ContractSheetEditor({
                 </p>
               )}
             </CardContent>
+            )}
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-end justify-between gap-2 pb-3">
               <div className="space-y-0.5">
-                <CardTitle className="text-base">
+                <CardTitle className="flex items-center gap-1.5 text-base">
+                  <BasculeDeBloc
+                    reduit={blocsReduits.has("socle")}
+                    onClick={() => basculerBloc("socle")}
+                    nom="Activités et socle commun"
+                  />
                   Activités et socle commun
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
@@ -1253,6 +1307,7 @@ export function ContractSheetEditor({
                 </Button>
               </div>
             </CardHeader>
+            {!blocsReduits.has("socle") && (
             <CardContent className="space-y-6">
               {competencyChoices.length === 0 && (
                 <p className="text-xs text-muted-foreground">
@@ -1267,7 +1322,9 @@ export function ContractSheetEditor({
                   Aucune activité pour l'instant.
                 </p>
               ) : (
-                blocks.map((block, blockIndex) => (
+                blocks.map((block, blockIndex) => {
+                  const reduit = blocsReduits.has(`bloc:${block.key}`);
+                  return (
                   <section
                     key={block.key}
                     className="rounded-lg border bg-card shadow-sm"
@@ -1279,10 +1336,21 @@ export function ContractSheetEditor({
                         cadre à elles — un cadre dans un cadre se perdait, et
                         avec beaucoup de lignes on ne voyait plus où un bloc
                         finissait. */}
-                    <header className="space-y-1.5 rounded-t-lg border-b bg-muted px-3 py-2">
+                    <header
+                      className={
+                        reduit
+                          ? "space-y-1.5 rounded-lg bg-muted px-3 py-2"
+                          : "space-y-1.5 rounded-t-lg border-b bg-muted px-3 py-2"
+                      }
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-widest">
-                          Bloc {blockIndex + 1}
+                        <p className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest">
+                          <BasculeDeBloc
+                            reduit={reduit}
+                            onClick={() => basculerBloc(`bloc:${block.key}`)}
+                            nom={`Bloc ${blockIndex + 1}`}
+                          />
+                          <span>Bloc {blockIndex + 1}</span>
                           <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground">
                             {block.rows.length} activité
                             {block.rows.length > 1 ? "s" : ""} sous une seule
@@ -1321,6 +1389,12 @@ export function ContractSheetEditor({
                           </Button>
                         </div>
                       </div>
+                      {reduit ? (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {block.competencyLabel || "Compétence non choisie"}
+                        </p>
+                      ) : (
+                      <>
                       <Select
                         value={block.competencyId ?? FREE_TEXT}
                         onValueChange={(value) => linkBlock(block.key, value)}
@@ -1388,8 +1462,11 @@ export function ContractSheetEditor({
                           {block.domainLabel}
                         </p>
                       )}
+                      </>
+                      )}
                     </header>
 
+                    {!reduit && (
                     <div className="divide-y">
                       {block.rows.map((row, lineIndex) => {
                         const numero = `${blockIndex + 1}.${lineIndex + 1}`;
@@ -1527,15 +1604,23 @@ export function ContractSheetEditor({
                         )}
                       </div>
                     </div>
+                    )}
                   </section>
-                ))
+                  );
+                })
               )}
             </CardContent>
+            )}
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-3">
-              <CardTitle className="text-base">
+              <CardTitle className="flex items-center gap-1.5 text-base">
+                <BasculeDeBloc
+                  reduit={blocsReduits.has("consignes")}
+                  onClick={() => basculerBloc("consignes")}
+                  nom="Consignes"
+                />
                 Consignes ({requirements.length})
               </CardTitle>
               <Button size="sm" variant="outline" onClick={addRequirement}>
@@ -1543,6 +1628,7 @@ export function ContractSheetEditor({
                 Ajouter une ligne
               </Button>
             </CardHeader>
+            {!blocsReduits.has("consignes") && (
             <CardContent className="p-0">
               {/* Trois colonnes alignées, et non trois paragraphes : « les
                   plans » répond à « identifier et interpréter un document » et
@@ -1660,6 +1746,7 @@ export function ContractSheetEditor({
                 </div>
               )}
             </CardContent>
+            )}
           </Card>
 
           <p className="text-xs text-muted-foreground">

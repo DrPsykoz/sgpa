@@ -86,7 +86,7 @@ export function OccurrenceDialog({
             {cible && (
               <>
                 {jourLong(cible.date)}. Ce cours revient chaque semaine, mais sa
-                séance de ce jour-là n'existe pas encore : rien n'est écrit, ni
+                cours de ce jour-là n'existe pas encore : rien n'est écrit, ni
                 appel ni cahier de texte.
               </>
             )}
@@ -104,10 +104,10 @@ export function OccurrenceDialog({
               onClick={onCreerEtOuvrir}
             >
               <BookOpen className="mr-2 h-4 w-4" />
-              {busy ? "Création…" : "Créer la séance et l'ouvrir"}
+              {busy ? "Création…" : "Créer le cours et l'ouvrir"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              Le cours a lieu. La séance s'ouvre dans sa classe, sur son appel et
+              Le cours a lieu. Le cours s'ouvre dans sa classe, sur son appel et
               son cahier de texte, et elle compte dans l'assiduité de tous les
               élèves inscrits.
               {cible?.passee && (
@@ -116,7 +116,7 @@ export function OccurrenceDialog({
                   <span className="font-medium text-foreground">
                     Cette date est passée
                   </span>{" "}
-                  : la séance entrera quand même dans l'assiduité, et les appels
+                  : le cours entrera quand même dans l'assiduité, et les appels
                   non faits y apparaîtront comme tels.
                 </>
               )}
@@ -134,7 +134,7 @@ export function OccurrenceDialog({
               Ce cours n'a pas lieu
             </Button>
             <p className="text-xs text-muted-foreground">
-              Sortie, absence, jour banalisé. La séance sera créée annulée :
+              Sortie, absence, jour banalisé. Le cours sera créée annulée :
               elle garde sa place au cahier de texte et sort de l'assiduité de
               toute la classe. Le motif vous sera demandé juste après.
             </p>

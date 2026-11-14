@@ -158,9 +158,9 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
           <div className="space-y-1.5">
             <CardTitle>Progression {schoolYearLabel(session.year_start)}</CardTitle>
             <CardDescription>
-              Les séquences de l'année, découpées en activités, posées sur
+              Les séquences de l'année, découpées en séances, posées sur
               les semaines réelles du calendrier. Un plan, et non un
-              enregistrement : rien ici ne touche une séance, un appel ou un
+              enregistrement : rien ici ne touche un cours, un appel ou un
               bilan.
             </CardDescription>
           </div>
@@ -197,8 +197,8 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
                 <CalendarRange className="h-6 w-6 text-muted-foreground" />
                 <p className="max-w-prose text-sm text-muted-foreground">
                   Cette classe n'a pas encore de progression. En créer une ouvre
-                  une frise vide sur l'année scolaire : vous y posez vos étapes,
-                  vos activités, et les semaines où elles tombent.
+                  une frise vide sur l'année scolaire : vous y posez vos séquences,
+                  vos séances, et les semaines où elles tombent.
                 </p>
                 <Button
                   disabled={pending}
@@ -214,17 +214,19 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
                 <section className="space-y-3">
                   <div>
                     <h3 className="text-sm font-semibold">
-                      Étapes et activités
+                      Séquences et séances
                     </h3>
                     <p className="text-xs text-muted-foreground">
-                      On définit ici, on place sur la frise. L'ordre des étapes,
-                      puis des activités dans chacune, décide de leur couleur.
+                      On définit ici, on place sur la frise. L'ordre des séquences,
+                      puis des séances dans chacune, décide de leur couleur.
                     </p>
                   </div>
                   <EtapesEditor
                     progression={progression}
                     semainesParActivite={semainesParActivite}
                     onChanged={recharger}
+                    classe={session.name}
+                    schoolName={schoolName}
                   />
                 </section>
 
@@ -251,8 +253,8 @@ export function ProgressionTab({ session }: ProgressionTabProps): ReactElement {
                     <h3 className="text-sm font-semibold">Le document</h3>
                     <p className="text-xs text-muted-foreground">
                       Une feuille A4 en paysage : la frise en haut, le tableau
-                      des étapes en bas, et le <strong>numéro</strong> d'une
-                      activité pour relier les deux — il survit à une
+                      des séquences en bas, et le <strong>numéro</strong> d'une
+                      séance pour relier les deux — il survit à une
                       photocopie en noir et blanc, la couleur non. Le PDF part
                       dans <code>exports/</code>, sur la clé.
                     </p>

@@ -73,7 +73,10 @@ export interface AbsencePeriodDialogProps {
    *  troisième cas du champ « Concerne ». */
   groups: StudentGroup[];
   /** Le parent écrit et recharge sa liste ; le dialogue affiche l'erreur. */
-  onSubmit: (input: AbsencePeriodInput) => Promise<void>;
+  onSubmit: (
+    input: AbsencePeriodInput,
+    profAbsentAilleurs: boolean,
+  ) => Promise<void>;
 }
 
 /**
@@ -113,6 +116,7 @@ export function AbsencePeriodDialog({
   const [reason, setReason] = useState("");
   const [target, setTarget] = useState(TOUTE_LA_CLASSE);
   const [appelFait, setAppelFait] = useState(false);
+  const [profAilleurs, setProfAilleurs] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,6 +137,7 @@ export function AbsencePeriodDialog({
           : TOUTE_LA_CLASSE),
     );
     setAppelFait(period?.attendance_expected ?? false);
+    setProfAilleurs(false);
     setError(null);
     setPending(false);
   }, [open, period]);
@@ -178,18 +183,23 @@ export function AbsencePeriodDialog({
     setPending(true);
     setError(null);
     try {
-      await onSubmit({
-        student_id: viseUnEleve ? target : null,
-        group_id: viseUnGroupe
-          ? target.slice(PREFIXE_GROUPE.length)
-          : null,
-        reason: motif,
-        start_date: startDate,
-        end_date: endDate,
-        // Jamais `appelFait` sur une absence du professeur : le backend le
-        // refuse, et le réécrire tel quel laisse la ligne telle qu'elle est.
-        attendance_expected: profAbsent ? false : appelFait,
-      });
+      await onSubmit(
+        {
+          student_id: viseUnEleve ? target : null,
+          group_id: viseUnGroupe
+            ? target.slice(PREFIXE_GROUPE.length)
+            : null,
+          reason: motif,
+          start_date: startDate,
+          end_date: endDate,
+          // Jamais `appelFait` sur une absence du professeur : le backend le
+          // refuse, et le réécrire tel quel laisse la ligne telle qu'elle est.
+          attendance_expected: profAbsent ? false : appelFait,
+        },
+        // Création seulement : une modification n'écrit jamais sur les autres
+        // classes.
+        period === null && profAilleurs,
+      );
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -227,7 +237,7 @@ export function AbsencePeriodDialog({
           <DialogDescription>
             {profAbsent ? (
               <>
-                Vous n'étiez pas là : les séances de ces dates sortent du
+                Vous n'étiez pas là : les cours de ces dates sortent du
                 dénominateur d'assiduité de toute la classe. Le motif et les
                 dates se corrigent ici ; le reste est figé, une absence du
                 professeur ne visant ni un élève ni un appel.
@@ -241,8 +251,8 @@ export function AbsencePeriodDialog({
               </>
             ) : (
               <>
-                Les séances de la classe comprises dans ces dates cessent de
-                compter dans l'assiduité de qui la période vise. Aucune séance
+                Les cours de la classe compris dans ces dates cessent de
+                compter dans l'assiduité de qui la période vise. Aucun cours
                 n'est créée ni supprimée : le cours a eu lieu, et il compte
                 toujours pour les autres.
               </>
@@ -362,11 +372,37 @@ export function AbsencePeriodDialog({
                 </label>
                 <p className="text-xs text-muted-foreground">
                   À cocher quand la classe est ailleurs mais bien avec vous :
-                  sortie scolaire, séjour, demi-journée au CDI. Les séances de
+                  sortie scolaire, séjour, demi-journée au CDI. Les cours de
                   ces dates restent alors dans le calcul d'assiduité, et l'appel
                   est à faire comme d'habitude.
                 </p>
               </div>
+
+              {/* Création seulement : cocher pose des lignes sur d'autres
+                  classes, ce qu'une modification ne fait jamais. */}
+              {period === null && (
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={profAilleurs}
+                      onChange={(event) => setProfAilleurs(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 cursor-pointer rounded border-input accent-primary"
+                    />
+                    <span>
+                      Le professeur est aussi absent pour toutes les autres
+                      classes
+                    </span>
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Pose en plus, sur les mêmes dates et avec le même motif, une
+                    absence du professeur pour chaque autre classe de la même
+                    année scolaire : leurs cours de ces dates sortent de
+                    l'assiduité. Tout est annulé si une de ces classes a déjà
+                    une période qui recouvre ces dates.
+                  </p>
+                </div>
+              )}
             </>
           )}
 

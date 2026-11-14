@@ -1,0 +1,8 @@
+Ajouter une case commentaire du professeur pour les fiches evaluations
+Changer le nom "Seances" par "Cours" et ajouter les "Seances" dans la Progression (Seance = Ensemble de cours)
+Ajouter la fiche Seance a partir du fichier fiche_seance_prototype.pdf
+Dans la fiche seance retirer la colonne note professeur et le commentaire.
+Dans le cas d'un stage ou absence avec une classe il faut pouvoir definir si le professeur est absent pour les autres classes.
+Bilan = regrouper les domaines ensemble pour eviter les doublons
+Split les classes par groupe dans les appels et sur les vues classes
+Dans la progression, ajouter la selection de metier + CAP, possible de ne rien selectionner.

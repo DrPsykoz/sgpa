@@ -194,6 +194,17 @@ export function cleDePlage(weekMonday: string, voie: number): string {
 	return `${weekMonday}|${voie}`;
 }
 
+/** Le lundi de la semaine qui contient `date` (`AAAA-MM-JJ`), au même format.
+ *
+ *  Une plage se désigne par ce lundi et jamais par un numéro ISO. Calcul en
+ *  heure locale, sans `toISOString` (voir la règle des dates). */
+export function lundiDe(date: string): string {
+	const [annee, mois, jour] = date.split("-").map(Number);
+	const d = new Date(annee, mois - 1, jour);
+	d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+	return d.toLocaleDateString("sv-SE");
+}
+
 /** `(lundi, voie)` → identifiant d'activité. */
 export function indexDesPlages(
 	progression: Progression,

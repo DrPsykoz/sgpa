@@ -226,7 +226,7 @@ function etatDe(row: Row): { texte: string; reclame: boolean } | null {
 		case "cours":
 		case "seance": {
 			const { seance } = row;
-			if (seance === null) return { texte: "Séance à créer", reclame: false };
+			if (seance === null) return { texte: "Cours à créer", reclame: false };
 			// Pas de motif ici : `DaySeance` ne le porte pas, et il faudrait le faire
 			// remonter de trois requêtes pour l'afficher. L'absence de motif est déjà
 			// relevée par « Annulations sans motif » dans « À reprendre », qui ne
@@ -784,7 +784,7 @@ function Carte({
 	const ligneGroupe =
 		groupe === null
 			? ""
-			: `\nGroupe « ${groupe} » : les autres élèves de la classe ne sont pas convoqués, et cette séance sort de leur assiduité.`;
+			: `\nGroupe « ${groupe} » : les autres élèves de la classe ne sont pas convoqués, et ce cours sort de leur assiduité.`;
 	const infobulle =
 		absence === null
 			? `${entete} — ${libelle}${ligneGroupe}${etat ? `\n${etat.texte}` : ""}`
